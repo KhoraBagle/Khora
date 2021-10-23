@@ -11,19 +11,33 @@ use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::Build;
 use std::net::SocketAddr;
 use trackable::error::MainError;
-
+use structopt::StructOpt;
 
 const DEFAULT_PORT: u64 = 8334;
 
+
+#[derive(Debug, Clone, StructOpt)]
+struct Opt {
+    #[structopt(long, default_value = "0.0.0.0:8334")]
+    bind_addr: SocketAddr,
+
+    #[structopt(long, default_value = "0.0.0.0:8334")]
+    server_addr: SocketAddr,
+}
+// `35.200.46.91` is an address to connect to this server via internet.
+// cargo run --bin entrypoint_example -- --bind-addr 0.0.0.0:8334 --server-addr 35.200.46.91:8334
+
+
 fn main() -> Result<(), MainError> {
+    let opt = Opt::from_args();
     let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("debug".parse().unwrap()).build())?; // info or debug
 
         
 
     /* server should use local ip or 0.0.0.0 client should connect through global ip address */
-    println!("*{}", local_ipaddress::get().unwrap());
-    let addr: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
-
+    // println!("*{}", local_ipaddress::get().unwrap());
+    // let addr: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
+    let addr: SocketAddr = opt.bind_addr;
 
 
 
@@ -31,6 +45,7 @@ fn main() -> Result<(), MainError> {
     let executor = track_any_err!(ThreadPoolExecutor::new())?;
     let service = ServiceBuilder::new(addr)
         .logger(logger.clone())
+        .server_addr(opt.server_addr)
         .finish(executor.handle(), SerialLocalNodeIdGenerator::new()); // everyone is node 0 rn... that going to be a problem? I mean everyone has different ips...
         
     let (message_tx, message_rx) = mpsc::channel();
@@ -95,7 +110,19 @@ impl Future for TestNode {
             while let Async::Ready(Some(msg)) = self.receiver.poll().expect("Never fails") {
                 // this if statement is how the entrypoint runs. Type in *[ IPv4 ] here (in example is the following: "*192.168.0.101")
                 if msg.get(0) == Some(&42) /* * */ { // *192.168.0.101
-                    let addr: SocketAddr = track_any_err!(format!("{}:{}",String::from_utf8_lossy(&msg[1..]),DEFAULT_PORT).parse()).unwrap();
+                    // let addr: SocketAddr = track_any_err!(format!("{}:{}",String::from_utf8_lossy(&msg[1..]),DEFAULT_PORT).parse()).unwrap();
+                    let addr_str = String::from_utf8_lossy(&msg[1..]);
+                    let addr: SocketAddr = if let Some(addr) = addr_str.parse().ok() {
+                        addr
+                    } else {
+                        track_any_err!(format!("{}:{}",addr_str,DEFAULT_PORT).parse()).unwrap()
+                    };
+                    let addr_str = String::from_utf8_lossy(&msg[1..]);
+                    let addr: SocketAddr = if let Some(addr) = addr_str.parse().ok() {
+                        addr
+                    } else {
+                        track_any_err!(format!("{}:{}",addr_str,DEFAULT_PORT).parse()).unwrap()
+                    };
                     let nodeid = NodeId::new(addr, LocalNodeId::new(0));
                     self.node.dm("hello!".as_bytes().to_vec(),&vec![nodeid],true);
                 } else {

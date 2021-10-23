@@ -48,6 +48,14 @@ impl ServiceBuilder {
         }
     }
 
+    /// Sets the address of this server to which other peers can send messages.
+    ///
+    /// The default value is the address that has been passed to the [`ServerBuilder::new`] function.
+    pub fn server_addr(mut self, addr: SocketAddr) -> Self {
+        self.server_addr = addr;
+        self
+    }
+
     /// Sets the logger used by the service.
     ///
     /// The default value is `Logger::root(Discard, o!())`.

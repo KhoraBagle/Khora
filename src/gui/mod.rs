@@ -50,7 +50,7 @@ fn get_pswrd(a: &String, b: &String, c: &String) -> Vec<u8> {
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "persistence", serde(default))] // if we add new fields, give them default values when deserializing old state
-pub struct TemplateApp {
+pub struct KhoraGUI {
     // this how you opt-out of serialization of a member
     #[cfg_attr(feature = "persistence", serde(skip))] // this feature doesn't work for reciever
     reciever: channel::Receiver<Vec<u8>>,
@@ -107,11 +107,11 @@ pub struct TemplateApp {
     #[cfg_attr(feature = "persistence", serde(skip))]
     you_cant_do_that: bool,
 }
-impl Default for TemplateApp {
+impl Default for KhoraGUI {
     fn default() -> Self {
         let (_,r) = channel::bounded::<Vec<u8>>(0);
         let (s,_) = mpsc::channel::<Vec<u8>>();
-        TemplateApp{
+        KhoraGUI{
             stake: "0".to_string(),
             unstake: "0".to_string(),
             fee: "0".to_string(),
@@ -158,12 +158,12 @@ impl Default for TemplateApp {
         }
     }
 }
-impl TemplateApp {
+impl KhoraGUI {
     pub fn new_minimal(reciever: channel::Receiver<Vec<u8>>, sender: mpsc::Sender<Vec<u8>>) -> Self {
-        TemplateApp{reciever, sender, ..Default::default()}
+        KhoraGUI{reciever, sender, ..Default::default()}
     }
     pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: mpsc::Sender<Vec<u8>>, addr: String, stkaddr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
-        TemplateApp{
+        KhoraGUI{
             reciever,
             sender,
             addr,
@@ -176,7 +176,7 @@ impl TemplateApp {
         }
     }
 }
-impl epi::App for TemplateApp {
+impl epi::App for KhoraGUI {
     fn name(&self) -> &str {
         "Khora" // saved as ~/.local/share/kora
     }

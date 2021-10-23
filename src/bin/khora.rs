@@ -87,7 +87,7 @@ fn main() -> Result<(), MainError> {
         let (usend_setup, ui_reciever_setup) = channel::unbounded();
 
         // creates the setup screen (sets the values used in the loops and sets some gui options)
-        let app = gui::TemplateApp::new(
+        let app = gui::KhoraGUI::new(
             ui_reciever_setup,
             ui_sender_setup,
             "".to_string(),
@@ -243,7 +243,7 @@ fn main() -> Result<(), MainError> {
 
 
     println!("starting!");
-    let app = gui::TemplateApp::new(
+    let app = gui::KhoraGUI::new(
         ui_reciever,
         ui_sender,
         node.me.name(),

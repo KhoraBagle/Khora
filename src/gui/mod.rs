@@ -195,6 +195,7 @@ impl epi::App for KhoraGUI {
             println!("Attempting to load app state");
             #[cfg(feature = "persistence")]
             if let Some(storage) = _storage {
+                println!("Loading app state");
                 let r = self.reciever.clone();
                 let s = self.sender.clone();
                 let a = self.addr.clone();
@@ -372,7 +373,7 @@ impl epi::App for KhoraGUI {
                     "https://github.com/constantine1024/Khora",
                     "Source code."
                 ));
-                ui.label("0.88");
+                ui.label("v0.88001");
             });
             if *setup {
                 ui.heading("Username");

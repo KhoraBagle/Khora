@@ -117,12 +117,6 @@ impl Future for TestNode {
                     } else {
                         track_any_err!(format!("{}:{}",addr_str,DEFAULT_PORT).parse()).unwrap()
                     };
-                    let addr_str = String::from_utf8_lossy(&msg[1..]);
-                    let addr: SocketAddr = if let Some(addr) = addr_str.parse().ok() {
-                        addr
-                    } else {
-                        track_any_err!(format!("{}:{}",addr_str,DEFAULT_PORT).parse()).unwrap()
-                    };
                     let nodeid = NodeId::new(addr, LocalNodeId::new(0));
                     self.node.dm("hello!".as_bytes().to_vec(),&vec![nodeid],true);
                 } else {

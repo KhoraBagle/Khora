@@ -49,9 +49,10 @@ slog = "2"
 trackable = "0.2"
 crossbeam = "0.8.1"
 getrandom = { version = "0.2", features = ["js"] }
-gip = "0.7.0"
-
 eframe = "0.14.0" # Gives us egui, epi and web+native backends
+
+gip = "0.7.0"
+local-ip-address = "0.4.4"
 
 [features]
 default = []

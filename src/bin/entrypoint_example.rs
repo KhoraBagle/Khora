@@ -13,6 +13,7 @@ use std::net::{IpAddr, SocketAddr};
 use trackable::error::MainError;
 // use structopt::StructOpt;
 use gip::{Provider, ProviderDefaultV4};
+use local_ip_address::local_ip;
 
 const DEFAULT_PORT: u16 = 8334;
 
@@ -45,8 +46,8 @@ fn main() -> Result<(), MainError> {
     
 
 
-
-    let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
+    let local_addr = local_ip().unwrap();
+    let local_socket = SocketAddr::new(local_addr,DEFAULT_PORT);
     let mut p = ProviderDefaultV4::new();
     let global_addr = p.get_addr().unwrap().v4addr.unwrap();
     let global_socket = SocketAddr::new(IpAddr::V4(global_addr),DEFAULT_PORT);

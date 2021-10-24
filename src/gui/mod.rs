@@ -372,6 +372,7 @@ impl epi::App for KhoraGUI {
                     "https://github.com/constantine1024/Khora",
                     "Source code."
                 ));
+                ui.label("0.88");
             });
             if *setup {
                 ui.heading("Username");

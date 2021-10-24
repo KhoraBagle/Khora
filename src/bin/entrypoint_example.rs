@@ -31,7 +31,7 @@ const DEFAULT_PORT: u64 = 8334;
 
 fn main() -> Result<(), MainError> {
     // let opt = Opt::from_args();
-    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("debug".parse().unwrap()).build())?; // info or debug
+    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build())?; // info or debug
 
         
 
@@ -50,7 +50,7 @@ fn main() -> Result<(), MainError> {
     let mut p = ProviderDefaultV4::new();
     let global_addr = p.get_addr().unwrap().v4addr.unwrap();
     let global_socket = format!("{}:{}",global_addr,DEFAULT_PORT).parse::<SocketAddr>().unwrap();
-    println!("{}",global_socket);
+    println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
     let executor = track_any_err!(ThreadPoolExecutor::new())?;
 
     let service = ServiceBuilder::new(local_socket)

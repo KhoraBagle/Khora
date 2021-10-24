@@ -15,7 +15,7 @@ use gip::{Provider, ProviderDefaultV4};
 
 
 
-const DEFAULT_PORT: u16 = 8334;
+const DEFAULT_PORT: u16 = 10011;
 
 // systemd-resolve --status | grep Current
 

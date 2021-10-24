@@ -63,6 +63,11 @@ fn main() -> Result<(), MainError> {
 
 
 
+    let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
+    let mut p = ProviderDefaultV4::new();
+    let global_addr = p.get_addr().unwrap().v4addr.unwrap();
+    let global_socket = format!("{}:{}",global_addr,DEFAULT_PORT).parse::<SocketAddr>().unwrap();
+    println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
 
     // this is the number of shards they keep track of
     let max_shards = 64usize; /* this if for testing purposes... there IS NO MAX SHARDS */
@@ -207,10 +212,6 @@ fn main() -> Result<(), MainError> {
     }
 
 
-    let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
-    let mut p = ProviderDefaultV4::new();
-    let global_addr = p.get_addr().unwrap().v4addr.unwrap();
-    let global_socket = format!("{}:{}",global_addr,DEFAULT_PORT).parse::<SocketAddr>().unwrap();
     println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
 
     let executor = track_any_err!(ThreadPoolExecutor::new())?;

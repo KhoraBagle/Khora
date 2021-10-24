@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-
+static VERSION: &str = "0.8801";
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
     loop {
@@ -373,7 +373,7 @@ impl epi::App for KhoraGUI {
                     "https://github.com/constantine1024/Khora",
                     "Source code."
                 ));
-                ui.label("v0.88001");
+                ui.label(VERSION);
             });
             if *setup {
                 ui.heading("Username");

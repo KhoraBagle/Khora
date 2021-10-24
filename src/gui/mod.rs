@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8806";
+static VERSION: &str = "v0.8807";
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
     loop {
@@ -237,8 +237,8 @@ impl epi::App for KhoraGUI {
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::CtxRef, frame: &mut epi::Frame<'_>) {
+        // ctx.request_repaint();
         if let Ok(mut i) = self.reciever.try_recv() {
-
             let modification = i.pop().unwrap();
             if modification == 0 {
                 let u = i.drain(..8).collect::<Vec<_>>();
@@ -269,6 +269,7 @@ impl epi::App for KhoraGUI {
                     self.tsk = i;
                 }
             }
+            ctx.request_repaint();
         }
 
         let Self {
@@ -324,23 +325,11 @@ impl epi::App for KhoraGUI {
         // // Tip: a good default choice is to just keep the `CentralPanel`.
         // // For inspiration and more examples, go to https://emilk.github.io/egui
 
-        // egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-        //     // The top panel is often a good place for a menu bar:
-        //     egui::menu::bar(ui, |ui| {
-        //         egui::menu::menu(ui, "File", |ui| {
-        //             if ui.button("Quit").clicked() {
-        //                 frame.quit();
-        //             }
-        //         });
-        //     });
-        //     // egui::util::undoer::default(); // there's some undo button
-        // });
-
-        egui::CentralPanel::default().show(ctx, |ui| { 
-
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
                 egui::menu::menu(ui, "File", |ui| {
-                    if ui.button("Panic Options                                    ").clicked() {
+                    if ui.button("Panic Options                                                                  ").clicked() {
                         *show_reset = !*show_reset;
                     }
                     if ui.button("Quit").clicked() {
@@ -373,6 +362,11 @@ impl epi::App for KhoraGUI {
                     sender.send(vec![64]).expect("something's wrong with communication from the gui");
                 }
             });
+            // egui::util::undoer::default(); // there's some undo button
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| { 
+
             ui.heading("KHORA");
             ui.horizontal(|ui| {
                 ui.hyperlink("https://khora.info");

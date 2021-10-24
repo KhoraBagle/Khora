@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8805";
+static VERSION: &str = "v0.8806";
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
     loop {
@@ -204,6 +204,13 @@ impl epi::App for KhoraGUI {
                 let vsk = self.vsk.clone();
                 let tsk = self.tsk.clone();
                 *self = epi::get_value(storage, "Khora").unwrap_or_default();
+                self.edit_names.iter_mut().for_each(|x| *x = false);
+                self.friend_adding = "".to_string();
+                self.name_adding = "".to_string();
+                self.pswd_shown = false;
+                self.show_reset = false;
+                self.you_cant_do_that = false;
+                self.lonely = 0;
                 self.sender = s;
                 self.reciever = r;
                 self.addr = a;
@@ -333,14 +340,14 @@ impl epi::App for KhoraGUI {
 
             egui::menu::bar(ui, |ui| {
                 egui::menu::menu(ui, "File", |ui| {
-                    if ui.button("Panic Options").clicked() {
+                    if ui.button("Panic Options                                    ").clicked() {
                         *show_reset = !*show_reset;
                     }
                     if ui.button("Quit").clicked() {
                         *setup = true;
                         frame.quit();
                     }
-                    if ui.button("Log Out - will require resync with blockchain").clicked() {
+                    if ui.button("Quit Account- Will require resync with blockchain").clicked() {
                         fs::remove_file("myNode").expect("should work");
                         frame.quit();
                     }

@@ -9,10 +9,10 @@ use plumcast::node::{LocalNodeId, Node, NodeBuilder, NodeId, SerialLocalNodeIdGe
 use plumcast::service::ServiceBuilder;
 use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::Build;
-use std::net::{IpAddr, SocketAddr, SocketAddrV6};
+use std::net::{IpAddr, SocketAddr};
 use trackable::error::MainError;
 // use structopt::StructOpt;
-use gip::{Provider, ProviderDefaultV4, ProviderDefaultV6};
+use gip::{Provider, ProviderDefaultV4};
 
 const DEFAULT_PORT: u16 = 8334;
 
@@ -47,9 +47,9 @@ fn main() -> Result<(), MainError> {
 
 
     let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
-    let mut p = ProviderDefaultV6::new();
-    let global_addr = p.get_addr().unwrap().v6addr.unwrap();
-    let global_socket = SocketAddr::new(IpAddr::V6(global_addr),DEFAULT_PORT);
+    let mut p = ProviderDefaultV4::new();
+    let global_addr = p.get_addr().unwrap().v4addr.unwrap();
+    let global_socket = SocketAddr::new(IpAddr::V4(global_addr),DEFAULT_PORT);
     println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
     let executor = track_any_err!(ThreadPoolExecutor::new())?;
 

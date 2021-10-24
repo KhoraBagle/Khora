@@ -11,7 +11,7 @@ use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::Build;
 use std::net::SocketAddr;
 use trackable::error::MainError;
-use structopt::StructOpt;
+// use structopt::StructOpt;
 use gip::{Provider, ProviderDefaultV4};
 
 const DEFAULT_PORT: u64 = 8334;

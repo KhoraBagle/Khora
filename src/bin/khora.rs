@@ -35,7 +35,8 @@ use kora::ringmaker::*;
 use serde::{Serialize, Deserialize};
 use kora::validation::{NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE};
 
-use local_ipaddress;
+use gip::{Provider, ProviderDefaultV4};
+
 
 /// when to announce you're about to be in the comittee or how far in advance you can no longer serve as leader
 const EXIT_TIME: usize = REPLACERATE*5;
@@ -60,14 +61,7 @@ fn main() -> Result<(), MainError> {
 
         
 
-    /* server should use local ip or 0.0.0.0 client should connect through global ip address */
-    // let addr: SocketAddr = format!("{}:{}", local_ipaddress::get().unwrap(), DEFAULT_PORT).parse().unwrap();
-    let addr: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
 
-
-
-
-    println!("addr: {:?}",addr);
 
 
     // this is the number of shards they keep track of
@@ -157,8 +151,8 @@ fn main() -> Result<(), MainError> {
 
         // creates the node with the specified conditions then saves it to be used from now on
         let node = KhoraNode {
-            inner: NodeBuilder::new().finish( ServiceBuilder::new(addr).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
-            outer: NodeBuilder::new().finish( ServiceBuilder::new(addr).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
+            inner: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
+            outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
             save_history: will_stk,
             me,
             mine: HashMap::new(),
@@ -213,11 +207,18 @@ fn main() -> Result<(), MainError> {
     }
 
 
+    let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
+    let mut p = ProviderDefaultV4::new();
+    let global_addr = p.get_addr().unwrap().v4addr.unwrap();
+    let global_socket = format!("{}:{}",global_addr,DEFAULT_PORT).parse::<SocketAddr>().unwrap();
+    println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
+
     let executor = track_any_err!(ThreadPoolExecutor::new())?;
-    let service = ServiceBuilder::new(addr)
+    let service = ServiceBuilder::new(local_socket)
         .logger(logger.clone())
-        .finish(executor.handle(), SerialLocalNodeIdGenerator::new()); // everyone is node 0 rn... that going to be a problem? I mean everyone has different ips...
-        
+        .server_addr(global_socket)
+        .finish(executor.handle(), SerialLocalNodeIdGenerator::new());
+
     let backnode = NodeBuilder::new().logger(logger.clone()).finish(service.handle());
     println!("{:?}",backnode.id());
     let frontnode = NodeBuilder::new().logger(logger).finish(service.handle()); // todo: make this local_id random so people can't guess you

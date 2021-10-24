@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8803";
+static VERSION: &str = "v0.8804";
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
     loop {
@@ -369,10 +369,7 @@ impl epi::App for KhoraGUI {
             ui.heading("KHORA");
             ui.horizontal(|ui| {
                 ui.hyperlink("https://khora.info");
-                ui.add(egui::github_link_file!(
-                    "https://github.com/constantine1024/Khora/",
-                    "Source Code."
-                ));
+                ui.hyperlink_to("Source Code","https://github.com/constantine1024/Khora");
                 ui.label(VERSION);
             });
             if *setup {

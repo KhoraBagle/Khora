@@ -12,42 +12,53 @@ use sloggers::Build;
 use std::net::SocketAddr;
 use trackable::error::MainError;
 use structopt::StructOpt;
+use gip::{Provider, ProviderDefaultV4};
 
 const DEFAULT_PORT: u64 = 8334;
 
 
-#[derive(Debug, Clone, StructOpt)]
-struct Opt {
-    #[structopt(long, default_value = "0.0.0.0:8334")]
-    bind_addr: SocketAddr,
+// #[derive(Debug, Clone, StructOpt)]
+// struct Opt {
+//     #[structopt(long, default_value = "0.0.0.0:8334")]
+//     bind_addr: SocketAddr,
 
-    #[structopt(long, default_value = "0.0.0.0:8334")]
-    server_addr: SocketAddr,
-}
+//     #[structopt(long, default_value = "0.0.0.0:8334")]
+//     server_addr: SocketAddr,
+// }
 // `35.200.46.91` is an address to connect to this server via internet.
 // cargo run --bin entrypoint_example -- --bind-addr 0.0.0.0:8334 --server-addr 35.200.46.91:8334
 
 
 fn main() -> Result<(), MainError> {
-    let opt = Opt::from_args();
+    // let opt = Opt::from_args();
     let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("debug".parse().unwrap()).build())?; // info or debug
 
         
 
     /* server should use local ip or 0.0.0.0 client should connect through global ip address */
     // println!("*{}", local_ipaddress::get().unwrap());
-    // let addr: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
-    let addr: SocketAddr = opt.bind_addr;
+    // let addr: SocketAddr = opt.bind_addr;
+    // let service = ServiceBuilder::new(addr)
+    //     .logger(logger.clone())
+    //     .server_addr(opt.server_addr)
+    //     .finish(executor.handle(), SerialLocalNodeIdGenerator::new());
+    
 
 
 
-
+    let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
+    let mut p = ProviderDefaultV4::new();
+    let global_addr = p.get_addr().unwrap().v4addr.unwrap();
+    let global_socket = format!("{}:{}",global_addr,DEFAULT_PORT).parse::<SocketAddr>().unwrap();
+    println!("{}",global_socket);
     let executor = track_any_err!(ThreadPoolExecutor::new())?;
-    let service = ServiceBuilder::new(addr)
+
+    let service = ServiceBuilder::new(local_socket)
         .logger(logger.clone())
-        .server_addr(opt.server_addr)
-        .finish(executor.handle(), SerialLocalNodeIdGenerator::new()); // everyone is node 0 rn... that going to be a problem? I mean everyone has different ips...
-        
+        .server_addr(global_socket)
+        .finish(executor.handle(), SerialLocalNodeIdGenerator::new());
+
+    
     let (message_tx, message_rx) = mpsc::channel();
     let node = TestNode {
         node: NodeBuilder::new().logger(logger.clone()).finish(service.handle()),

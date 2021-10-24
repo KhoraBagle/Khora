@@ -11,24 +11,13 @@ use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::Build;
 use std::net::{IpAddr, SocketAddr};
 use trackable::error::MainError;
-// use structopt::StructOpt;
 use gip::{Provider, ProviderDefaultV4};
-use local_ip_address::local_ip;
+
+
 
 const DEFAULT_PORT: u16 = 8334;
 
-
-// #[derive(Debug, Clone, StructOpt)]
-// struct Opt {
-//     #[structopt(long, default_value = "0.0.0.0:8334")]
-//     bind_addr: SocketAddr,
-
-//     #[structopt(long, default_value = "0.0.0.0:8334")]
-//     server_addr: SocketAddr,
-// }
-// `35.200.46.91` is an address to connect to this server via internet.
-// cargo run --bin entrypoint_example -- --bind-addr 0.0.0.0:8334 --server-addr 35.200.46.91:8334
-
+// systemd-resolve --status | grep Current
 
 fn main() -> Result<(), MainError> {
     // let opt = Opt::from_args();
@@ -36,17 +25,9 @@ fn main() -> Result<(), MainError> {
 
         
 
-    /* server should use local ip or 0.0.0.0 client should connect through global ip address */
-    // println!("*{}", local_ipaddress::get().unwrap());
-    // let addr: SocketAddr = opt.bind_addr;
-    // let service = ServiceBuilder::new(addr)
-    //     .logger(logger.clone())
-    //     .server_addr(opt.server_addr)
-    //     .finish(executor.handle(), SerialLocalNodeIdGenerator::new());
     
 
-
-    let local_addr = local_ip().unwrap();
+    let local_addr = "0.0.0.0".parse().unwrap();
     let local_socket = SocketAddr::new(local_addr,DEFAULT_PORT);
     let mut p = ProviderDefaultV4::new();
     let global_addr = p.get_addr().unwrap().v4addr.unwrap();

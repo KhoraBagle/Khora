@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "0.8801";
+static VERSION: &str = "v0.8802";
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
     loop {
@@ -387,7 +387,7 @@ impl epi::App for KhoraGUI {
 
             if !*setup {
                 ui.horizontal(|ui| {
-                    ui.add(Checkbox::new(pswd_shown,"show password and secret key"));
+                    ui.add(Checkbox::new(pswd_shown,"Show password and secret key"));
                 });
             }
             if *pswd_shown || *setup {
@@ -428,21 +428,21 @@ impl epi::App for KhoraGUI {
                 });
             }
             if *password0 != *pswd_guess0 && !*setup {
-                ui.add(Label::new("password incorrect, account features disabled, enter correct password to unlock").text_color(egui::Color32::RED));
+                ui.add(Label::new("Password incorrect, account features disabled, enter correct password to unlock").text_color(egui::Color32::RED));
             }
             if !*setup {
                 ui.horizontal(|ui| {
                     if ui.button("📋").on_hover_text("Click to copy your wallet address to clipboard").clicked() {
                         ui.output().copied_text = addr.clone();
                     }
-                    ui.add(Label::new("address").underline()).on_hover_text(&*addr);
+                    ui.add(Label::new("Wallet Address").underline()).on_hover_text(&*addr);
                 });
                 if *staking {
                     ui.horizontal(|ui| {
                         if ui.button("📋").on_hover_text("Click to copy your staking wallet address to clipboard").clicked() {
                             ui.output().copied_text = stkaddr.clone();
                         }
-                        ui.add(Label::new("staking address").underline()).on_hover_text(&*stkaddr);
+                        ui.add(Label::new("Staking Address").underline()).on_hover_text(&*stkaddr);
                     });
                 }
                 if *validating {
@@ -455,9 +455,9 @@ impl epi::App for KhoraGUI {
             ui.label("\n");
 
             if !*setup {
-                ui.label(format!("current block: {}",block_number));
+                ui.label(format!("Current Block: {}",block_number));
                 ui.horizontal(|ui| {
-                    ui.label("next block in");
+                    ui.label("Next block in: ");
                     let x = *eta as i32 - timekeeper.elapsed().as_secs() as i32 + 1i32;
                     if x > 0 {
                         ui.add(Label::new(format!("{}",x)).strong().text_color(egui::Color32::YELLOW));
@@ -590,7 +590,7 @@ impl epi::App for KhoraGUI {
                 }
             }
             if *dont_trust_amounts {
-                ui.add(Label::new("money owned is not yet verified").text_color(egui::Color32::RED));
+                ui.add(Label::new("Money owned is not yet verified").text_color(egui::Color32::RED));
             }
             if !*setup {
                 let mut delete_row_x = usize::MAX;
@@ -602,7 +602,7 @@ impl epi::App for KhoraGUI {
                             send_amnt.push("".to_string());
                         }
                         ui.add(Label::new("Name").heading());
-                        ui.add(Label::new("Address").heading());
+                        ui.add(Label::new("Wallet Address").heading());
                         ui.add(Label::new("Amount").heading());
                         ui.end_row();
                         for (loc,((i,j),k)) in send_name.iter_mut().zip(send_addr.iter_mut()).zip(send_amnt.iter_mut()).enumerate() {
@@ -758,11 +758,11 @@ impl epi::App for KhoraGUI {
             ui.heading("Friends");
             ui.label("Add Friend:");
             ui.horizontal(|ui| {
-                ui.small("name");
+                ui.small("Name");
                 ui.text_edit_singleline(name_adding);
             });
             ui.horizontal(|ui| {
-                ui.small("address");
+                ui.small("Wallet Address");
                 ui.text_edit_singleline(friend_adding);
             });
             if ui.button("Add Friend").clicked() {
@@ -792,7 +792,7 @@ impl epi::App for KhoraGUI {
                         ui.small(&*addr);
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("edit").clicked() {
+                        if ui.button("Edit").clicked() {
                             *e = !*e;
                         }
                         if *e {

@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8804";
+static VERSION: &str = "v0.8805";
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
     loop {
@@ -132,7 +132,7 @@ impl Default for KhoraGUI {
             pswd_guess0: "".to_string(),
             username: "".to_string(),
             secret_key: "".to_string(),
-            pswd_shown: true,
+            pswd_shown: false,
             block_number: 0,
             show_next_pswrd: true,
             next_pswrd0: random_pswrd(),
@@ -384,7 +384,7 @@ impl epi::App for KhoraGUI {
 
             if !*setup {
                 ui.horizontal(|ui| {
-                    ui.add(Checkbox::new(pswd_shown,"Show password and secret key"));
+                    ui.add(Checkbox::new(pswd_shown,"Show Password And Secret Key"));
                 });
             }
             if *pswd_shown || *setup {
@@ -459,7 +459,7 @@ impl epi::App for KhoraGUI {
                     if x > 0 {
                         ui.add(Label::new(format!("{}",x)).strong().text_color(egui::Color32::YELLOW));
                     } else {
-                        ui.add(Label::new(format!("Shard late; initiating takeover in {}",x + 3600)).strong().text_color(egui::Color32::RED));
+                        ui.add(Label::new(format!("Block late. Selecting new stakers in: {}",x + 3600)).strong().text_color(egui::Color32::RED));
                     }
                 });
                 ui.horizontal(|ui| {
@@ -519,9 +519,7 @@ impl epi::App for KhoraGUI {
                 if ui.button("Sync Wallet").clicked() && !*setup {
                     sender.send(vec![121]).expect("something's wrong with communication from the gui");
                 }
-                if ui.add(Label::new("Transaction Fee:").sense(Sense::hover())).hovered() {
-                    ui.add(Label::new("Manually change network transaction fee. Paying a higher fee may confirm your transaction faster if the network is busy.").text_color(egui::Color32::GREEN));
-                }
+                ui.label("Transaction Fee:").on_hover_text("Manually change network transaction fee. Paying a higher fee may confirm your transaction faster if the network is busy.");
                 ui.text_edit_singleline(fee);
 
     
@@ -616,26 +614,16 @@ impl epi::App for KhoraGUI {
                             }
                             ui.end_row();
                         }
-                    });
-                    if delete_row_x != usize::MAX {
-                        if send_name.len() == 1 {
-                            send_name[0] = "".to_string();
-                            send_addr[0] = "".to_string();
-                            send_amnt[0] = "".to_string();
-                        } else {
-                            send_name.remove(delete_row_x);
-                            send_addr.remove(delete_row_x);
-                            send_amnt.remove(delete_row_x);
-                        }
-                    }
-                    if pswd_guess0 == password0 {
-                        ui.horizontal(|ui| {
-                            ui.heading("                                                                                  ");
+
+
+                        if pswd_guess0 == password0 {
                             if ui.button("Delete All Rows").clicked() {
                                 *send_name = vec!["".to_string()];
                                 *send_addr = vec!["".to_string()];
                                 *send_amnt = vec!["".to_string()];
                             }
+                            ui.label("");
+                            ui.label("");
                             if ui.button("Send Transaction").clicked() && !*setup {
                                 let mut m = vec![];
                                 let mut tot = 0u64;
@@ -679,7 +667,18 @@ impl epi::App for KhoraGUI {
                             if *staking {
                                 ui.add(Checkbox::new(stkspeand,"Spend with staked money"));
                             }
-                        });
+                        }
+                    });
+                    if delete_row_x != usize::MAX {
+                        if send_name.len() == 1 {
+                            send_name[0] = "".to_string();
+                            send_addr[0] = "".to_string();
+                            send_amnt[0] = "".to_string();
+                        } else {
+                            send_name.remove(delete_row_x);
+                            send_addr.remove(delete_row_x);
+                            send_amnt.remove(delete_row_x);
+                        }
                     }
                 });
                 if *you_cant_do_that && !*setup {

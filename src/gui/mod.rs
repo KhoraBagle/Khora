@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8802";
+static VERSION: &str = "v0.8803";
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
     loop {
@@ -353,7 +353,7 @@ impl epi::App for KhoraGUI {
                     m.push(42);
                     sender.send(m).expect("something's wrong with communication from the gui");
                 }
-                ui.add(Label::new(format!("you have {} connections",lonely)).text_color({
+                ui.add(Label::new(format!("You have {} connections",lonely)).text_color({
                     if *lonely == 0 {
                         egui::Color32::RED
                     } else if *lonely < 5 {
@@ -368,10 +368,10 @@ impl epi::App for KhoraGUI {
             });
             ui.heading("KHORA");
             ui.horizontal(|ui| {
-                ui.hyperlink("https://khora.info   ");
+                ui.hyperlink("https://khora.info");
                 ui.add(egui::github_link_file!(
-                    "https://github.com/constantine1024/Khora",
-                    "Source code."
+                    "https://github.com/constantine1024/Khora/",
+                    "Source Code."
                 ));
                 ui.label(VERSION);
             });

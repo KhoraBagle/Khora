@@ -335,12 +335,12 @@ impl epi::App for KhoraGUI {
                     if ui.button("Panic Options").clicked() {
                         *show_reset = !*show_reset;
                     }
-                    if ui.button("Log Out - will require resync with blockchain").clicked() {
-                        fs::remove_file("myNode").expect("should work");
-                        frame.quit();
-                    }
                     if ui.button("Quit").clicked() {
                         *setup = true;
+                        frame.quit();
+                    }
+                    if ui.button("Log Out - will require resync with blockchain").clicked() {
+                        fs::remove_file("myNode").expect("should work");
                         frame.quit();
                     }
                 });

@@ -14,7 +14,7 @@ use trackable::error::MainError;
 // use structopt::StructOpt;
 use gip::{Provider, ProviderDefaultV4};
 
-const DEFAULT_PORT: u64 = 8334;
+const DEFAULT_PORT: u16 = 8334;
 
 
 // #[derive(Debug, Clone, StructOpt)]

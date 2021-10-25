@@ -16,7 +16,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8810";
+static VERSION: &str = "v0.8811";
 
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
@@ -355,6 +355,12 @@ impl epi::App for KhoraGUI {
                     }
                     if ui.button("Quit Account- Will require resync with blockchain").clicked() {
                         fs::remove_file("myNode").expect("should work");
+                        fs::remove_file("fullblocks").expect("should work");
+                        fs::remove_file("fullblocks_metadata").expect("should work");
+                        fs::remove_file("lightningblocks").expect("should work");
+                        fs::remove_file("lightningblocks_metadata").expect("should work");
+                        fs::remove_file("history").expect("should work");
+                        fs::remove_file("bloomfile").expect("should work");
                         frame.quit();
                     }
                 });

@@ -1,6 +1,5 @@
 use std::{convert::TryInto, fs, time::Instant};
 
-use aes_gcm_siv::aead::generic_array::typenum::Integer;
 use curve25519_dalek::scalar::Scalar;
 use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit}, epi};
 use crossbeam::channel;

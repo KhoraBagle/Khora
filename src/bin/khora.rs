@@ -96,7 +96,8 @@ fn main() -> Result<(), MainError> {
             vec![],
             true,
         );
-        let native_options = eframe::NativeOptions::default();
+        let mut native_options = eframe::NativeOptions::default();
+        native_options.always_on_top = true;
         eframe::run_native(Box::new(app), native_options);
         println!("You closed the app...");
         let pswrd: Vec<u8>;

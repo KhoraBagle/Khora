@@ -15,7 +15,8 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8807";
+static VERSION: &str = "v0.8808";
+
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
     loop {
@@ -46,6 +47,10 @@ fn get_pswrd(a: &String, b: &String, c: &String) -> Vec<u8> {
     hasher.update(&b.as_bytes());
     hasher.update(&c.as_bytes());
     Scalar::from_hash(hasher).as_bytes().to_vec()
+}
+fn retain_numeric(mut number: String) -> String {
+    number.retain(|x| x.is_ascii_digit());
+    number
 }
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
@@ -211,6 +216,10 @@ impl epi::App for KhoraGUI {
                 self.show_reset = false;
                 self.you_cant_do_that = false;
                 self.lonely = 0;
+                self.send_name = vec!["".to_string()];
+                self.send_addr = vec!["".to_string()];
+                self.send_amnt = vec!["".to_string()];
+
                 self.sender = s;
                 self.reciever = r;
                 self.addr = a;
@@ -342,7 +351,7 @@ impl epi::App for KhoraGUI {
                     }
                 });
                 ui.label("Mesh Network Gate IP");
-                ui.add(TextEdit::singleline(entrypoint).hint_text("put entry here"));
+                ui.add(TextEdit::singleline(entrypoint).desired_width(100.0).hint_text("put entry here"));
                 ui.add(Label::new(":8334").text_color(egui::Color32::LIGHT_GRAY));
                 if ui.button("Connect").clicked() && !*setup {
                     let mut m = entrypoint.as_bytes().to_vec();
@@ -482,9 +491,9 @@ impl epi::App for KhoraGUI {
                             if ui.button("Stake").clicked() && !*setup {
                                 let mut m = vec![];
                                 m.extend(stkaddr.as_bytes().to_vec());
-                                m.extend(stake.parse::<u64>().unwrap().to_le_bytes().to_vec());
+                                m.extend(retain_numeric(stake.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec());
                                 println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",unstaked,fee,stake);
-                                let x = *unstaked - fee.parse::<u64>().unwrap() - stake.parse::<u64>().unwrap();
+                                let x = *unstaked - retain_numeric(fee.to_string()).parse::<u64>().unwrap() - retain_numeric(stake.to_string()).parse::<u64>().unwrap();
                                 if x > 0 {
                                     m.extend(addr.as_bytes().to_vec());
                                     m.extend(x.to_le_bytes().to_vec());
@@ -502,9 +511,9 @@ impl epi::App for KhoraGUI {
                                 // println!("unstaking {:?}!",unstake.parse::<u64>());
                                 let mut m = vec![];
                                 m.extend(addr.as_bytes().to_vec());
-                                m.extend(unstake.parse::<u64>().unwrap().to_le_bytes());
+                                m.extend(retain_numeric(unstake.to_string()).parse::<u64>().unwrap().to_le_bytes());
                                 // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",staked,fee,unstake);
-                                let x = *staked - fee.parse::<u64>().unwrap() - unstake.parse::<u64>().unwrap();
+                                let x = *staked - retain_numeric(fee.to_string()).parse::<u64>().unwrap() - retain_numeric(unstake.to_string()).parse::<u64>().unwrap();
                                 if x > 0 {
                                     m.extend(stkaddr.as_bytes());
                                     m.extend(x.to_le_bytes());
@@ -521,7 +530,7 @@ impl epi::App for KhoraGUI {
                     sender.send(vec![121]).expect("something's wrong with communication from the gui");
                 }
                 ui.label("Transaction Fee:").on_hover_text("Manually change network transaction fee. Paying a higher fee may confirm your transaction faster if the network is busy.");
-                ui.text_edit_singleline(fee);
+                ui.add(TextEdit::singleline(fee).desired_width(100.0).hint_text("put fee here"));
 
     
                 ui.label("\n");
@@ -591,7 +600,7 @@ impl epi::App for KhoraGUI {
             if !*setup {
                 let mut delete_row_x = usize::MAX;
                 egui::ScrollArea::auto_sized().show(ui,|ui| {
-                    egui::Grid::new("spending_grid").min_col_width(90.0).max_col_width(300.0).show(ui, |ui| {
+                    egui::Grid::new("spending_grid").min_col_width(90.0).max_col_width(500.0).show(ui, |ui| {
                         if ui.button("Add Row").clicked() {
                             send_name.push("".to_string());
                             send_addr.push("".to_string());
@@ -606,7 +615,7 @@ impl epi::App for KhoraGUI {
                                 delete_row_x = loc;
                             }
                             ui.add(TextEdit::multiline(i).desired_width(90.0).desired_rows(1));
-                            ui.add(TextEdit::multiline(j).desired_width(300.0).desired_rows(2));
+                            ui.add(TextEdit::multiline(j).desired_width(305.0).desired_rows(4));
                             ui.add(TextEdit::multiline(k).desired_width(90.0).desired_rows(1));
                             if ui.button("Add Friend").clicked() {
                                 friend_names.push(i.clone());
@@ -629,7 +638,7 @@ impl epi::App for KhoraGUI {
                                 let mut m = vec![];
                                 let mut tot = 0u64;
                                 for (who,amnt) in send_addr.iter_mut().zip(send_amnt.iter_mut()) {
-                                    if let Ok(x) = amnt.parse::<u64>() {
+                                    if let Ok(x) = retain_numeric(amnt.to_string()).parse::<u64>() {
                                         if x > 0 {
                                             m.extend(str::to_ascii_lowercase(&who).as_bytes().to_vec());
                                             m.extend(x.to_le_bytes().to_vec());
@@ -638,20 +647,20 @@ impl epi::App for KhoraGUI {
                                     }
                                 }
                                 if *stkspeand {
-                                    *you_cant_do_that = *staked < tot + fee.parse::<u64>().unwrap();
+                                    *you_cant_do_that = *staked + 1 < tot + retain_numeric(fee.to_string()).parse::<u64>().unwrap();
                                 } else {
-                                    *you_cant_do_that = *unstaked < tot + fee.parse::<u64>().unwrap();
+                                    *you_cant_do_that = *unstaked + 1 < tot + retain_numeric(fee.to_string()).parse::<u64>().unwrap();
                                 }
-                                if !*you_cant_do_that {
+;                                if !*you_cant_do_that {
                                     if *stkspeand {
-                                        let x = *staked - tot - fee.parse::<u64>().unwrap();
+                                        let x = *staked - tot - retain_numeric(fee.to_string()).parse::<u64>().unwrap();
                                         if x > 0 {
                                             m.extend(str::to_ascii_lowercase(&stkaddr).as_bytes());
                                             m.extend(x.to_le_bytes());
                                         }
                                         m.push(63);
                                     } else {
-                                        let x = *unstaked - tot - fee.parse::<u64>().unwrap();
+                                        let x = *unstaked - tot - retain_numeric(fee.to_string()).parse::<u64>().unwrap();
                                         if x > 0 {
                                             m.extend(str::to_ascii_lowercase(&addr).as_bytes());
                                             m.extend(x.to_le_bytes());
@@ -721,7 +730,7 @@ impl epi::App for KhoraGUI {
                 
                 if ui.add(Button::new("PANIC").enabled(*unstaked != 0 || *staked != 0)).clicked() {
                     let mut x = vec![];
-                    let pf = panic_fee.parse::<u64>().unwrap();
+                    let pf = retain_numeric(panic_fee.to_string()).parse::<u64>().unwrap();
 
                     let s = *unstaked;
                     if s > pf {
@@ -760,7 +769,8 @@ impl epi::App for KhoraGUI {
             });
             ui.horizontal(|ui| {
                 ui.small("Wallet Address");
-                ui.text_edit_singleline(friend_adding);
+                ui.add(TextEdit::multiline(friend_adding).desired_rows(1));
+
             });
             if ui.button("Add Friend").clicked() {
 
@@ -783,15 +793,13 @@ impl epi::App for KhoraGUI {
                 for ((i,(addr,name)),e) in friends.iter_mut().zip(friend_names.iter_mut()).enumerate().zip(edit_names.iter_mut()) {
                     if *e {
                         ui.text_edit_singleline(name);
-                        ui.text_edit_singleline(addr);
+                        ui.text_edit_multiline(addr);
                     } else {
                         ui.label(&*name);
                         ui.small(&*addr);
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("Edit").clicked() {
-                            *e = !*e;
-                        }
+                        ui.checkbox(e, "Edit");
                         if *e {
                             if ui.button("Delete Friend").clicked() {
                                 friend_deleted = i;

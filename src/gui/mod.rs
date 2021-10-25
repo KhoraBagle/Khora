@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8811";
+static VERSION: &str = "v0.8812";
 
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
@@ -106,6 +106,7 @@ pub struct KhoraGUI {
     tsk: Vec<u8>,
     options_menu: bool,
     ringsize: u8,
+    logout_window: bool,
 
     #[cfg_attr(feature = "persistence", serde(skip))] // this feature doesn't work for sender
     timekeeper: Instant,
@@ -164,6 +165,7 @@ impl Default for KhoraGUI {
             tsk: vec![],
             options_menu: false,
             ringsize: 5,
+            logout_window: false,
         }
     }
 }
@@ -221,6 +223,7 @@ impl epi::App for KhoraGUI {
                 self.send_addr = vec!["".to_string()];
                 self.send_amnt = vec!["".to_string()];
                 self.options_menu = false;
+                self.logout_window = false;
 
                 self.sender = s;
                 self.reciever = r;
@@ -329,6 +332,7 @@ impl epi::App for KhoraGUI {
             tsk,
             options_menu,
             ringsize,
+            logout_window,
         } = self;
 
  
@@ -342,7 +346,7 @@ impl epi::App for KhoraGUI {
             // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
                 egui::menu::menu(ui, "File", |ui| {
-                    if ui.button("Options Menu                                                                   ").clicked() {
+                    if ui.button("Options Menu").clicked() {
                         *options_menu = true;
                     }
                     if ui.button("Panic Options").clicked() {
@@ -352,15 +356,8 @@ impl epi::App for KhoraGUI {
                         *setup = true;
                         frame.quit();
                     }
-                    if ui.button("Quit Account- Will require resync with blockchain").clicked() {
-                        fs::remove_file("myNode").expect("should work");
-                        fs::remove_file("fullblocks").expect("should work");
-                        fs::remove_file("fullblocks_metadata").expect("should work");
-                        fs::remove_file("lightningblocks").expect("should work");
-                        fs::remove_file("lightningblocks_metadata").expect("should work");
-                        fs::remove_file("history").expect("should work");
-                        fs::remove_file("bloomfile").expect("should work");
-                        frame.quit();
+                    if ui.button("Logout").clicked() {
+                        *logout_window = true;
                     }
                 });
                 ui.label("Mesh Network Gate IP");
@@ -781,6 +778,19 @@ impl epi::App for KhoraGUI {
                 ui.label("If the ring size is 0, you won't need to rely on the network to give you true ring members.");
             }
             ui.add(Slider::new(ringsize, 0..=20).text("Ring Size"));
+        });
+        egui::Window::new("Logout Menu").open(logout_window).show(ctx, |ui| {
+            ui.label("Logging out of your account will refresh all of youe wallet settings and will require resync with the blockchain.");
+            if ui.button("Quit Account- Will require resync with blockchain").clicked() {
+                fs::remove_file("myNode").expect("should work");
+                fs::remove_file("fullblocks").expect("should work");
+                fs::remove_file("fullblocks_metadata").expect("should work");
+                fs::remove_file("lightningblocks").expect("should work");
+                fs::remove_file("lightningblocks_metadata").expect("should work");
+                fs::remove_file("history").expect("should work");
+                fs::remove_file("bloomfile").expect("should work");
+                frame.quit();
+            }
         });
         
 

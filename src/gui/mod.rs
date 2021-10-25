@@ -1,7 +1,8 @@
 use std::{convert::TryInto, fs, time::Instant};
 
+use aes_gcm_siv::aead::generic_array::typenum::Integer;
 use curve25519_dalek::scalar::Scalar;
-use eframe::{egui::{self, Button, Checkbox, Label, Sense, TextEdit}, epi};
+use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit}, epi};
 use crossbeam::channel;
 use fibers::sync::mpsc;
 use separator::Separatable;
@@ -15,7 +16,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8808";
+static VERSION: &str = "v0.8810";
 
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
@@ -104,6 +105,8 @@ pub struct KhoraGUI {
     sk: Vec<u8>,
     vsk: Vec<u8>,
     tsk: Vec<u8>,
+    options_menu: bool,
+    ringsize: u8,
 
     #[cfg_attr(feature = "persistence", serde(skip))] // this feature doesn't work for sender
     timekeeper: Instant,
@@ -160,13 +163,12 @@ impl Default for KhoraGUI {
             sk: vec![],
             vsk: vec![],
             tsk: vec![],
+            options_menu: false,
+            ringsize: 5,
         }
     }
 }
 impl KhoraGUI {
-    pub fn new_minimal(reciever: channel::Receiver<Vec<u8>>, sender: mpsc::Sender<Vec<u8>>) -> Self {
-        KhoraGUI{reciever, sender, ..Default::default()}
-    }
     pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: mpsc::Sender<Vec<u8>>, addr: String, stkaddr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
         KhoraGUI{
             reciever,
@@ -219,6 +221,7 @@ impl epi::App for KhoraGUI {
                 self.send_name = vec!["".to_string()];
                 self.send_addr = vec!["".to_string()];
                 self.send_amnt = vec!["".to_string()];
+                self.options_menu = false;
 
                 self.sender = s;
                 self.reciever = r;
@@ -325,6 +328,8 @@ impl epi::App for KhoraGUI {
             sk,
             vsk,
             tsk,
+            options_menu,
+            ringsize,
         } = self;
 
  
@@ -338,8 +343,11 @@ impl epi::App for KhoraGUI {
             // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
                 egui::menu::menu(ui, "File", |ui| {
-                    if ui.button("Panic Options                                                                  ").clicked() {
-                        *show_reset = !*show_reset;
+                    if ui.button("Options Menu                                                                   ").clicked() {
+                        *options_menu = true;
+                    }
+                    if ui.button("Panic Options").clicked() {
+                        *show_reset = true;
                     }
                     if ui.button("Quit").clicked() {
                         *setup = true;
@@ -498,6 +506,7 @@ impl epi::App for KhoraGUI {
                                     m.extend(addr.as_bytes().to_vec());
                                     m.extend(x.to_le_bytes().to_vec());
                                 }
+                                m.push(*ringsize);
                                 m.push(33);
                                 m.push(33);
                                 sender.send(m).expect("something's wrong with communication from the gui");
@@ -665,6 +674,7 @@ impl epi::App for KhoraGUI {
                                             m.extend(str::to_ascii_lowercase(&addr).as_bytes());
                                             m.extend(x.to_le_bytes());
                                         }
+                                        m.push(*ringsize);
                                         m.push(33);
                                     }
                                     m.push(33);
@@ -702,7 +712,7 @@ impl epi::App for KhoraGUI {
 
         if  pswd_guess0 == password0 || *setup { // add warning to not panic 2ce in a row
             egui::Window::new("Panic Button").open(show_reset).show(ctx, |ui| {
-                ui.label("The Panic button will transfer all of your Khora to a new non-staker account and delete your old account. \nDo not turn off your client until you receive your Khora on your new account. \nAccount information will be reset to the information entered below \nSave the below information in a safe place.");
+                ui.label("The Panic button will transfer all of your Khora to a new non-staker account and delete your old account.\nThis transaction will use a ring size of 0.\nDo not turn off your client until you receive your Khora on your new account. \nAccount information will be reset to the information entered below. \nSave the below information in a safe place.");
                 
                 ui.horizontal(|ui| {
                     ui.add(Checkbox::new(show_next_pswrd,"Show Password On Reset"));
@@ -758,6 +768,15 @@ impl epi::App for KhoraGUI {
                 }
             });
         }
+        egui::Window::new("Options Menu").open(options_menu).show(ctx, |ui| {
+            ui.label("This is the number of accounts that aren't yours that the transaction could have been made by from the perspective of spying eyes.");
+            if *staking {
+                ui.label("This only affects non staking transactions.");
+            } else {
+                ui.label("If the ring size is 0, you won't need to rely on the network to give you true ring members.");
+            }
+            ui.add(Slider::new(ringsize, 0..=20).text("Ring Size"));
+        });
         
 
         egui::SidePanel::right("Right Panel").show(ctx, |ui| {

@@ -207,6 +207,7 @@ fn main() -> Result<(), MainError> {
             cumtime: 0f64,
             blocktime: blocktime(0.0),
             lightning_yielder,
+            ringsize: 5,
             gui_timer: Instant::now(),
         };
         node.save();
@@ -306,6 +307,7 @@ struct SavedNode {
     blocktime: f64,
     lightning_yielder: bool,
     is_validator: bool,
+    ringsize: u8,
 }
 
 /// the node used to run all the networking
@@ -361,6 +363,7 @@ struct KhoraNode {
     blocktime: f64,
     lightning_yielder: bool,
     gui_timer: Instant,
+    ringsize: u8,
 }
 
 impl KhoraNode {
@@ -398,6 +401,7 @@ impl KhoraNode {
                 blocktime: self.blocktime,
                 lightning_yielder: self.lightning_yielder,
                 is_validator: self.is_validator,
+                ringsize: self.ringsize,
             }; // just redo initial conditions on the rest
             let mut sn = bincode::serialize(&sn).unwrap();
             let mut f = File::create("myNode").unwrap();
@@ -468,6 +472,7 @@ impl KhoraNode {
             blocktime: sn.blocktime,
             lightning_yielder: sn.lightning_yielder,
             gui_timer: Instant::now(),
+            ringsize: sn.ringsize,
         }
     }
 
@@ -1145,7 +1150,11 @@ impl Future for KhoraNode {
                                 }
                             }
                         } else if mtype == 113 /* q */ { // they just sent you a ring member
-                            self.rmems.insert(u64::from_le_bytes(m[64..72].try_into().unwrap()),History::read_raw(&m));
+                            if m.len() == 72 {
+                                if !self.rmems.contains_key(&u64::from_le_bytes(m[64..72].try_into().unwrap())) {
+                                    self.rmems.insert(u64::from_le_bytes(m[64..72].try_into().unwrap()),History::read_raw(&m));
+                                }
+                            }
                         } else if mtype == 114 /* r */ { // answer their ring question
                             let mut y = m[..8].to_vec();
                             let mut x = History::get_raw(&u64::from_le_bytes(y.clone().try_into().unwrap())).to_vec();
@@ -1238,10 +1247,11 @@ impl Future for KhoraNode {
             if !self.save_history {
                 if let Some(outs) = self.outs.clone() {
                     let ring = recieve_ring(&self.rname).expect("shouldn't fail");
-                    let mut rlring = ring.iter().map(|x| self.rmems[x].clone()).collect::<Vec<OTAccount>>();
+                    let mut got_the_ring = true;
+                    let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
                     rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
                     let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                    if tx.verify().is_ok() {
+                    if got_the_ring && tx.verify().is_ok() {
                         let tx = tx.polyform(&self.rname);
                         // tx.verify().unwrap(); // as a user you won't be able to check this
                         let mut txbin = bincode::serialize(&tx).unwrap();
@@ -1262,6 +1272,9 @@ impl Future for KhoraNode {
                     let mut validtx = true;
                     if istx == 33 /* ! */ { // a transaction
                         let txtype = m.pop().unwrap();
+                        if txtype == 33 /* ! */ {
+                            self.ringsize = m.pop().unwrap();
+                        }
                         let mut outs = vec![];
                         while m.len() > 0 {
                             let mut pks = vec![];
@@ -1321,21 +1334,42 @@ impl Future for KhoraNode {
                                         self.rmems.insert(*i,j);
                                     }
                                     
-                                    self.rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + 4), &self.height);
+                                    self.rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
                                     let ring = recieve_ring(&self.rname).expect("shouldn't fail");
-                                    let ring = ring.into_iter().filter(|x| loc.iter().all(|y|x!=y)).collect::<Vec<_>>();
-                                    println!("ring:----------------------------------\n{:?}",ring);
-                                    for r in ring.iter() {
-                                        let mut r = r.to_le_bytes().to_vec();
-                                        r.push(114u8);
-                                        self.outer.dm(r,&self.outer.plumtree_node().all_push_peers(),false);
-                                    }
+                                    if self.ringsize != 0 {
+                                        println!("ring:----------------------------------\n{:?}",ring);
+                                        for r in ring.iter() {
+                                            let mut r = r.to_le_bytes().to_vec();
+                                            r.push(114);
+                                            self.outer.dm(r,&self.outer.plumtree_node().all_push_peers(),false);
+                                        }
+                                        self.outs = Some(outs);
+                                        txbin = vec![];
+                                    } else {
+                                        let mut rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
+                                        let me = self.me;
+                                        rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
+                                        
+                                        let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (&x.0,&x.1)).collect());
 
-                                    self.outs = Some(outs);
+                                        println!("{:?}",rlring.iter().map(|x| x.com.amount).collect::<Vec<_>>());
+                                        if tx.verify().is_ok() {
+                                            let tx = tx.polyform(&self.rname);
+                                            if self.save_history {
+                                                tx.verify().unwrap(); // as a user you won't be able to check this
+                                            }
+                                            txbin = bincode::serialize(&tx).unwrap();
+                                            println!("transaction made!");
+                                        } else {
+                                            txbin = vec![];
+                                            println!("you can't make that transaction, user!");
+                                        }
+                                    }
+                                } else {
+                                    txbin = vec![];
                                 }
-                                txbin = vec![];
                             } else {
-                                let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + 4), &self.height);
+                                let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
                                 let ring = recieve_ring(&rname).expect("shouldn't fail");
                                 println!("ring: {:?}",ring);
                                 println!("mine: {:?}",acc.iter().map(|x|x.pk.compress()).collect::<Vec<_>>());

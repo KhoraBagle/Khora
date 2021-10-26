@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8821";
+static VERSION: &str = "v0.8823";
 
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
@@ -368,8 +368,10 @@ impl epi::App for KhoraGUI {
             // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
                 egui::menu::menu(ui, "File", |ui| {
-                    if ui.button("Options Menu").clicked() {
-                        *options_menu = true;
+                    if !*setup {
+                        if ui.button("Options Menu").clicked() {
+                            *options_menu = true;
+                        }
                     }
                     if ui.button("Panic Options").clicked() {
                         *show_reset = true;
@@ -378,10 +380,16 @@ impl epi::App for KhoraGUI {
                         *setup = true;
                         frame.quit();
                     }
-                    if ui.button("Logout").clicked() {
+                    if ui.button("Perminent Logout").clicked() {
                         *logout_window = true;
                     }
                 });
+            });
+            // egui::util::undoer::default(); // there's some undo button
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| { 
+            ui.horizontal(|ui| {
                 ui.label("Mesh Network Gate IP");
                 ui.add(TextEdit::singleline(entrypoint).desired_width(100.0).hint_text("put entry here"));
                 ui.add(Label::new(":8334").text_color(egui::Color32::LIGHT_GRAY));
@@ -403,11 +411,6 @@ impl epi::App for KhoraGUI {
                     sender.send(vec![64]).expect("something's wrong with communication from the gui");
                 }
             });
-            // egui::util::undoer::default(); // there's some undo button
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| { 
-
             ui.heading("KHORA");
             ui.horizontal(|ui| {
                 ui.hyperlink("https://khora.info");
@@ -646,12 +649,20 @@ impl epi::App for KhoraGUI {
                                 delete_row_x = loc;
                             }
                             ui.add(TextEdit::multiline(i).desired_width(90.0).desired_rows(1));
-                            ui.add(TextEdit::multiline(j).desired_width(305.0).desired_rows(4));
+                            ui.add(TextEdit::multiline(j).desired_width(305.0).desired_rows(2));
                             ui.add(TextEdit::multiline(k).desired_width(90.0).desired_rows(1));
                             if ui.button("Add Friend").clicked() {
-                                friend_names.push(i.clone());
-                                friends.push(j.clone());
-                                edit_names.push(false);
+
+                                let loc = friend_names.partition_point(|x| x < i);
+                                if loc < friend_names.len() {
+                                    friends.insert(loc, j.clone());
+                                    friend_names.insert(loc, i.clone());
+                                    edit_names.insert(loc, false);
+                                } else {
+                                    friends.push(j.clone());
+                                    friend_names.push(i.clone());
+                                    edit_names.push(false);
+                                }
                             }
                             ui.end_row();
                         }
@@ -663,6 +674,7 @@ impl epi::App for KhoraGUI {
                                 *send_addr = vec!["".to_string()];
                                 *send_amnt = vec!["".to_string()];
                             }
+                            ui.label("");
                             ui.label("");
                             ui.label("");
                             if ui.button("Send Transaction").clicked() && !*setup {
@@ -707,6 +719,11 @@ impl epi::App for KhoraGUI {
                                 }
                             }
                             if *staking {
+                                ui.end_row();
+                                ui.label("");
+                                ui.label("");
+                                ui.label("");
+                                ui.label("");
                                 ui.add(Checkbox::new(stkspeand,"Spend with staked money"));
                             }
                         }
@@ -797,10 +814,12 @@ impl epi::App for KhoraGUI {
             } else {
                 ui.label("If the ring size is 0, you won't need to rely on the network to give you true ring members.");
             }
+            ui.label("\n");
             ui.add(Slider::new(ringsize, 0..=20).text("Ring Size"));
         });
         egui::Window::new("Logout Menu").open(logout_window).show(ctx, |ui| {
             ui.label("Logging out of your account will refresh all of youe wallet settings and will require resync with the blockchain.");
+            ui.label("");
             if ui.button("Quit Account- Will require resync with blockchain").clicked() {
                 fs::remove_file("myNode");
                 fs::remove_file("fullblocks");
@@ -844,17 +863,23 @@ impl epi::App for KhoraGUI {
             }
             let mut friend_deleted = usize::MAX;
             ui.label("Friends: ");
-            egui::ScrollArea::vertical().always_show_scroll(true).show(ui,|ui| {
+            let mut needs_sorting = false;
+            egui::ScrollArea::vertical().show(ui,|ui| {
                 for ((i,(addr,name)),e) in friends.iter_mut().zip(friend_names.iter_mut()).enumerate().zip(edit_names.iter_mut()) {
                     if *e {
                         ui.text_edit_singleline(name);
-                        ui.text_edit_multiline(addr);
+                        ui.add(TextEdit::multiline(addr).desired_rows(1));
                     } else {
                         ui.label(&*name);
                         ui.small(&*addr);
                     }
                     ui.horizontal(|ui| {
-                        ui.checkbox(e, "Edit");
+                        if ui.button("Edit").clicked() {
+                            if *e {
+                                needs_sorting = true;
+                            }
+                            *e = !*e;
+                        }
                         if *e {
                             if ui.button("Delete Friend").clicked() {
                                 friend_deleted = i;
@@ -875,6 +900,13 @@ impl epi::App for KhoraGUI {
                     });
                 }
             });
+            if needs_sorting {
+                let mut news = friends.clone().into_iter().zip(friend_names.clone().into_iter().zip(edit_names.clone().into_iter())).collect::<Vec<_>>();
+                news.sort();
+                *friends = news.iter().map(|x| x.0.clone()).collect();
+                *friend_names = news.iter().map(|x| x.1.0.clone()).collect();
+                *edit_names = news.iter().map(|x| x.1.1).collect();
+            }
             if friend_deleted != usize::MAX {
                 friend_names.remove(friend_deleted);
                 friends.remove(friend_deleted);

@@ -13,7 +13,7 @@ use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::Build;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
 use trackable::error::MainError;
 use crossbeam::channel;
@@ -35,7 +35,7 @@ use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
 use khora::validation::{NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE};
 
-use gip::{Provider, ProviderDefaultV4};
+use gip::{GlobalAddress, Provider, ProviderDefaultV4};
 
 
 /// when to announce you're about to be in the comittee or how far in advance you can no longer serve as leader
@@ -65,7 +65,7 @@ fn main() -> Result<(), MainError> {
 
     let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
     let mut p = ProviderDefaultV4::new();
-    let global_addr = p.get_addr().unwrap().v4addr.unwrap();
+    let global_addr = p.get_addr().unwrap_or({println!("Can't get global ip!"); GlobalAddress::from_v4(Ipv4Addr::new(0,0,0,0), "")}).v4addr.unwrap();
     let global_socket = format!("{}:{}",global_addr,DEFAULT_PORT).parse::<SocketAddr>().unwrap();
     println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
 

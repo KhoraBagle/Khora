@@ -74,6 +74,25 @@ fn main() -> Result<(), MainError> {
     
 
 
+
+    println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
+    let executor = track_any_err!(ThreadPoolExecutor::new())?;
+    let service = ServiceBuilder::new(local_socket)
+        .logger(logger.clone())
+        .server_addr(global_socket)
+        .finish(executor.handle(), SerialLocalNodeIdGenerator::new());
+    let backnode = NodeBuilder::new().logger(logger.clone()).finish(service.handle());
+    println!("{:?}",backnode.id());
+    let frontnode = NodeBuilder::new().logger(logger).finish(service.handle()); // todo: make this local_id random so people can't guess you
+    println!("{:?}",frontnode.id()); // this should be the validator survice
+
+
+    let (ui_sender, mut urecv) = mpsc::channel();
+    let (usend, ui_reciever) = channel::unbounded();
+
+
+
+    
     // the myNode file only exists if you already have an account made
     let setup = !Path::new("myNode").exists();
     if setup {
@@ -81,14 +100,140 @@ fn main() -> Result<(), MainError> {
         let person0 = CompressedRistretto([46, 235, 227, 188, 55, 53, 9, 126, 167, 207, 202, 101, 150, 150, 172, 207, 209, 208, 211, 52, 47, 206, 19, 115, 199, 189, 202, 10, 56, 220, 138, 55]);
         let initial_history = vec![(person0,1u64)];
 
-        // these are used to communicate with the setup screen
-        let (ui_sender_setup, mut urecv_setup) = mpsc::channel();
-        let (usend_setup, ui_reciever_setup) = channel::unbounded();
+        std::thread::spawn(move || {
+            println!("You closed the app...");
+            let pswrd: Vec<u8>;
+            let will_stk: bool;
+            let lightning_yielder: bool;
+            loop {
+                if let Async::Ready(Some(m)) = urecv.poll().expect("Shouldn't fail") {
+                    pswrd = m;
+                    break
+                }
+            }
+            loop {
+                if let Async::Ready(Some(m)) = urecv.poll().expect("Shouldn't fail") {
+                    will_stk = m[0] == 0;
+                    break
+                }
+            }
+            loop {
+                if let Async::Ready(Some(m)) = urecv.poll().expect("Shouldn't fail") {
+                    lightning_yielder = m[0] == 1;
+                    break
+                }
+            }
+            println!("{:?}",pswrd);
+            let me = Account::new(&pswrd);
+            let validator = me.stake_acc().receive_ot(&me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap(); //make a new account
+            let key = validator.sk.unwrap();
+            let mut keylocation = HashSet::new();
+            if will_stk {
+                if !lightning_yielder {
+                    NextBlock::initialize_saving();
+                }
+                LightningSyncBlock::initialize_saving();
+                History::initialize();
+                BloomFile::initialize_bloom_file();    
+            }
+            let bloom = BloomFile::from_randomness();
+    
+            let mut smine = vec![];
+            for i in 0..initial_history.len() {
+                if initial_history[i].0 == me.stake_acc().derive_stk_ot(&Scalar::from(initial_history[i].1)).pk.compress() {
+                    smine.push([i as u64,initial_history[i].1]);
+                    keylocation.insert(i as u64);
+                    println!("\n\nhey i guess i founded this crypto!\n\n");
+                }
+            }
+    
+            // creates the node with the specified conditions then saves it to be used from now on
+            let node = KhoraNode {
+                inner: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
+                outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
+                save_history: will_stk,
+                me,
+                mine: HashMap::new(),
+                smine: smine.clone(), // [location, amount]
+                key,
+                keylocation,
+                leader: person0,
+                overthrown: HashSet::new(),
+                votes: vec![0;NUMBER_OF_VALIDATORS],
+                stkinfo: initial_history.clone(),
+                queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)%initial_history.len()).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
+                exitqueue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
+                comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)%initial_history.len()).collect::<Vec<usize>>()).collect::<Vec<_>>(),
+                lastname: Scalar::one().as_bytes().to_vec(),
+                bloom,
+                bnum: 0u64,
+                lastbnum: 0u64,
+                height: 0u64,
+                sheight: initial_history.len() as u64,
+                alltagsever: vec![],
+                txses: vec![],
+                sigs: vec![],
+                timekeeper: Instant::now() + Duration::from_secs(1),
+                waitingforentrybool: true,
+                waitingforleaderbool: false,
+                waitingforleadertime: Instant::now(),
+                waitingforentrytime: Instant::now(),
+                doneerly: Instant::now(),
+                headshard: 0,
+                usurpingtime: Instant::now(),
+                is_validator: !smine.is_empty(),
+                is_user: true,
+                sent_onces: HashSet::new(),
+                knownvalidators: HashMap::new(),
+                newest: 0u64,
+                rmems: HashMap::new(),
+                rname: vec![],
+                gui_sender: usend.clone(),
+                gui_reciever: mpsc::channel().1,
+                moneyreset: None,
+                sync_returnaddr: None,
+                sync_theirnum: 0u64,
+                sync_lightning: false,
+                outs: None,
+                oldstk: None,
+                cumtime: 0f64,
+                blocktime: blocktime(0.0),
+                lightning_yielder,
+                ringsize: 5,
+                gui_timer: Instant::now(),
+            };
+            node.save();
 
+            let mut info = bincode::serialize(&
+                vec![
+                bincode::serialize(&node.me.name()).expect("should work"),
+                bincode::serialize(&node.me.stake_acc().name()).expect("should work"),
+                bincode::serialize(&node.me.sk.as_bytes().to_vec()).expect("should work"),
+                bincode::serialize(&node.me.vsk.as_bytes().to_vec()).expect("should work"),
+                bincode::serialize(&node.me.ask.as_bytes().to_vec()).expect("should work"),
+                ]
+            ).expect("should work");
+            info.push(254);
+            usend.send(info).expect("should work");
+
+
+            let node = KhoraNode::load(frontnode, backnode, usend, urecv);
+            let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
+            mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+            mymoney.push(0);
+            println!("my money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
+            node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
+            node.save();
+
+            executor.spawn(service.map_err(|e| panic!("{}", e)));
+            executor.spawn(node);
+            println!("about to run node executer!");
+            track_any_err!(executor.run()).unwrap();
+        });
         // creates the setup screen (sets the values used in the loops and sets some gui options)
         let app = gui::KhoraGUI::new(
-            ui_reciever_setup,
-            ui_sender_setup,
+            ui_reciever,
+            ui_sender,
             "".to_string(),
             "".to_string(),
             vec![],
@@ -99,178 +244,43 @@ fn main() -> Result<(), MainError> {
         let mut native_options = eframe::NativeOptions::default();
         native_options.always_on_top = true;
         eframe::run_native(Box::new(app), native_options);
-        println!("You closed the app...");
-        let pswrd: Vec<u8>;
-        let will_stk: bool;
-        let lightning_yielder: bool;
-        let wait_to_work = Instant::now();
-        loop {
-            if wait_to_work.elapsed().as_secs() > 2 {
-                panic!("you didn't hit the button you should have");
-            }
-            if let Async::Ready(Some(m)) = urecv_setup.poll().expect("Shouldn't fail") {
-                pswrd = m;
-                break
-            }
-        }
-        loop {
-            if wait_to_work.elapsed().as_secs() > 2 {
-                panic!("you didn't hit the button you should have");
-            }
-            if let Async::Ready(Some(m)) = urecv_setup.poll().expect("Shouldn't fail") {
-                will_stk = m[0] == 0;
-                break
-            }
-        }
-        loop {
-            if wait_to_work.elapsed().as_secs() > 2 {
-                panic!("you didn't hit the button you should have");
-            }
-            if let Async::Ready(Some(m)) = urecv_setup.poll().expect("Shouldn't fail") {
-                lightning_yielder = m[0] == 1;
-                break
-            }
-        }
-        println!("{:?}",pswrd);
-        let me = Account::new(&pswrd);
-        let validator = me.stake_acc().receive_ot(&me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap(); //make a new account
-        let key = validator.sk.unwrap();
-        let mut keylocation = HashSet::new();
-        if will_stk {
-            if !lightning_yielder {
-                NextBlock::initialize_saving();
-            }
-            LightningSyncBlock::initialize_saving();
-            History::initialize();
-            BloomFile::initialize_bloom_file();    
-        }
-        let bloom = BloomFile::from_randomness();
-
-        let mut smine = vec![];
-        for i in 0..initial_history.len() {
-            if initial_history[i].0 == me.stake_acc().derive_stk_ot(&Scalar::from(initial_history[i].1)).pk.compress() {
-                smine.push([i as u64,initial_history[i].1]);
-                keylocation.insert(i as u64);
-                println!("\n\nhey i guess i founded this crypto!\n\n");
-            }
-        }
-
-        // creates the node with the specified conditions then saves it to be used from now on
-        let node = KhoraNode {
-            inner: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
-            outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
-            save_history: will_stk,
-            me,
-            mine: HashMap::new(),
-            smine: smine.clone(), // [location, amount]
-            key,
-            keylocation,
-            leader: person0,
-            overthrown: HashSet::new(),
-            votes: vec![0;NUMBER_OF_VALIDATORS],
-            stkinfo: initial_history.clone(),
-            queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)%initial_history.len()).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
-            exitqueue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
-            comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)%initial_history.len()).collect::<Vec<usize>>()).collect::<Vec<_>>(),
-            lastname: Scalar::one().as_bytes().to_vec(),
-            bloom,
-            bnum: 0u64,
-            lastbnum: 0u64,
-            height: 0u64,
-            sheight: initial_history.len() as u64,
-            alltagsever: vec![],
-            txses: vec![],
-            sigs: vec![],
-            timekeeper: Instant::now() + Duration::from_secs(1),
-            waitingforentrybool: true,
-            waitingforleaderbool: false,
-            waitingforleadertime: Instant::now(),
-            waitingforentrytime: Instant::now(),
-            doneerly: Instant::now(),
-            headshard: 0,
-            usurpingtime: Instant::now(),
-            is_validator: !smine.is_empty(),
-            is_user: true,
-            sent_onces: HashSet::new(),
-            knownvalidators: HashMap::new(),
-            newest: 0u64,
-            rmems: HashMap::new(),
-            rname: vec![],
-            gui_sender: usend_setup,
-            gui_reciever: urecv_setup,
-            moneyreset: None,
-            sync_returnaddr: None,
-            sync_theirnum: 0u64,
-            sync_lightning: false,
-            outs: None,
-            oldstk: None,
-            cumtime: 0f64,
-            blocktime: blocktime(0.0),
-            lightning_yielder,
-            ringsize: 5,
-            gui_timer: Instant::now(),
-        };
+    } else {
+        let node = KhoraNode::load(frontnode, backnode, usend, urecv);
+        let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
+        mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+        mymoney.push(0);
+        println!("my money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
+        node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
         node.save();
+
+        let app = gui::KhoraGUI::new(
+            ui_reciever,
+            ui_sender,
+            node.me.name(),
+            node.me.stake_acc().name(),
+            node.me.sk.as_bytes().to_vec(),
+            node.me.vsk.as_bytes().to_vec(),
+            node.me.ask.as_bytes().to_vec(),
+            false,
+        );
+        let native_options = eframe::NativeOptions::default();
+        std::thread::spawn(move || {
+            executor.spawn(service.map_err(|e| panic!("{}", e)));
+            executor.spawn(node);
+    
+    
+            track_any_err!(executor.run()).unwrap();
+        });
+        eframe::run_native(Box::new(app), native_options);
     }
-
-
-    println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
-
-    let executor = track_any_err!(ThreadPoolExecutor::new())?;
-    let service = ServiceBuilder::new(local_socket)
-        .logger(logger.clone())
-        .server_addr(global_socket)
-        .finish(executor.handle(), SerialLocalNodeIdGenerator::new());
-
-    let backnode = NodeBuilder::new().logger(logger.clone()).finish(service.handle());
-    println!("{:?}",backnode.id());
-    let frontnode = NodeBuilder::new().logger(logger).finish(service.handle()); // todo: make this local_id random so people can't guess you
-    println!("{:?}",frontnode.id()); // this should be the validator survice
-
-
-
-    let (ui_sender, urecv) = mpsc::channel();
-    let (usend, ui_reciever) = channel::unbounded();
-
-
-
-
-    let node = KhoraNode::load(frontnode, backnode, usend, urecv);
-    let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
-    mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
-    mymoney.push(0);
-    println!("my money:\n---------------------------------\n{:?}",mymoney);
-    node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
-    node.save();
-    
     
 
 
-    println!("starting!");
-    let app = gui::KhoraGUI::new(
-        ui_reciever,
-        ui_sender,
-        node.me.name(),
-        node.me.stake_acc().name(),
-        node.me.sk.as_bytes().to_vec(),
-        node.me.vsk.as_bytes().to_vec(),
-        node.me.ask.as_bytes().to_vec(),
-        false,
-    );
-    println!("starting!");
-    let native_options = eframe::NativeOptions::default();
-    println!("starting!");
-    std::thread::spawn(move || {
-        executor.spawn(service.map_err(|e| panic!("{}", e)));
-        executor.spawn(node);
 
 
-        track_any_err!(executor.run()).unwrap();
-    });
-    eframe::run_native(Box::new(app), native_options);
-    println!("ending!");
-    // add save node command somehow or add that as exit thing and add wait for saved signal here
-    Ok(())
+
+
+
 }
 
 
@@ -1570,6 +1580,10 @@ impl Future for KhoraNode {
                         let mut gm = (friend.len() as u16).to_le_bytes().to_vec();
                         gm.push(4);
                         self.gui_sender.send(gm).expect("should be working");
+                    } else if istx == 0 {
+                        println!("Saving!");
+                        self.save();
+                        self.gui_sender.send(vec![253]).unwrap();
                     }
                 }
             }

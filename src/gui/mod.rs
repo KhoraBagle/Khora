@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8820";
+static VERSION: &str = "v0.8821";
 
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
@@ -107,6 +107,7 @@ pub struct KhoraGUI {
     options_menu: bool,
     ringsize: u8,
     logout_window: bool,
+    loggedout: bool,
 
     #[cfg_attr(feature = "persistence", serde(skip))] // this feature doesn't work for sender
     timekeeper: Instant,
@@ -166,6 +167,7 @@ impl Default for KhoraGUI {
             options_menu: false,
             ringsize: 5,
             logout_window: false,
+            loggedout: false,
         }
     }
 }
@@ -224,6 +226,7 @@ impl epi::App for KhoraGUI {
                 self.send_amnt = vec!["".to_string()];
                 self.options_menu = false;
                 self.logout_window = false;
+                self.loggedout = false;
 
                 self.sender = s;
                 self.reciever = r;
@@ -245,6 +248,15 @@ impl epi::App for KhoraGUI {
         println!("App saving procedures beginning...");
         if !self.setup {
             epi::set_value(storage, "Khora", self);
+            if !self.loggedout {
+                self.sender.send(vec![0]).unwrap();
+                loop {
+                    if self.reciever.try_recv() == Ok(vec![253]) {
+                        println!("Saved!");
+                        break
+                    }
+                }
+            }
         }
     }
 
@@ -269,6 +281,15 @@ impl epi::App for KhoraGUI {
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();
+            } else if modification == 254 {
+                let i: Vec<Vec<u8>> = bincode::deserialize(&i).unwrap();
+                self.addr = bincode::deserialize(&i[0]).unwrap();
+                self.stkaddr = bincode::deserialize(&i[1]).unwrap();
+                self.sk = bincode::deserialize(&i[2]).unwrap();
+                self.vsk = bincode::deserialize(&i[3]).unwrap();
+                self.tsk = bincode::deserialize(&i[4]).unwrap();
+                self.setup = false;
+                println!("Done with setup!");
             } else if modification == u8::MAX {
                 let info = i.pop().unwrap();
                 if info == 0 {
@@ -333,6 +354,7 @@ impl epi::App for KhoraGUI {
             options_menu,
             ringsize,
             logout_window,
+            loggedout,
         } = self;
 
  
@@ -593,8 +615,6 @@ impl epi::App for KhoraGUI {
                                 break
                             }
                         }
-                        *setup = false;
-                        frame.quit();
                     }
                 });
                 ui.add(Checkbox::new(staking,"I want to be a staker!"));
@@ -610,7 +630,7 @@ impl epi::App for KhoraGUI {
             }
             if !*setup {
                 let mut delete_row_x = usize::MAX;
-                egui::ScrollArea::auto_sized().show(ui,|ui| {
+                egui::ScrollArea::vertical().show(ui,|ui| {
                     egui::Grid::new("spending_grid").min_col_width(90.0).max_col_width(500.0).show(ui, |ui| {
                         if ui.button("Add Row").clicked() {
                             send_name.push("".to_string());
@@ -782,13 +802,14 @@ impl epi::App for KhoraGUI {
         egui::Window::new("Logout Menu").open(logout_window).show(ctx, |ui| {
             ui.label("Logging out of your account will refresh all of youe wallet settings and will require resync with the blockchain.");
             if ui.button("Quit Account- Will require resync with blockchain").clicked() {
-                fs::remove_file("myNode").expect("should work");
-                fs::remove_file("fullblocks").expect("should work");
-                fs::remove_file("fullblocks_metadata").expect("should work");
-                fs::remove_file("lightningblocks").expect("should work");
-                fs::remove_file("lightningblocks_metadata").expect("should work");
-                fs::remove_file("history").expect("should work");
-                fs::remove_file("bloomfile").expect("should work");
+                fs::remove_file("myNode");
+                fs::remove_file("fullblocks");
+                fs::remove_file("fullblocks_metadata");
+                fs::remove_file("lightningblocks");
+                fs::remove_file("lightningblocks_metadata");
+                fs::remove_file("history");
+                fs::remove_file("bloomfile");
+                *loggedout = true;
                 frame.quit();
             }
         });
@@ -823,7 +844,7 @@ impl epi::App for KhoraGUI {
             }
             let mut friend_deleted = usize::MAX;
             ui.label("Friends: ");
-            egui::ScrollArea::auto_sized().always_show_scroll(true).show(ui,|ui| {
+            egui::ScrollArea::vertical().always_show_scroll(true).show(ui,|ui| {
                 for ((i,(addr,name)),e) in friends.iter_mut().zip(friend_names.iter_mut()).enumerate().zip(edit_names.iter_mut()) {
                     if *e {
                         ui.text_edit_singleline(name);

@@ -49,13 +49,12 @@ slog = "2"
 trackable = "0.2"
 crossbeam = "0.8.1"
 getrandom = { version = "0.2", features = ["js"] }
-# eframe = "0.14.0" # Gives us egui, epi and web+native backends
+# eframe = "0.15.0" # Gives us egui, epi and web+native backends
 eframe = { version = "*", default-features = false, features = ["default_fonts", "egui_glow", "persistence"] }
 
 gip = "0.7.0"
 local-ip-address = "0.4.4"
 
 [features]
-default = []
-http = ["eframe/http"] # Enable if you want to do http requests
-# persistence = ["eframe/persistence"] # Enable if you want to persist app state on shutdown
+default = ["persistence"]
+persistence = ["eframe/persistence"] # Enable if you want to persist app state on shutdown

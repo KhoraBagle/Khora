@@ -1,7 +1,7 @@
 use std::{fs::File, io::Read};
 
 use curve25519_dalek::scalar::Scalar;
-use kora::{account::Account, validation::NextBlock};
+use khora::{account::Account, validation::NextBlock};
 use sha3::{Digest, Sha3_512};
 
 

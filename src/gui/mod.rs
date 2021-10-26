@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8812";
+static VERSION: &str = "v0.8820";
 
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
@@ -377,7 +377,7 @@ impl epi::App for KhoraGUI {
                         egui::Color32::LIGHT_GRAY
                     }
                 }));
-                if ui.add(Button::new("Refresh").small().enabled(!*setup)).clicked() {
+                if ui.add(Button::new("Refresh").small().sense(if *setup  {Sense::hover()} else {Sense::click()})).clicked() {
                     sender.send(vec![64]).expect("something's wrong with communication from the gui");
                 }
             });
@@ -574,7 +574,7 @@ impl epi::App for KhoraGUI {
 
 
                 ui.horizontal(|ui| {
-                    if ui.add(Button::new("Login").enabled(bad_log_info)).clicked() {
+                    if ui.add(Button::new("Login").sense(if !bad_log_info {Sense::hover()} else {Sense::click()})).clicked() {
                         *password0 = pswd_guess0.clone();
                         *next_pswrd1 = username.clone();
                         loop {
@@ -740,7 +740,7 @@ impl epi::App for KhoraGUI {
                     ui.text_edit_singleline(panic_fee);
                 });
                 
-                if ui.add(Button::new("PANIC").enabled(*unstaked != 0 || *staked != 0)).clicked() {
+                if ui.add(Button::new("PANIC").sense(if *unstaked == 0 && *staked == 0 {Sense::hover()} else {Sense::click()})).clicked() {
                     let mut x = vec![];
                     let pf = retain_numeric(panic_fee.to_string()).parse::<u64>().unwrap();
 

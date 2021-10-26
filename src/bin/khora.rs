@@ -5,7 +5,7 @@ use curve25519_dalek::constants::RISTRETTO_BASEPOINT_COMPRESSED;
 use fibers::sync::mpsc;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
-use kora::seal::BETA;
+use khora::seal::BETA;
 use plumcast::node::{LocalNodeId, Node, NodeBuilder, NodeId, SerialLocalNodeIdGenerator};
 use plumcast::service::ServiceBuilder;
 use rand::prelude::SliceRandom;
@@ -19,21 +19,21 @@ use trackable::error::MainError;
 use crossbeam::channel;
 
 
-use kora::{account::*, gui};
+use khora::{account::*, gui};
 use curve25519_dalek::scalar::Scalar;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryInto;
 use std::time::{Duration, Instant};
 use std::borrow::Borrow;
-use kora::transaction::*;
+use khora::transaction::*;
 use curve25519_dalek::ristretto::{CompressedRistretto};
 use sha3::{Digest, Sha3_512};
 use rayon::prelude::*;
-use kora::bloom::*;
-use kora::validation::*;
-use kora::ringmaker::*;
+use khora::bloom::*;
+use khora::validation::*;
+use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
-use kora::validation::{NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE};
+use khora::validation::{NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE};
 
 use gip::{Provider, ProviderDefaultV4};
 

@@ -309,7 +309,6 @@ struct SavedNode {
     alltagsever: Vec<CompressedRistretto>,
     headshard: usize,
     outer_view: Vec<NodeId>,
-    rmems: HashMap<u64,OTAccount>,
     rname: Vec<u8>,
     moneyreset: Option<Vec<u8>>,
     oldstk: Option<(Account, Vec<[u64;2]>, u64)>,
@@ -403,7 +402,6 @@ impl KhoraNode {
                 alltagsever: self.alltagsever.clone(),
                 headshard: self.headshard.clone(),
                 outer_view: self.outer.plumtree_node().all_push_peers().into_iter().collect(),
-                rmems: self.rmems.clone(),
                 rname: self.rname.clone(),
                 moneyreset: self.moneyreset.clone(),
                 oldstk: self.oldstk.clone(),
@@ -1160,17 +1158,43 @@ impl Future for KhoraNode {
                                 }
                             }
                         } else if mtype == 113 /* q */ { // they just sent you a ring member
-                            if m.len() == 72 {
-                                if !self.rmems.contains_key(&u64::from_le_bytes(m[64..72].try_into().unwrap())) {
-                                    self.rmems.insert(u64::from_le_bytes(m[64..72].try_into().unwrap()),History::read_raw(&m));
+                            if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(&m) {
+                                let locs = recieve_ring(&self.rname).unwrap();
+                                let rmems = r.iter().zip(locs).map(|(x,y)| (y,History::read_raw(x))).collect::<Vec<_>>();
+                                let mut ringchanged = false;
+                                for mem in rmems {
+                                    if self.mine.iter().filter(|x| *x.0 == mem.0).count() == 0 {
+                                        self.rmems.insert(mem.0,mem.1);
+                                        ringchanged = true;
+                                    }
+                                }
+                                if ringchanged {
+                                    if let Some(outs) = self.outs.clone() {
+                                        let ring = recieve_ring(&self.rname).unwrap();
+                                        let mut got_the_ring = true;
+                                        let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
+                                        rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
+                                        let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                                        if got_the_ring && tx.verify().is_ok() {
+                                            let tx = tx.polyform(&self.rname);
+                                            // tx.verify().unwrap(); // as a user you won't be able to check this
+                                            let mut txbin = bincode::serialize(&tx).unwrap();
+                                            txbin.push(0);
+                                            self.outer.broadcast(txbin);
+                                            println!("transaction ring filled and tx sent!");
+                                        } else {
+                                            println!("you can't make that transaction, user!");
+                                        }
+                                    }
                                 }
                             }
                         } else if mtype == 114 /* r */ { // answer their ring question
-                            let mut y = m[..8].to_vec();
-                            let mut x = History::get_raw(&u64::from_le_bytes(y.clone().try_into().unwrap())).to_vec();
-                            x.append(&mut y);
-                            x.push(113);
-                            self.outer.dm(x,&vec![msg.id.node()],false);
+                            if let Ok(r) = recieve_ring(&m) {
+                                let y = r.iter().map(|y| History::get_raw(y).to_vec()).collect::<Vec<_>>();
+                                let mut x = bincode::serialize(&y).unwrap();
+                                x.push(113);
+                                self.outer.dm(x,&vec![msg.id.node()],false);
+                            }
                         } else if mtype == 118 /* v */ { // someone announcing they're about to be in the comittee
                             if let Some(who) = Signature::recieve_signed_message(&mut m, &self.stkinfo) {
                                 if let Ok(m) = bincode::deserialize::<NodeId>(&m) {
@@ -1253,28 +1277,6 @@ impl Future for KhoraNode {
             USER STUFF ||||||||||||| USER STUFF ||||||||||||| USER STUFF ||||||||||||| USER STUFF |||||||||||||
             ||||||||||||| USER STUFF ||||||||||||| USER STUFF ||||||||||||| USER STUFF ||||||||||||| USER STUFF
             */
-            // handles ring formation for people who don't have access to the history of the blockchain
-            if !self.save_history {
-                if let Some(outs) = self.outs.clone() {
-                    let ring = recieve_ring(&self.rname).expect("shouldn't fail");
-                    let mut got_the_ring = true;
-                    let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
-                    rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
-                    let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                    if got_the_ring && tx.verify().is_ok() {
-                        let tx = tx.polyform(&self.rname);
-                        // tx.verify().unwrap(); // as a user you won't be able to check this
-                        let mut txbin = bincode::serialize(&tx).unwrap();
-                        txbin.push(0);
-                        let needtosend = (txbin,self.mine.iter().map(|x| *x.0).collect::<Vec<_>>());
-                        self.outer.broadcast_now(needtosend.0.clone());
-                        println!("transaction made!");
-                        self.outs = None;
-                    } else {
-                        println!("you can't make that transaction, user!");
-                    }
-                }
-            }
             // interacting with the gui
             while let Async::Ready(Some(mut m)) = self.gui_reciever.poll().expect("Never fails") {
                 println!("got message from gui!\n{}",String::from_utf8_lossy(&m));
@@ -1339,6 +1341,8 @@ impl Future for KhoraNode {
                 
                                     println!("loc: {:?}",loc);
                                     println!("height: {}",self.height);
+                                    self.rmems = HashMap::new();
+                                    self.outs = None;
                                     for (i,j) in loc.iter().zip(acc) {
                                         println!("i: {}, j.pk: {:?}",i,j.pk.compress());
                                         self.rmems.insert(*i,j);
@@ -1348,11 +1352,9 @@ impl Future for KhoraNode {
                                     let ring = recieve_ring(&self.rname).expect("shouldn't fail");
                                     if self.ringsize != 0 {
                                         println!("ring:----------------------------------\n{:?}",ring);
-                                        for r in ring.iter() {
-                                            let mut r = r.to_le_bytes().to_vec();
-                                            r.push(114);
-                                            self.outer.dm(r,&self.outer.plumtree_node().all_push_peers(),false);
-                                        }
+                                        let mut rnamesend = self.rname.clone();
+                                        rnamesend.push(114);
+                                        self.outer.dm(rnamesend,&self.outer.plumtree_node().all_push_peers(),false);
                                         self.outs = Some(outs);
                                         txbin = vec![];
                                     } else {

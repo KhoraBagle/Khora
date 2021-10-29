@@ -54,6 +54,7 @@ eframe = { version = "0.15.0", default-features = false, features = ["default_fo
 
 gip = "0.7.0"
 local-ip-address = "0.4.4"
+natpmp = "0.3.2"
 
 [features]
 default = ["persistence"]

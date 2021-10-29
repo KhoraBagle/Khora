@@ -13,19 +13,38 @@ use std::net::{IpAddr, SocketAddr};
 use trackable::error::MainError;
 use gip::{Provider, ProviderDefaultV4};
 
+use natpmp::*;
+use std::thread;
+use std::time::Duration;
 
+
+use rand::Rng;
 
 const DEFAULT_PORT: u16 = 10011;
 
 // systemd-resolve --status | grep Current
 
-fn main() -> Result<(), MainError> {
+fn main() {
     // let opt = Opt::from_args();
-    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build())?; // info or debug
+    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build()).unwrap(); // info or debug
 
-        
-
+    let mut rng = rand::thread_rng();
+    let mut n = Natpmp::new().unwrap();
+    loop {
+        let randport_priv = rng.gen::<u16>();
+        let randport_pub = rng.gen::<u16>();
+        println!("{},{}",randport_priv,randport_pub);
+        n.send_public_address_request().unwrap();
+        n.send_port_mapping_request(Protocol::UDP, randport_priv, randport_pub, 30).unwrap();
     
+
+        thread::sleep(Duration::from_millis(250));
+        let response = n.read_response_or_retry();
+        println!("{:?}",response);
+        if response.is_ok() {
+            break
+        }
+    }
 
     let local_addr = "0.0.0.0".parse().unwrap();
     let local_socket = SocketAddr::new(local_addr,DEFAULT_PORT);
@@ -33,7 +52,7 @@ fn main() -> Result<(), MainError> {
     let global_addr = p.get_addr().unwrap().v4addr.unwrap();
     let global_socket = SocketAddr::new(IpAddr::V4(global_addr),DEFAULT_PORT);
     println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
-    let executor = track_any_err!(ThreadPoolExecutor::new())?;
+    let executor = track_any_err!(ThreadPoolExecutor::new()).unwrap();
 
     let service = ServiceBuilder::new(local_socket)
         .logger(logger.clone())
@@ -74,7 +93,6 @@ fn main() -> Result<(), MainError> {
 
     track_any_err!(executor.run()).unwrap();
 
-    Ok(())
 }
 
 

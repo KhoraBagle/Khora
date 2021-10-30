@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8824";
+static VERSION: &str = "v0.8825";
 
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];

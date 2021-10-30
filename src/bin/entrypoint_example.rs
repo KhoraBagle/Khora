@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use rand::Rng;
 
-const DEFAULT_PORT: u16 = 10011;
+const DEFAULT_PORT: u16 = 8334;
 
 // systemd-resolve --status | grep Current
 

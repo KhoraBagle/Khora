@@ -6,6 +6,7 @@ use fibers::sync::mpsc;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
 use khora::seal::BETA;
+use natpmp::Natpmp;
 use plumcast::node::{LocalNodeId, Node, NodeBuilder, NodeId, SerialLocalNodeIdGenerator};
 use plumcast::service::ServiceBuilder;
 use rand::prelude::SliceRandom;
@@ -43,7 +44,7 @@ const EXIT_TIME: usize = REPLACERATE*5;
 /// amount of seconds to wait before initiating shard takeover
 const USURP_TIME: u64 = 3600;
 /// the default port
-const DEFAULT_PORT: u64 = 8334;
+const DEFAULT_PORT: u16 = 8334;
 /// total money ever produced
 const TOTAL_KHORA: f64 = 1.0e16;
 /// calculates the amount of time the current block takes to be created
@@ -61,8 +62,16 @@ fn main() -> Result<(), MainError> {
 
         
 
+    let mut n = Natpmp::new().unwrap();
+    n.send_public_address_request().unwrap();
+    n.send_port_mapping_request(natpmp::Protocol::UDP, DEFAULT_PORT, DEFAULT_PORT, 30).unwrap();
+    std::thread::sleep(Duration::from_millis(250));
+    let response = n.read_response_or_retry();
+    println!("{:?}",response);
 
 
+
+    
     let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
     let mut p = ProviderDefaultV4::new();
     let global_addr = p.get_addr().unwrap_or({println!("Can't get global ip!"); GlobalAddress::from_v4(Ipv4Addr::new(0,0,0,0), "")}).v4addr.unwrap();

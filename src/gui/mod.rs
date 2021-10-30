@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8825";
+static VERSION: &str = "v0.8826";
 
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
@@ -64,26 +64,21 @@ pub struct KhoraGUI {
     #[cfg_attr(feature = "persistence", serde(skip))] // this feature doesn't work for sender
     sender: mpsc::Sender<Vec<u8>>,
 
-    // Example stuff:
     fee: String,
     unstaked: u64,
     staked: u64,
     friends: Vec<String>,
-    friend_adding: String,
-    name_adding: String,
     friend_names: Vec<String>,
     staking: bool,
     stake: String,
     unstake: String,
     addr: String,
     stkaddr: String,
-    edit_names: Vec<bool>,
     dont_trust_amounts: bool,
     password0: String,
     pswd_guess0: String,
     username: String,
     secret_key: String,
-    pswd_shown: bool,
     block_number: u64,
     show_next_pswrd: bool,
     next_pswrd0: String,
@@ -92,27 +87,40 @@ pub struct KhoraGUI {
     panic_fee: String,
     entrypoint: String,
     stkspeand: bool,
-    show_reset: bool,
     setup: bool,
-    eta: i8,
-    send_name: Vec<String>,
-    send_addr: Vec<String>,
-    send_amnt: Vec<String>,
     lightning_yielder: bool,
     validating: bool,
-    lonely: u16,
     sk: Vec<u8>,
     vsk: Vec<u8>,
     tsk: Vec<u8>,
-    options_menu: bool,
     ringsize: u8,
+
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    lonely: u16,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    options_menu: bool,
+    #[cfg_attr(feature = "persistence", serde(skip))]
     logout_window: bool,
-    loggedout: bool,
-
-    #[cfg_attr(feature = "persistence", serde(skip))] // this feature doesn't work for sender
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    eta: i8,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    friend_adding: String,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    name_adding: String,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    edit_names: Vec<bool>,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    pswd_shown: bool,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    show_reset: bool,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    send_name: Vec<String>,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    send_addr: Vec<String>,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    send_amnt: Vec<String>,
+    #[cfg_attr(feature = "persistence", serde(skip))]
     timekeeper: Instant,
-
-    // this how you opt-out of serialization of a member
     #[cfg_attr(feature = "persistence", serde(skip))]
     you_cant_do_that: bool,
 }
@@ -167,7 +175,6 @@ impl Default for KhoraGUI {
             options_menu: false,
             ringsize: 5,
             logout_window: false,
-            loggedout: false,
         }
     }
 }
@@ -214,19 +221,7 @@ impl epi::App for KhoraGUI {
                 let vsk = self.vsk.clone();
                 let tsk = self.tsk.clone();
                 *self = epi::get_value(storage, "Khora").unwrap_or_default();
-                self.edit_names.iter_mut().for_each(|x| *x = false);
-                self.friend_adding = "".to_string();
-                self.name_adding = "".to_string();
-                self.pswd_shown = false;
-                self.show_reset = false;
-                self.you_cant_do_that = false;
-                self.lonely = 0;
-                self.send_name = vec!["".to_string()];
-                self.send_addr = vec!["".to_string()];
-                self.send_amnt = vec!["".to_string()];
-                self.options_menu = false;
-                self.logout_window = false;
-                self.loggedout = false;
+                self.edit_names = self.friend_names.iter().map(|_| false).collect();
 
                 self.sender = s;
                 self.reciever = r;
@@ -248,13 +243,11 @@ impl epi::App for KhoraGUI {
         println!("App saving procedures beginning...");
         if !self.setup {
             epi::set_value(storage, "Khora", self);
-            if !self.loggedout {
-                self.sender.send(vec![0]).unwrap();
-                loop {
-                    if self.reciever.try_recv() == Ok(vec![253]) {
-                        println!("Saved!");
-                        break
-                    }
+            self.sender.send(vec![0]).unwrap();
+            loop {
+                if self.reciever.try_recv() == Ok(vec![253]) {
+                    println!("Saved!");
+                    break
                 }
             }
         }
@@ -354,7 +347,6 @@ impl epi::App for KhoraGUI {
             options_menu,
             ringsize,
             logout_window,
-            loggedout,
         } = self;
 
  
@@ -828,7 +820,7 @@ impl epi::App for KhoraGUI {
                 fs::remove_file("lightningblocks_metadata");
                 fs::remove_file("history");
                 fs::remove_file("bloomfile");
-                *loggedout = true;
+                *setup = true;
                 frame.quit();
             }
         });

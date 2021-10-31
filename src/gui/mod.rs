@@ -807,7 +807,7 @@ impl epi::App for KhoraGUI {
                 ui.label("If the ring size is 0, you won't need to rely on the network to give you true ring members.");
             }
             ui.label("\n");
-            ui.add(Slider::new(ringsize, 0..=20).text("Ring Size"));
+            ui.add(Slider::new(ringsize, 0..=22).text("Ring Size"));
         });
         egui::Window::new("Logout Menu").open(logout_window).show(ctx, |ui| {
             ui.label("Logging out of your account will refresh all of youe wallet settings and will require resync with the blockchain.");

@@ -29,19 +29,5 @@ fn main() {
     let leader = Account::new(&person0).stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
     println!("{:?}",leader);
 
-    for b in 0u64..10u64 {
-        let file = format!("blocks/b{}",b);
-        println!("checking for file {:?}...",file);
-        if let Ok(mut file) = File::open(file) {
-            let mut x = vec![];
-            file.read_to_end(&mut x).unwrap();
-            assert!(x == NextBlock::read(&b).unwrap());
-        } else {
-            assert!(NextBlock::read(&b).is_err());
-        }
-    }
-
-
-
 
 }

@@ -372,7 +372,7 @@ impl epi::App for KhoraGUI {
                         *setup = true;
                         frame.quit();
                     }
-                    if ui.button("Perminent Logout").clicked() {
+                    if ui.button("Permanent Logout").clicked() {
                         *logout_window = true;
                     }
                 });
@@ -810,7 +810,7 @@ impl epi::App for KhoraGUI {
             ui.add(Slider::new(ringsize, 0..=22).text("Ring Size"));
         });
         egui::Window::new("Logout Menu").open(logout_window).show(ctx, |ui| {
-            ui.label("Logging out of your account will refresh all of youe wallet settings and will require resync with the blockchain.");
+            ui.label("Logging out of your account will refresh all of your wallet settings and will require resync with the blockchain.");
             ui.label("");
             if ui.button("Quit Account- Will require resync with blockchain").clicked() {
                 fs::remove_file("myNode");

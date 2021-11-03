@@ -1159,6 +1159,7 @@ impl Future for KhoraNode {
                                 }
                             }
                         } else if mtype == 97 /* a */ {
+                            println!("Someone's trying to connect!!!");
                             self.outer.plumtree_node.lazy_push_peers.insert(fullmsg.sender);
                         } else if mtype == 108 /* l */ { // a lightning block
                             if self.lightning_yielder {

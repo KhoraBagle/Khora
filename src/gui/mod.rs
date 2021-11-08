@@ -15,7 +15,7 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8827";
+static VERSION: &str = "v0.8828";
 
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
@@ -39,9 +39,9 @@ fn random_pswrd() -> String {
     chars.into_iter().map(char::from).collect()
 }
 fn get_pswrd(a: &String, b: &String, c: &String) -> Vec<u8> {
-    println!("{}",a);
-    println!("{}",b);
-    println!("{}",c);
+    // println!("{}",a);
+    // println!("{}",b);
+    // println!("{}",c);
     let mut hasher = Sha3_512::new();
     hasher.update(&a.as_bytes());
     hasher.update(&b.as_bytes());
@@ -205,14 +205,14 @@ impl epi::App for KhoraGUI {
         _frame: &mut epi::Frame<'_>,
         _storage: Option<&dyn epi::Storage>,
     ) {
-        println!("This is printing before the first frame!");
+        // println!("This is printing before the first frame!");
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
         if !self.setup {
-            println!("Attempting to load app state");
+            // println!("Attempting to load app state");
             #[cfg(feature = "persistence")]
             if let Some(storage) = _storage {
-                println!("Loading app state");
+                // println!("Loading app state");
                 let r = self.reciever.clone();
                 let s = self.sender.clone();
                 let a = self.addr.clone();
@@ -240,13 +240,13 @@ impl epi::App for KhoraGUI {
     /// Note that you must enable the `persistence` feature for this to work.
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn epi::Storage) {
-        println!("App saving procedures beginning...");
+        // println!("App saving procedures beginning...");
         if !self.setup {
             epi::set_value(storage, "Khora", self);
             self.sender.send(vec![0]).unwrap();
             loop {
                 if self.reciever.try_recv() == Ok(vec![253]) {
-                    println!("Saved!");
+                    // println!("Saved!");
                     break
                 }
             }
@@ -282,7 +282,7 @@ impl epi::App for KhoraGUI {
                 self.vsk = bincode::deserialize(&i[3]).unwrap();
                 self.tsk = bincode::deserialize(&i[4]).unwrap();
                 self.setup = false;
-                println!("Done with setup!");
+                // println!("Done with setup!");
             } else if modification == u8::MAX {
                 let info = i.pop().unwrap();
                 if info == 0 {
@@ -519,7 +519,7 @@ impl epi::App for KhoraGUI {
                                 let mut m = vec![];
                                 m.extend(stkaddr.as_bytes().to_vec());
                                 m.extend(retain_numeric(stake.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec());
-                                println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",unstaked,fee,stake);
+                                // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",unstaked,fee,stake);
                                 let x = *unstaked - retain_numeric(fee.to_string()).parse::<u64>().unwrap() - retain_numeric(stake.to_string()).parse::<u64>().unwrap();
                                 if x > 0 {
                                     m.extend(addr.as_bytes().to_vec());
@@ -548,7 +548,7 @@ impl epi::App for KhoraGUI {
                                 }
                                 m.push(63);
                                 m.push(33);
-                                println!("{}",String::from_utf8_lossy(&m));
+                                // println!("{}",String::from_utf8_lossy(&m));
                                 sender.send(m).expect("something's wrong with communication from the gui");
                             }
                         }

@@ -35,8 +35,8 @@ pub struct ServerBuilder {
 impl ServerBuilder {
     /// Makes a new `ServerBuilder` instance.
     pub fn new(bind_addr: SocketAddr) -> Self { // a server is built on creation
-        println!("---------------------------------------------------------------------------------------------------------------------------------");
-        println!("built a server"); // happens once
+        // println!("---------------------------------------------------------------------------------------------------------------------------------");
+        // println!("built a server"); // happens once
         ServerBuilder {
             bind_addr,
             logger: Logger::root(Discard, o!()),

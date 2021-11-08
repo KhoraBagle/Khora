@@ -276,7 +276,7 @@ mod tests {
     use crate::server::{HandleCall, Reply, ServerBuilder};
     use crate::{Call, ProcedureId};
     use bytecodec::bytes::{BytesEncoder, RemainingBytesDecoder};
-    use fibers_global;
+    // use fibers_global;
     use futures::Future;
     use trackable::result::TestResult;
 

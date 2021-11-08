@@ -1,23 +1,23 @@
 extern crate bytecodec;
-extern crate clap;
+// extern crate clap;
 extern crate fibers;
 extern crate fibers_rpc;
 extern crate futures;
 extern crate prometrics;
-extern crate sloggers;
+// extern crate sloggers;
 #[macro_use]
 extern crate trackable;
 
 use bytecodec::bytes::{BytesEncoder, RemainingBytesDecoder};
-use clap::{App, Arg, SubCommand};
+// use clap::{App, Arg, SubCommand};
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use fibers_rpc::client::{ClientServiceBuilder, ClientServiceHandle, Options as RpcOptions};
 use fibers_rpc::server::{HandleCall, Reply, ServerBuilder};
 use fibers_rpc::{Call, ProcedureId};
 use futures::{Async, Future, Poll};
-use sloggers::terminal::TerminalLoggerBuilder;
-use sloggers::types::Severity;
-use sloggers::Build;
+// use sloggers::terminal::TerminalLoggerBuilder;
+// use sloggers::types::Severity;
+// use sloggers::Build;
 use std::io::{self, Read, Write};
 use std::net::ToSocketAddrs;
 use std::time::{Duration, Instant};

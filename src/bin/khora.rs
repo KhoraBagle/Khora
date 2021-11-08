@@ -110,7 +110,6 @@ fn main() -> Result<(), MainError> {
         let initial_history = vec![(person0,1u64)];
 
         std::thread::spawn(move || {
-            println!("You closed the app...");
             let pswrd: Vec<u8>;
             let will_stk: bool;
             let lightning_yielder: bool;

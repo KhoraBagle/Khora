@@ -114,8 +114,8 @@ impl<'a, T: Call> CallClient<'a, T> {
     /// Sends the request message to the RPC server,
     /// and returns a future that represents the response from the server.
     pub fn call(self, server: SocketAddr, request: T::Req) -> Response<T::Res> {
-        println!("---------------------------------------------------------------------------------------------------------------------------------");
-        println!("sending message to rpc server");
+        // println!("---------------------------------------------------------------------------------------------------------------------------------");
+        // println!("sending message to rpc server");
         if !self
             .options
             .is_allowable_queue_len(&self.service.metrics, server)

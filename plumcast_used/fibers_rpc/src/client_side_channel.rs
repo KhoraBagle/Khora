@@ -38,7 +38,7 @@ impl ClientSideChannel {
         options: ChannelOptions,
         metrics: ClientMetrics,
     ) -> Self {
-        println!("=================================================\nClientSideChannel new"); // should i make it where you dont accept new connections?
+        // println!("=================================================\nClientSideChannel new"); // should i make it where you dont accept new connections?
         ClientSideChannel {
             logger,
             server,
@@ -390,8 +390,8 @@ fn tcp_connect(
     server: SocketAddr,
     options: &ChannelOptions,
 ) -> Box<dyn Future<Item = TcpStream, Error = Error> + Send + 'static> { // this is where connections are made (or revived)
-    println!("---------------------------------------------------------------------------------------------------------------------------------");
-    println!("tcp connecting");
+    // println!("---------------------------------------------------------------------------------------------------------------------------------");
+    // println!("tcp connecting");
     let future = TcpStream::connect(server)
         .timeout_after(options.tcp_connect_timeout)
         .map_err(|e| {

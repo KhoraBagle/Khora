@@ -96,14 +96,14 @@ impl UnixtimeLocalNodeIdGenerator {
 }
 impl GenerateLocalNodeId for UnixtimeLocalNodeIdGenerator {
     fn generate_local_node_id(&self) -> LocalNodeId {
-        println!("\n\n\n\n\n\n\nmaking id!");
+        // println!("\n\n\n\n\n\n\nmaking id!");
         match UNIX_EPOCH.elapsed() {
             Err(e) => panic!("{}", e),
             Ok(d) => {
                 let nanos = self.nanos.fetch_add(1, Ordering::SeqCst) as u64 % 1_000;
                 let micros = u64::from(d.subsec_micros()) * 1_000;
                 let id = d.as_secs() * 1_000_000_000 + micros + nanos;
-                println!("id: {}\n\n\n\n\n\n\n",id);
+                // println!("id: {}\n\n\n\n\n\n\n",id);
                 LocalNodeId::new(id)
             }
         }

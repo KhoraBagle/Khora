@@ -28,23 +28,23 @@ fn main() {
     // let opt = Opt::from_args();
     let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build()).unwrap(); // info or debug
 
-    let mut rng = rand::thread_rng();
-    let mut n = Natpmp::new().unwrap();
-    loop {
-        let randport_priv = rng.gen::<u16>();
-        let randport_pub = rng.gen::<u16>();
-        println!("{},{}",randport_priv,randport_pub);
-        n.send_public_address_request().unwrap();
-        n.send_port_mapping_request(Protocol::UDP, randport_priv, randport_pub, 30).unwrap();
+    // let mut rng = rand::thread_rng();
+    // let mut n = Natpmp::new().unwrap();
+    // loop {
+    //     let randport_priv = rng.gen::<u16>();
+    //     let randport_pub = rng.gen::<u16>();
+    //     println!("{},{}",randport_priv,randport_pub);
+    //     n.send_public_address_request().unwrap();
+    //     n.send_port_mapping_request(Protocol::UDP, randport_priv, randport_pub, 30).unwrap();
     
 
-        thread::sleep(Duration::from_millis(250));
-        let response = n.read_response_or_retry();
-        println!("{:?}",response);
-        if response.is_ok() {
-            break
-        }
-    }
+    //     thread::sleep(Duration::from_millis(250));
+    //     let response = n.read_response_or_retry();
+    //     println!("{:?}",response);
+    //     if response.is_ok() {
+    //         break
+    //     }
+    // }
 
     let local_addr = "0.0.0.0".parse().unwrap();
     let local_socket = SocketAddr::new(local_addr,DEFAULT_PORT);

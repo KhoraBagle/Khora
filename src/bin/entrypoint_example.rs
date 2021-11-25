@@ -113,8 +113,10 @@ impl Future for TestNode {
 
             while let Async::Ready(Some(msg)) = track_try_unwrap!(self.node.poll()) {
                 println!("# MESSAGE: {:?}", String::from_utf8_lossy(&msg.message.payload[..]));
+                println!("# SENDER: {:?}", msg.sender);
 
                 println!("all plumtree peers: {:?}",self.node.plumtree_node().all_push_peers());
+                println!("all hyparview peers: {:?} {:?}",self.node.hyparview_node().active_view(),self.node.hyparview_node().passive_view());
                 self.node.handle_gossip_now(msg, true);
                 did_something = true;
             }

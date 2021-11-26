@@ -1,4 +1,5 @@
 #[macro_use]
+// #[allow(unreachable_code)]
 extern crate trackable;
 
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_COMPRESSED;
@@ -250,7 +251,7 @@ fn main() -> Result<(), MainError> {
             true,
         );
         let mut native_options = eframe::NativeOptions::default();
-        native_options.always_on_top = true;
+        native_options.always_on_top = false;
         eframe::run_native(Box::new(app), native_options);
     } else {
         let node = KhoraNode::load(frontnode, backnode, usend, urecv);
@@ -290,7 +291,6 @@ fn main() -> Result<(), MainError> {
 
 
 }
-
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 /// the information that you save to a file when the app is off (not including gui information like saved friends)

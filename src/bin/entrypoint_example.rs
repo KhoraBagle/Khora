@@ -27,116 +27,116 @@ const DEFAULT_PORT: u16 = 8334;
 // systemd-resolve --status | grep Current
 
 fn main() {
-    let local_socket = local_ip().unwrap();
-    let listener = TcpListener::bind(format!("{}:{}",local_socket,DEFAULT_PORT)).unwrap();
+    // let local_socket = local_ip().unwrap();
+    // let listener = TcpListener::bind(format!("{}:{}",local_socket,DEFAULT_PORT)).unwrap();
 
-    let mut p = ProviderDefaultV4::new();
-    let global_addr = p.get_addr().unwrap().v4addr.unwrap();
-    let global_socket = SocketAddr::new(IpAddr::V4(global_addr),DEFAULT_PORT);
-    println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
-    
-
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            let mut s = stream.unwrap();
-            let mut v = vec![];
-            s.read_to_end(&mut v).unwrap();
-            println!("{:?}",String::from_utf8_lossy(&v));
-        }
-    });
-
-
-    let stdin = std::io::stdin();
-    let addr = stdin.lock().lines().next().unwrap().unwrap();
-    println!("Got address");
-
-    match TcpStream::connect(format!("{}:{}",addr,DEFAULT_PORT)) {
-        Ok(mut stream) => {
-            println!("Successfully connected to server in port 3333");
-            let stdin = std::io::stdin();
-            // click enter to send a message or attempt to contact someone
-            for line in stdin.lock().lines() {
-                let line = if let Ok(line) = line {
-                    line.as_bytes().to_vec()
-                } else {
-                    break;
-                };
-                stream.write(&line).unwrap();
-            }
-        },
-        Err(e) => {
-            println!("Failed to connect: {}", e);
-        }
-    }
-
-
-    // // let opt = Opt::from_args();
-    // let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build()).unwrap(); // info or debug
-
-    // // let mut rng = rand::thread_rng();
-    // // let mut n = Natpmp::new().unwrap();
-    // // loop {
-    // //     let randport_priv = rng.gen::<u16>();
-    // //     let randport_pub = rng.gen::<u16>();
-    // //     println!("{},{}",randport_priv,randport_pub);
-    // //     n.send_public_address_request().unwrap();
-    // //     n.send_port_mapping_request(Protocol::UDP, randport_priv, randport_pub, 30).unwrap();
-    
-
-    // //     thread::sleep(Duration::from_millis(250));
-    // //     let response = n.read_response_or_retry();
-    // //     println!("{:?}",response);
-    // //     if response.is_ok() {
-    // //         break
-    // //     }
-    // // }
-
-    // let local_addr = "0.0.0.0".parse().unwrap();
-    // let local_socket = SocketAddr::new(local_addr,DEFAULT_PORT);
     // let mut p = ProviderDefaultV4::new();
     // let global_addr = p.get_addr().unwrap().v4addr.unwrap();
     // let global_socket = SocketAddr::new(IpAddr::V4(global_addr),DEFAULT_PORT);
     // println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
-    // let executor = track_any_err!(ThreadPoolExecutor::new()).unwrap();
-
-    // let service = ServiceBuilder::new(local_socket)
-    //     .logger(logger.clone())
-    //     .server_addr(global_socket)
-    //     .finish(executor.handle(), SerialLocalNodeIdGenerator::new());
-
     
-    // let (message_tx, message_rx) = mpsc::channel();
-    // let node = TestNode {
-    //     node: NodeBuilder::new().logger(logger.clone()).finish(service.handle()),
-    //     receiver: message_rx,
-    // };
-    
-
-
-
-    // executor.spawn(service.map_err(|e| panic!("{}", e)));
-    // executor.spawn(node);
-
 
     // std::thread::spawn(move || {
-    //     use std::io::BufRead;
-    //     let stdin = std::io::stdin();
-    //     // click enter to send a message or attempt to contact someone
-    //     for line in stdin.lock().lines() {
-    //         let line = if let Ok(line) = line {
-    //             line.as_bytes().to_vec()
-    //         } else {
-    //             break;
-    //         };
-    //         if message_tx.send(line).is_err() {
-    //             println!("message send was error!");
-    //             break;
-    //         }
+    //     for stream in listener.incoming() {
+    //         let mut s = stream.unwrap();
+    //         let mut v = vec![];
+    //         s.read_to_end(&mut v).unwrap();
+    //         println!("{:?}",String::from_utf8_lossy(&v));
     //     }
     // });
 
 
-    // track_any_err!(executor.run()).unwrap();
+    // let stdin = std::io::stdin();
+    // let addr = stdin.lock().lines().next().unwrap().unwrap();
+    // println!("Got address");
+
+    // match TcpStream::connect(format!("{}:{}",addr,DEFAULT_PORT)) {
+    //     Ok(mut stream) => {
+    //         println!("Successfully connected to server in port 3333");
+    //         let stdin = std::io::stdin();
+    //         // click enter to send a message or attempt to contact someone
+    //         for line in stdin.lock().lines() {
+    //             let line = if let Ok(line) = line {
+    //                 line.as_bytes().to_vec()
+    //             } else {
+    //                 break;
+    //             };
+    //             stream.write(&line).unwrap();
+    //         }
+    //     },
+    //     Err(e) => {
+    //         println!("Failed to connect: {}", e);
+    //     }
+    // }
+
+
+    // let opt = Opt::from_args();
+    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build()).unwrap(); // info or debug
+
+    // let mut rng = rand::thread_rng();
+    // let mut n = Natpmp::new().unwrap();
+    // loop {
+    //     let randport_priv = rng.gen::<u16>();
+    //     let randport_pub = rng.gen::<u16>();
+    //     println!("{},{}",randport_priv,randport_pub);
+    //     n.send_public_address_request().unwrap();
+    //     n.send_port_mapping_request(Protocol::UDP, randport_priv, randport_pub, 30).unwrap();
+    
+
+    //     thread::sleep(Duration::from_millis(250));
+    //     let response = n.read_response_or_retry();
+    //     println!("{:?}",response);
+    //     if response.is_ok() {
+    //         break
+    //     }
+    // }
+
+    // let local_addr = "0.0.0.0".parse().unwrap();
+    let local_addr = local_ip().unwrap();
+    let local_socket = SocketAddr::new(local_addr,DEFAULT_PORT);
+    let mut p = ProviderDefaultV4::new();
+    let global_addr = p.get_addr().unwrap().v4addr.unwrap();
+    let global_socket = SocketAddr::new(IpAddr::V4(global_addr),DEFAULT_PORT);
+    println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
+    let executor = track_any_err!(ThreadPoolExecutor::new()).unwrap();
+
+    let service = ServiceBuilder::new(local_socket)
+        .logger(logger.clone())
+        .server_addr(global_socket)
+        .finish(executor.handle(), SerialLocalNodeIdGenerator::new());
+
+    
+    let (message_tx, message_rx) = mpsc::channel();
+    let node = TestNode {
+        node: NodeBuilder::new().logger(logger.clone()).finish(service.handle()),
+        receiver: message_rx,
+    };
+    
+
+
+
+    executor.spawn(service.map_err(|e| panic!("{}", e)));
+    executor.spawn(node);
+
+
+    std::thread::spawn(move || {
+        let stdin = std::io::stdin();
+        // click enter to send a message or attempt to contact someone
+        for line in stdin.lock().lines() {
+            let line = if let Ok(line) = line {
+                line.as_bytes().to_vec()
+            } else {
+                break;
+            };
+            if message_tx.send(line).is_err() {
+                println!("message send was error!");
+                break;
+            }
+        }
+    });
+
+
+    track_any_err!(executor.run()).unwrap();
 
 }
 

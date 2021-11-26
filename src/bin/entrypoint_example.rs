@@ -53,7 +53,6 @@ fn main() {
     // match TcpStream::connect(format!("{}:{}",addr,DEFAULT_PORT)) {
     //     Ok(mut stream) => {
     //         println!("Successfully connected to server in port 3333");
-    //         let stdin = std::io::stdin();
     //         // click enter to send a message or attempt to contact someone
     //         for line in stdin.lock().lines() {
     //             let line = if let Ok(line) = line {
@@ -71,7 +70,7 @@ fn main() {
 
 
     // let opt = Opt::from_args();
-    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build()).unwrap(); // info or debug
+    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("debug".parse().unwrap()).build()).unwrap(); // info or debug
 
     // let mut rng = rand::thread_rng();
     // let mut n = Natpmp::new().unwrap();

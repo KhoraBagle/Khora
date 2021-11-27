@@ -9,6 +9,7 @@ fn handle_client(mut stream: TcpStream) {
         let mut read = [0; 1028];
         match stream.read(&mut read) {
             Ok(n) => {
+                println!("# RECIEVED MESSAGE: {}",String::from_utf8_lossy(&read));
                 if n == 0 { 
                     // connection was closed
                     break;
@@ -16,7 +17,7 @@ fn handle_client(mut stream: TcpStream) {
                 stream.write(&read[0..n]).unwrap();
             }
             Err(err) => {
-                panic!(err);
+                panic!("# ERROR: {}",err);
             }
         }
     }

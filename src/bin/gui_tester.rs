@@ -19,7 +19,7 @@ fn main() {
 #[cfg_attr(feature = "persistence", serde(default))] // if we add new fields, give them default values when deserializing old state
 #[derive(Default, Clone, Debug)]
 pub struct TestGUI {
-    entrypoint: String,
+    value: bool,
 }
 impl epi::App for TestGUI {
     fn name(&self) -> &str {
@@ -40,7 +40,7 @@ impl epi::App for TestGUI {
         #[cfg(feature = "persistence")]
         if let Some(storage) = _storage {
             println!("Loading app state");
-            *self = epi::get_value(storage, "Khora").unwrap_or_default();
+            *self = epi::get_value(storage, self.name()).unwrap_or_default();
         }
     }
 
@@ -49,7 +49,7 @@ impl epi::App for TestGUI {
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn epi::Storage) {
         println!("App saving procedures beginning...");
-        epi::set_value(storage, "Khora", self);
+        epi::set_value(storage, self.name(), self);
         println!("App saved!");
     }
 
@@ -59,59 +59,29 @@ impl epi::App for TestGUI {
         // ctx.request_repaint();
         println!("updating frame");
         let Self {
-            entrypoint,
+            value,
         } = self;
 
  
 
-        // // Examples of how to create different panels and windows.
-        // // Pick whichever suits you.
-        // // Tip: a good default choice is to just keep the `CentralPanel`.
-        // // For inspiration and more examples, go to https://emilk.github.io/egui
-
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
                 egui::menu::menu(ui, "File", |ui| {
-                    if ui.button("Options Menu").clicked() {
-                        // *options_menu = true;
-                    }
-                    if ui.button("Panic Options").clicked() {
-                        // *show_reset = true;
-                    }
                     if ui.button("Quit").clicked() {
                         frame.quit();
                     }
-                    if ui.button("Permanent Logout").clicked() {
-                        // *logout_window = true;
-                    }
                 });
             });
-            // egui::util::undoer::default(); // there's some undo button
         });
 
         egui::CentralPanel::default().show(ctx, |ui| { 
+            ui.heading("GUI TESTER");
             ui.horizontal(|ui| {
-                ui.label("Mesh Network Gate IP");
-                ui.add(TextEdit::singleline(entrypoint).desired_width(100.0).hint_text("put entry here"));
-                ui.add(Label::new(":8334").text_color(egui::Color32::LIGHT_GRAY));
-                if ui.button("Connect").clicked() {
-                    
-                }
-                if ui.add(Button::new("Refresh").small().sense(Sense::click())).clicked() {
-                    // sender.send(vec![64]).expect("something's wrong with communication from the gui");
-                }
-            });
-            ui.heading("KHORA");
-            ui.horizontal(|ui| {
-                ui.hyperlink("https://khora.info");
-                ui.hyperlink_to("Source Code","https://github.com/constantine1024/Khora");
-                // ui.label(VERSION);
+                ui.hyperlink("https://google.com");
             });
 
         });
 
-        // println!("done updating");
     
     }
 }

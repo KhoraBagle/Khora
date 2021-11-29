@@ -65,7 +65,7 @@ fn main() -> Result<(), MainError> {
 
     let mut n = Natpmp::new().unwrap();
     n.send_public_address_request().unwrap();
-    n.send_port_mapping_request(natpmp::Protocol::UDP, DEFAULT_PORT, DEFAULT_PORT, 30).unwrap();
+    n.send_port_mapping_request(natpmp::Protocol::TCP, DEFAULT_PORT, DEFAULT_PORT, 30).unwrap();
     std::thread::sleep(Duration::from_millis(250));
     let response = n.read_response_or_retry();
     println!("{:?}",response);

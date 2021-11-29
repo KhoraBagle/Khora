@@ -297,7 +297,7 @@ impl epi::App for KhoraGUI {
                     self.tsk = i;
                 }
             }
-            ctx.request_repaint();
+            // ctx.request_repaint();
         }
 
         let Self {

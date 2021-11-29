@@ -75,7 +75,10 @@ fn main() -> Result<(), MainError> {
     
     let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
     let mut p = ProviderDefaultV4::new();
-    let global_addr = p.get_addr().unwrap_or({println!("Can't get global ip!"); GlobalAddress::from_v4(Ipv4Addr::new(0,0,0,0), "")}).v4addr.unwrap();
+    let global_addr = match p.get_addr() {
+        Ok(x) => x.v4addr.unwrap(),
+        Err(x) => {print!("Can't get global ip! Exiting because error: "); panic!("{}",x);},
+    };
     let global_socket = format!("{}:{}",global_addr,DEFAULT_PORT).parse::<SocketAddr>().unwrap();
     println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
 
@@ -85,7 +88,7 @@ fn main() -> Result<(), MainError> {
 
 
 
-    println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
+    // println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
     let executor = track_any_err!(ThreadPoolExecutor::new())?;
     let service = ServiceBuilder::new(local_socket)
         .logger(logger.clone())

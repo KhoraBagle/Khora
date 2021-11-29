@@ -1,15 +1,5 @@
-use eframe::{egui::{self, Button, Checkbox, Label, Sense, TextEdit}, epi};
-
-
-
-
-
-
-
+use eframe::{egui, epi};
 fn main() {
-
-
-    // creates the setup screen (sets the values used in the loops and sets some gui options)
     let app = TestGUI::default();
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(Box::new(app), native_options);
@@ -23,7 +13,7 @@ pub struct TestGUI {
 }
 impl epi::App for TestGUI {
     fn name(&self) -> &str {
-        "GUItesting" // saved as ~/.local/share/kora
+        "GUItesting" // saved as ~/.local/share/<name>
     }
 
     /// Called once before the first frame.
@@ -33,9 +23,6 @@ impl epi::App for TestGUI {
         _frame: &mut epi::Frame<'_>,
         _storage: Option<&dyn epi::Storage>,
     ) {
-        // println!("This is printing before the first frame!");
-        // Load previous app state (if any).
-        // Note that you must enable the `persistence` feature for this to work.
         println!("Attempting to load app state");
         #[cfg(feature = "persistence")]
         if let Some(storage) = _storage {
@@ -44,8 +31,6 @@ impl epi::App for TestGUI {
         }
     }
 
-    /// Called by the frame work to save state before shutdown.
-    /// Note that you must enable the `persistence` feature for this to work.
     #[cfg(feature = "persistence")]
     fn save(&mut self, storage: &mut dyn epi::Storage) {
         println!("App saving procedures beginning...");
@@ -53,10 +38,7 @@ impl epi::App for TestGUI {
         println!("App saved!");
     }
 
-    /// Called each time the UI needs repainting, which may be many times per second.
-    /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::CtxRef, frame: &mut epi::Frame<'_>) {
-        // ctx.request_repaint();
         println!("updating frame");
         let Self {
             value,

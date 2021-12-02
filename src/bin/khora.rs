@@ -38,6 +38,7 @@ use serde::{Serialize, Deserialize};
 use khora::validation::{NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE};
 
 use gip::{GlobalAddress, Provider, ProviderDefaultV4};
+use local_ip_address::local_ip;
 
 
 /// when to announce you're about to be in the comittee or how far in advance you can no longer serve as leader
@@ -63,22 +64,23 @@ fn main() -> Result<(), MainError> {
 
         
 
-    let mut n = Natpmp::new().unwrap();
-    n.send_public_address_request().unwrap();
-    n.send_port_mapping_request(natpmp::Protocol::TCP, DEFAULT_PORT, DEFAULT_PORT, 30).unwrap();
-    std::thread::sleep(Duration::from_millis(250));
-    let response = n.read_response_or_retry();
-    println!("{:?}",response);
+    // let mut n = Natpmp::new().unwrap();
+    // n.send_public_address_request().unwrap();
+    // n.send_port_mapping_request(natpmp::Protocol::TCP, DEFAULT_PORT, DEFAULT_PORT, 30).unwrap();
+    // std::thread::sleep(Duration::from_millis(250));
+    // let response = n.read_response_or_retry();
+    // println!("{:?}",response);
 
 
 
     
     let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
-    let mut p = ProviderDefaultV4::new();
-    let global_addr = match p.get_addr() {
-        Ok(x) => x.v4addr.unwrap(),
-        Err(x) => {print!("Can't get global ip! Exiting because error: "); panic!("{}",x);},
-    };
+    // let mut p = ProviderDefaultV4::new();
+    // let global_addr = match p.get_addr() {
+    //     Ok(x) => x.v4addr.unwrap(),
+    //     Err(x) => {print!("Can't get global ip! Exiting because error: "); panic!("{}",x);},
+    // };
+    let global_addr = local_ip().unwrap(); // <----------this would be for local. uncomment above for global
     let global_socket = format!("{}:{}",global_addr,DEFAULT_PORT).parse::<SocketAddr>().unwrap();
     println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
 

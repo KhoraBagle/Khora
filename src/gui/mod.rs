@@ -256,7 +256,7 @@ impl epi::App for KhoraGUI {
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::CtxRef, frame: &mut epi::Frame<'_>) {
-        // ctx.request_repaint();
+        ctx.request_repaint();
         if let Ok(mut i) = self.reciever.try_recv() {
             let modification = i.pop().unwrap();
             if modification == 0 {
@@ -297,7 +297,7 @@ impl epi::App for KhoraGUI {
                     self.tsk = i;
                 }
             }
-            // ctx.request_repaint();
+            ctx.request_repaint();
         }
 
         let Self {
@@ -528,7 +528,11 @@ impl epi::App for KhoraGUI {
                                 m.push(*ringsize);
                                 m.push(33);
                                 m.push(33);
-                                sender.send(m).expect("something's wrong with communication from the gui");
+                                if *unstaked < retain_numeric(fee.to_string()).parse::<u64>().unwrap() + retain_numeric(stake.to_string()).parse::<u64>().unwrap() {
+                                    *you_cant_do_that = true;
+                                } else {
+                                    sender.send(m).expect("something's wrong with communication from the gui");
+                                }
                             }
                         }
                     });
@@ -549,7 +553,11 @@ impl epi::App for KhoraGUI {
                                 m.push(63);
                                 m.push(33);
                                 // println!("{}",String::from_utf8_lossy(&m));
-                                sender.send(m).expect("something's wrong with communication from the gui");
+                                if *staked < retain_numeric(fee.to_string()).parse::<u64>().unwrap() + retain_numeric(unstake.to_string()).parse::<u64>().unwrap() {
+                                    *you_cant_do_that = true;
+                                } else {
+                                    sender.send(m).expect("something's wrong with communication from the gui");
+                                }
                             }
                         }
                     });
@@ -769,7 +777,7 @@ impl epi::App for KhoraGUI {
                     ui.text_edit_singleline(panic_fee);
                 });
                 
-                if ui.add(Button::new("PANIC").sense(if *unstaked == 0 && *staked == 0 {Sense::hover()} else {Sense::click()})).clicked() {
+                if ui.add(Button::new("PANIC").text_color(egui::Color32::RED).sense(if *unstaked == 0 && *staked == 0 {Sense::hover()} else {Sense::click()})).clicked() {
                     let mut x = vec![];
                     let pf = retain_numeric(panic_fee.to_string()).parse::<u64>().unwrap();
 

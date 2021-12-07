@@ -327,13 +327,15 @@ fn main() -> Result<(), MainError> {
                                         match responce.recv() {
                                             Ok(x) => {
                                                 t = Instant::now();
-                                                stream.write(&x);
+                                                if x.len() > 1 {
+                                                    stream.write(&x);
+                                                }
                                             },
                                             Err(x) => {
                                                 println!("# ERROR: {}",x);
                                             },
                                         }
-                                        if t.elapsed().as_millis() > 500 {
+                                        if t.elapsed().as_millis() > 20 {
                                             break
                                         }
                                     }
@@ -1183,9 +1185,12 @@ impl Future for KhoraNode {
                                         print!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\ngot a tx, was at {}!",self.txses.len());
                                         m.push(0);
                                         self.outer.broadcast_now(m);
+                                    } else {
+                                        self.outerwriter.send(vec![0u8;2]);
                                     }
+                                } else {
+                                    self.outerwriter.send(vec![0u8;2]);
                                 }
-                                self.outerwriter.send(vec![0u8]);
                             } else if mtype == 101 /* e */ {
                                 let x = self.outer.plumtree_node().all_push_peers();
                                 let y = self.outer.hyparview_node().active_view().into_iter().cloned().collect::<HashSet<_>>();
@@ -1203,7 +1208,7 @@ impl Future for KhoraNode {
                                     let x = bincode::serialize(&y).unwrap();
                                     self.outerwriter.send(x);
                                 } else {
-                                    self.outerwriter.send(vec![0u8]);
+                                    self.outerwriter.send(vec![0u8;2]);
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
                                 if let Ok(m) = m.try_into() {
@@ -1212,6 +1217,8 @@ impl Future for KhoraNode {
                                         if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
                                             self.outerwriter.send(x);
                                             break
+                                        } else {
+                                            self.outerwriter.send(vec![0u8]);
                                         }
                                         sync_theirnum += 1;
                                         if sync_theirnum == self.bnum {

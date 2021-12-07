@@ -149,7 +149,6 @@ fn main() -> Result<(), MainError> {
             let node = KhoraNode {
                 inner: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
                 outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
-                // outerlister: None,
                 save_history: will_stk,
                 me,
                 mine: HashMap::new(),
@@ -166,7 +165,7 @@ fn main() -> Result<(), MainError> {
                 alltagsever: vec![],
                 headshard: 0,
                 usurpingtime: Instant::now(),
-                knownvalidators: HashMap::new(),
+                knownnodes: HashMap::new(),
                 rmems: HashMap::new(),
                 rname: vec![],
                 gui_sender: usend.clone(),
@@ -194,11 +193,6 @@ fn main() -> Result<(), MainError> {
 
 
             let node = KhoraNode::load(frontnode, backnode, usend, urecv);
-            let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
-            mymoney.push(0);
-            node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
-            node.save();
-
             executor.spawn(node);
             println!("about to run node executer!");
             track_any_err!(executor.run()).unwrap();
@@ -215,7 +209,6 @@ fn main() -> Result<(), MainError> {
             true,
         );
         let mut native_options = eframe::NativeOptions::default();
-        native_options.always_on_top = false;
         eframe::run_native(Box::new(app), native_options);
     } else {
         let node = KhoraNode::load(frontnode, backnode, usend, urecv);
@@ -236,10 +229,7 @@ fn main() -> Result<(), MainError> {
         );
         let native_options = eframe::NativeOptions::default();
         std::thread::spawn(move || {
-            executor.spawn(service.map_err(|e| panic!("{}", e)));
             executor.spawn(node);
-    
-    
             track_any_err!(executor.run()).unwrap();
         });
         eframe::run_native(Box::new(app), native_options);
@@ -278,6 +268,7 @@ struct SavedNode {
     cumtime: f64,
     blocktime: f64,
     ringsize: u8,
+    knownnodes: HashMap<u64,SocketAddr>,
 }
 
 /// the node used to run all the networking
@@ -302,7 +293,7 @@ struct KhoraNode {
     alltagsever: Vec<CompressedRistretto>,
     headshard: usize,
     usurpingtime: Instant,
-    knownvalidators: HashMap<u64,NodeId>,
+    knownnodes: HashMap<u64,SocketAddr>,
     rmems: HashMap<u64,OTAccount>,
     rname: Vec<u8>,
     moneyreset: Option<Vec<u8>>,
@@ -339,6 +330,7 @@ impl KhoraNode {
                 cumtime: self.cumtime,
                 blocktime: self.blocktime,
                 ringsize: self.ringsize,
+                knownnodes: self.knownnodes,
             }; // just redo initial conditions on the rest
             let mut sn = bincode::serialize(&sn).unwrap();
             let mut f = File::create("myUsr").unwrap();
@@ -378,7 +370,7 @@ impl KhoraNode {
             sheight: sn.sheight,
             alltagsever: sn.alltagsever.clone(),
             headshard: sn.headshard.clone(),
-            knownvalidators: HashMap::new(),
+            knownnodes: sn.knownnodes.clone(),
             rmems: HashMap::new(),
             rname: vec![],
             moneyreset: sn.moneyreset,
@@ -464,20 +456,13 @@ impl KhoraNode {
                 
 
                 
-                // which ip's are in the comittee
-                self.knownvalidators = self.knownvalidators.iter().filter_map(|(&location,&node)| {
+                // which ip's still have money
+                self.knownnodes = self.knownnodes.iter().filter_map(|(&location,&node)| {
                     if lastlightning.info.stkout.contains(&location) {
                         None
                     } else {
                         let location = location - lastlightning.info.stkout.iter().map(|x| (*x < location) as u64).sum::<u64>();
                         Some((location,node))
-                    }
-                }).collect::<HashMap<_,_>>();
-                self.knownvalidators = self.knownvalidators.iter().filter_map(|(&location,&node)| {
-                    if self.queue[self.headshard].contains(&(location as usize)) || self.comittee[self.headshard].contains(&(location as usize)) {
-                        Some((location,node))
-                    } else {
-                        None
                     }
                 }).collect::<HashMap<_,_>>();
 
@@ -497,12 +482,6 @@ impl KhoraNode {
                 // runs any operations needed for the panic button to function
                 self.send_panic_or_stop(&lastlightning, reward);
 
-                // if you're lonely and on the comittee, you try to reconnect with the comittee (WARNING: DOES NOT HANDLE IF YOU HAVE FRIENDS BUT THEY ARE IGNORING YOU)
-                if self.is_validator && self.inner.plumtree_node().all_push_peers().is_empty() {
-                    for n in self.knownvalidators.iter() {
-                        self.inner.join(n.1.with_id(1));
-                    }
-                }
 
 
                 self.cumtime += self.blocktime;
@@ -699,7 +678,7 @@ impl Future for KhoraNode {
                 //             if let Some(who) = Signature::recieve_signed_message(&mut m, &self.stkinfo) {
                 //                 if let Ok(m) = bincode::deserialize::<NodeId>(&m) {
                 //                     if self.queue[self.headshard].contains(&(who as usize)) {
-                //                         self.knownvalidators.insert(who,m);
+                //                         self.knownnodes.insert(who,m);
                 //                         self.outer.handle_gossip_now(fullmsg, true);
                 //                     } else {
                 //                         self.outer.handle_gossip_now(fullmsg, false);
@@ -910,7 +889,6 @@ impl Future for KhoraNode {
                         } else {
                             txbin = vec![];
                             println!("somethings wrong with your query!");
-
                         }
                         // if that tx is valid and ready as far as you know
                         if validtx && !txbin.is_empty() {
@@ -1014,7 +992,40 @@ impl Future for KhoraNode {
                         println!("{}",m);
                         if let Ok(socket) = m.parse() {
                             println!("it's a socket");
-                            self.outer.dm(vec![97],&[NodeId::new(socket, LocalNodeId::new(0))],true);
+
+
+                            match TcpStream::connect(socket) {
+                                Ok(mut stream) => {
+                                    println!("Successfully connected to server in port 3333");
+                        
+                                    let msg = b"Hello!";
+                        
+                                    stream.write(msg).unwrap();
+                                    println!("Sent Hello, awaiting reply...");
+                        
+                                    let mut data = [0 as u8; 6]; // using 6 byte buffer
+                                    match stream.read_exact(&mut data) {
+                                        Ok(_) => {
+                                            if &data == msg {
+                                                println!("Reply is ok!");
+                                            } else {
+                                                let text = from_utf8(&data).unwrap();
+                                                println!("Unexpected reply: {}", text);
+                                            }
+                                        },
+                                        Err(e) => {
+                                            println!("Failed to receive data: {}", e);
+                                        }
+                                    }
+                                },
+                                Err(e) => {
+                                    println!("Failed to connect: {}", e);
+                                }
+                            }
+
+
+                            // knownnodes
+                            // self.outer.dm(vec![97],&[NodeId::new(socket, LocalNodeId::new(0))],true);
                         }
                     } else if istx == 64 /* @ */ {
                         let mut friend = self.outer.plumtree_node().all_push_peers();

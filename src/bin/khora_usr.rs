@@ -347,7 +347,7 @@ impl KhoraNode {
         }
     }
 
-    /// reads a lightning block and saves information when appropriate
+    /// reads a lightning block and saves information when appropriate and returns if you accepted the block
     fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>) -> bool {
         if lastlightning.bnum >= self.bnum {
             let com = self.comittee.par_iter().map(|x| x.par_iter().map(|y| *y as u64).collect::<Vec<_>>()).collect::<Vec<_>>();
@@ -815,34 +815,32 @@ impl Future for KhoraNode {
                                             let responces = self.send_message(rnamesend,RING_SEND_TO);
                                             if responces.into_iter().filter(|m| {
                                                 let mut m = m.clone();
-                                                if Some(113) == m.pop() {
-                                                    if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(&m) {
-                                                        let locs = recieve_ring(&self.rname).unwrap();
-                                                        let rmems = r.iter().zip(locs).map(|(x,y)| (y,History::read_raw(x))).collect::<Vec<_>>();
-                                                        let mut ringchanged = false;
-                                                        for mem in rmems {
-                                                            if self.mine.iter().filter(|x| *x.0 == mem.0).count() == 0 {
-                                                                self.rmems.insert(mem.0,mem.1);
-                                                                ringchanged = true;
-                                                            }
+                                                if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(&m) {
+                                                    let locs = recieve_ring(&self.rname).unwrap();
+                                                    let rmems = r.iter().zip(locs).map(|(x,y)| (y,History::read_raw(x))).collect::<Vec<_>>();
+                                                    let mut ringchanged = false;
+                                                    for mem in rmems {
+                                                        if self.mine.iter().filter(|x| *x.0 == mem.0).count() == 0 {
+                                                            self.rmems.insert(mem.0,mem.1);
+                                                            ringchanged = true;
                                                         }
-                                                        if ringchanged {
-                                                            let ring = recieve_ring(&self.rname).unwrap();
-                                                            let mut got_the_ring = true;
-                                                            let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
-                                                            rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
-                                                            let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                                                            if got_the_ring && tx.verify().is_ok() {
-                                                                let tx = tx.polyform(&self.rname);
-                                                                // tx.verify().unwrap(); // as a user you won't be able to check this
-                                                                let mut txbin = bincode::serialize(&tx).unwrap();
-                                                                txbin.push(0);
-                                                                self.send_message(txbin,TRANSACTION_SEND_TO);
-                                                                println!("transaction ring filled and tx sent!");
-                                                                return true
-                                                            } else {
-                                                                println!("you can't make that transaction, user!");
-                                                            }
+                                                    }
+                                                    if ringchanged {
+                                                        let ring = recieve_ring(&self.rname).unwrap();
+                                                        let mut got_the_ring = true;
+                                                        let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
+                                                        rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
+                                                        let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                                                        if got_the_ring && tx.verify().is_ok() {
+                                                            let tx = tx.polyform(&self.rname);
+                                                            // tx.verify().unwrap(); // as a user you won't be able to check this
+                                                            let mut txbin = bincode::serialize(&tx).unwrap();
+                                                            txbin.push(0);
+                                                            self.send_message(txbin,TRANSACTION_SEND_TO);
+                                                            println!("transaction ring filled and tx sent!");
+                                                            return true
+                                                        } else {
+                                                            println!("you can't make that transaction, user!");
                                                         }
                                                     }
                                                 }
@@ -931,11 +929,6 @@ impl Future for KhoraNode {
                         
                         let amnt = u64::from_le_bytes(m.drain(..8).collect::<Vec<_>>().try_into().unwrap());
                         // let amnt = Scalar::from(amnt);
-                        let mut stkamnt = u64::from_le_bytes(m.drain(..8).collect::<Vec<_>>().try_into().unwrap());
-                        // let mut stkamnt = Scalar::from(stkamnt);
-                        if stkamnt == amnt {
-                            stkamnt -= 1;
-                        }
                         let newacc = Account::new(&format!("{}",String::from_utf8_lossy(&m)));
 
                         // send unstaked money
@@ -1009,11 +1002,6 @@ impl Future for KhoraNode {
                             if responces.len() == 0 {
                                 break
                             }
-                            responces.iter().for_each(|x| {
-                                if let Ok(block) = bincode::deserialize(&x) {
-                                    self.readlightning(block,x.to_vec());
-                                }
-                            });
                         }
 
                         // asdfasdffds
@@ -1023,10 +1011,9 @@ impl Future for KhoraNode {
                         println!("{}",socket);
                         match TcpStream::connect(socket) {
                             Ok(mut stream) => {
-                                let msg = b"Hello!";
-                    
-                                stream.write(msg).unwrap();
-                                println!("Sent Hello, awaiting reply...");
+                                let msg = vec![101u8];
+                                stream.write(&msg).unwrap();
+                                println!("Asking for entrance, awaiting reply...");
                     
                                 let mut data = Vec::<u8>::new(); // using 6 byte buffer
                                 match stream.read_to_end(&mut data) {

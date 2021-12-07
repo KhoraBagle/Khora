@@ -1167,12 +1167,8 @@ impl Future for KhoraNode {
                                 // to avoid spam
                                 if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
                                     let ok = {
-                                        if t.inputs.last() == Some(&1) {
-                                            t.verifystk(&self.stkinfo).is_ok()
-                                        } else {
-                                            let bloom = self.bloom.borrow();
-                                            t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
-                                        }
+                                        let bloom = self.bloom.borrow();
+                                        t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
                                     };
                                     if ok {
                                         print!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\ngot a tx, was at {}!",self.txses.len());
@@ -1180,11 +1176,21 @@ impl Future for KhoraNode {
                                         self.outer.broadcast_now(m);
                                     }
                                 }
+                            } else if mtype == 101 /* e */ {
+                                let x = self.outer.plumtree_node().all_push_peers();
+                                let y = self.outer.hyparview_node().active_view().into_iter().cloned().collect::<HashSet<_>>();
+                                let x = x.union(&y).collect::<HashSet<_>>();
+                                let y = self.outer.hyparview_node().passive_view().into_iter().collect::<HashSet<_>>();
+                                let x = x.union(&y).collect::<Vec<_>>();
+                                let x = x.into_iter().map(|&x| SocketAddr::new(x.address().ip(),OUTSIDER_PORT)).collect::<Vec<_>>();
+
+                                self.outerwriter.send(bincode::serialize(&x).unwrap());
+
+
                             } else if mtype == 114 /* r */ { // answer their ring question
                                 if let Ok(r) = recieve_ring(&m) {
                                     let y = r.iter().map(|y| History::get_raw(y).to_vec()).collect::<Vec<_>>();
                                     let mut x = bincode::serialize(&y).unwrap();
-                                    x.push(113);
                                     self.outerwriter.send(x);
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request

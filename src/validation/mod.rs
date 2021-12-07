@@ -722,7 +722,7 @@ impl LightningSyncBlock {
 
     }
 
-    /// scans the block for money sent to you. additionally updates your understanding of the height
+    /// scans the block for money sent to you. additionally updates your understanding of the height. returns weather you recieved money
     pub fn scan(&self, me: &Account, mine: &mut HashMap<u64,OTAccount>, height: &mut u64, alltagsever: &mut Vec<CompressedRistretto>) -> bool {
         let mut imtrue = true;
         let newmine = self.info.txout.iter().enumerate().filter_map(|(i,x)| if let Ok(y) = me.receive_ot(x) {imtrue = false; Some((i as u64+*height,y))} else {None}).collect::<Vec<(u64,OTAccount)>>();

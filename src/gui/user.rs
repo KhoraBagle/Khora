@@ -94,9 +94,8 @@ pub struct KhoraUserGUI {
     vsk: Vec<u8>,
     tsk: Vec<u8>,
     ringsize: u8,
-
-    #[cfg_attr(feature = "persistence", serde(skip))]
-    lonely: u16,
+    lonely: u64,
+    
     #[cfg_attr(feature = "persistence", serde(skip))]
     options_menu: bool,
     #[cfg_attr(feature = "persistence", serde(skip))]
@@ -264,7 +263,7 @@ impl epi::App for KhoraUserGUI {
             } else if modification == 2 {
                 self.block_number = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 4 {
-                self.lonely = u16::from_le_bytes(i.try_into().unwrap());
+                self.lonely = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();

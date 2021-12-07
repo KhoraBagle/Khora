@@ -15,8 +15,9 @@ use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::Build;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use trackable::error::MainError;
 use crossbeam::channel;
@@ -32,26 +33,26 @@ use khora::transaction::*;
 use curve25519_dalek::ristretto::{CompressedRistretto};
 use sha3::{Digest, Sha3_512};
 use rayon::prelude::*;
-use khora::bloom::*;
 use khora::validation::*;
 use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
-use khora::validation::{NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE};
-
-use gip::{GlobalAddress, Provider, ProviderDefaultV4};
-use local_ip_address::local_ip;
+use khora::validation::{NUMBER_OF_VALIDATORS, QUEUE_LENGTH};
 
 
-/// when to announce you're about to be in the comittee or how far in advance you can no longer serve as leader
-const EXIT_TIME: usize = REPLACERATE*5;
+
+
 /// amount of seconds to wait before initiating shard takeover
 const USURP_TIME: u64 = 3600;
-/// the default port
-const DEFAULT_PORT: u16 = 8334;
 /// the outsider port
 const OUTSIDER_PORT: u16 = 8335;
 /// total money ever produced
 const TOTAL_KHORA: f64 = 1.0e16;
+/// the number of nodes to send each message to
+const TRANSACTION_SEND_TO: usize = 1;
+/// the number of nodes to send each message to
+const SYNC_SEND_TO: usize = 1;
+/// the number of nodes to send each message to
+const RING_SEND_TO: usize = 3;
 /// calculates the amount of time the current block takes to be created
 fn blocktime(cumtime: f64) -> f64 {
     // 60f64/(6.337618E-8f64*cumtime+2f64).ln()
@@ -67,28 +68,8 @@ fn main() -> Result<(), MainError> {
 
     
 
-    // let mut n = Natpmp::new().unwrap();
-    // n.send_public_address_request().unwrap();
-    // n.send_port_mapping_request(natpmp::Protocol::TCP, DEFAULT_PORT, DEFAULT_PORT, 30).unwrap();
-    // std::thread::sleep(Duration::from_millis(250));
-    // let response = n.read_response_or_retry();
-    // println!("{:?}",response);
-
-
-    let outerlister = TcpListener::bind(format!("0.0.0.0:{}",DEFAULT_PORT)).unwrap();
 
     
-    // let local_socket: SocketAddr = format!("0.0.0.0:{}",OUTSIDER_PORT).parse().unwrap();
-    let local_socket: SocketAddr = format!("{}:{}",local_ip().unwrap(),OUTSIDER_PORT).parse().unwrap();;
-    let mut p = ProviderDefaultV4::new();
-    let global_addr = match p.get_addr() {
-        Ok(x) => x.v4addr.unwrap(),
-        Err(x) => {print!("Can't get global ip! Exiting because error: "); panic!("{}",x);},
-    };
-    // let global_addr = local_ip().unwrap(); // <----------this would be for local. uncomment above for global
-    let global_socket = format!("{}:{}",global_addr,DEFAULT_PORT).parse::<SocketAddr>().unwrap();
-    println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
-
     // this is the number of shards they keep track of
     let max_shards = 64usize; /* this if for testing purposes... there IS NO MAX SHARDS */
     
@@ -97,19 +78,9 @@ fn main() -> Result<(), MainError> {
 
     // println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
     let executor = track_any_err!(ThreadPoolExecutor::new())?;
-    let service = ServiceBuilder::new(local_socket)
-        .logger(logger.clone())
-        .server_addr(global_socket)
-        .finish(executor.handle(), SerialLocalNodeIdGenerator::new());
-    let backnode = NodeBuilder::new().logger(logger.clone()).finish(service.handle());
-    println!("{:?}",backnode.id());
-    let frontnode = NodeBuilder::new().logger(logger).finish(service.handle()); // todo: make this local_id random so people can't guess you
-    println!("{:?}",frontnode.id()); // this should be the validator survice
-
 
     let (ui_sender, mut urecv) = mpsc::channel();
     let (usend, ui_reciever) = channel::unbounded();
-    let (user, staker) = channel::unbounded();
 
 
 
@@ -147,8 +118,7 @@ fn main() -> Result<(), MainError> {
     
             // creates the node with the specified conditions then saves it to be used from now on
             let node = KhoraNode {
-                inner: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
-                outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
+                view: vec![],
                 save_history: will_stk,
                 me,
                 mine: HashMap::new(),
@@ -192,7 +162,7 @@ fn main() -> Result<(), MainError> {
             usend.send(info).expect("should work");
 
 
-            let node = KhoraNode::load(frontnode, backnode, usend, urecv);
+            let node = KhoraNode::load(usend, urecv);
             executor.spawn(node);
             println!("about to run node executer!");
             track_any_err!(executor.run()).unwrap();
@@ -211,7 +181,7 @@ fn main() -> Result<(), MainError> {
         let mut native_options = eframe::NativeOptions::default();
         eframe::run_native(Box::new(app), native_options);
     } else {
-        let node = KhoraNode::load(frontnode, backnode, usend, urecv);
+        let node = KhoraNode::load(usend, urecv);
         let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
         mymoney.push(0);
         node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
@@ -247,6 +217,7 @@ fn main() -> Result<(), MainError> {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 /// the information that you save to a file when the app is off (not including gui information like saved friends)
 struct SavedNode {
+    view: Vec<SocketAddr>,
     save_history: bool, //just testing. in real code this is true; but i need to pretend to be different people on the same computer
     me: Account,
     mine: HashMap<u64, OTAccount>,
@@ -262,7 +233,6 @@ struct SavedNode {
     sheight: u64,
     alltagsever: Vec<CompressedRistretto>,
     headshard: usize,
-    outer_view: Vec<NodeId>,
     rname: Vec<u8>,
     moneyreset: Option<Vec<u8>>,
     cumtime: f64,
@@ -273,11 +243,10 @@ struct SavedNode {
 
 /// the node used to run all the networking
 struct KhoraNode {
-    inner: Node<Vec<u8>>, // for sending and recieving messages as a validator (as in inner sanctum)
-    outer: Node<Vec<u8>>, // for sending and recieving messages as a non validator (as in not inner)
     gui_sender: channel::Sender<Vec<u8>>,
     gui_reciever: mpsc::Receiver<Vec<u8>>,
-    save_history: bool, //just testing. in real code this is true; but i need to pretend to be different people on the same computer
+    view: Vec<SocketAddr>,
+    save_history: bool, // do i really want this? yes?
     me: Account,
     mine: HashMap<u64, OTAccount>,
     key: Scalar,
@@ -309,6 +278,7 @@ impl KhoraNode {
     fn save(&self) {
         if self.moneyreset.is_none() {
             let sn = SavedNode {
+                view: self.view.clone(),
                 save_history: self.save_history,
                 me: self.me,
                 mine: self.mine.clone(),
@@ -324,13 +294,12 @@ impl KhoraNode {
                 sheight: self.sheight,
                 alltagsever: self.alltagsever.clone(),
                 headshard: self.headshard.clone(),
-                outer_view: self.outer.plumtree_node().all_push_peers().into_iter().collect(),
                 rname: self.rname.clone(),
                 moneyreset: self.moneyreset.clone(),
                 cumtime: self.cumtime,
                 blocktime: self.blocktime,
                 ringsize: self.ringsize,
-                knownnodes: self.knownnodes,
+                knownnodes: self.knownnodes.clone(),
             }; // just redo initial conditions on the rest
             let mut sn = bincode::serialize(&sn).unwrap();
             let mut f = File::create("myUsr").unwrap();
@@ -339,21 +308,17 @@ impl KhoraNode {
     }
 
     /// loads the node information from a file: "myUsr"
-    fn load(inner: Node<Vec<u8>>, outer: Node<Vec<u8>>, gui_sender: channel::Sender<Vec<u8>>, gui_reciever: mpsc::Receiver<Vec<u8>>) -> KhoraNode {
+    fn load(gui_sender: channel::Sender<Vec<u8>>, gui_reciever: mpsc::Receiver<Vec<u8>>) -> KhoraNode {
         let mut buf = Vec::<u8>::new();
         let mut f = File::open("myUsr").unwrap();
         f.read_to_end(&mut buf).unwrap();
 
         let sn = bincode::deserialize::<SavedNode>(&buf).unwrap();
 
-        // tries to get back all the friends you may have lost since turning off the app
-        let mut outer = outer;
-        outer.dm(vec![], &sn.outer_view, true);
         KhoraNode {
-            inner,
-            outer,
             gui_sender,
             gui_reciever,
+            view: sn.view.clone(),
             usurpingtime: Instant::now(),
             save_history: sn.save_history,
             me: sn.me,
@@ -399,11 +364,7 @@ impl KhoraNode {
             }
             let v: bool;
             if (lastlightning.shards[0] as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
-                if self.is_validator {
-                    v = lastlightning.verify_multithread(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok();
-                } else {
-                    v = lastlightning.verify(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok();
-                }
+                v = lastlightning.verify(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok();
             } else {
                 v = false;
             }
@@ -436,10 +397,15 @@ impl KhoraNode {
                 // calculate the reward for this block as a function of the current time and scan either the block or an empty block based on conditions
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
-                    let mut guitruster = !lastlightning.scanstk(&self.me, &mut vec![], &mut self.sheight, &self.comittee, reward, &self.stkinfo);
-                    guitruster = !lastlightning.scan(&self.me, &mut self.mine, &mut self.height, &mut self.alltagsever) && guitruster;
-                    self.gui_sender.send(vec![guitruster as u8,1]).expect("there's a problem communicating to the gui!");
-
+                    lastlightning.scanstk(&self.me, &mut vec![], &mut self.sheight, &self.comittee, reward, &self.stkinfo);
+                    let guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.height, &mut self.alltagsever);
+                    self.gui_sender.send(vec![!guitruster as u8,1]).expect("there's a problem communicating to the gui!");
+                    if guitruster {
+                        let mut mymoney = self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
+                        mymoney.push(0);
+                        println!("my money:\n---------------------------------\n{:?}",self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>());
+                        self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui    
+                    }
                     lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
 
                     self.lastbnum = self.bnum;
@@ -468,10 +434,6 @@ impl KhoraNode {
 
 
                 // send info to the gui
-                let mut mymoney = self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
-                mymoney.push(0);
-                println!("my money:\n---------------------------------\n{:?}",self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>());
-                self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
                 let mut thisbnum = self.bnum.to_le_bytes().to_vec();
                 thisbnum.push(2);
                 self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
@@ -514,14 +476,42 @@ impl KhoraNode {
     fn send_panic_or_stop(&mut self, lastlightning: &LightningSyncBlock, reward: f64) {
         if self.moneyreset.is_some() {
             if self.mine.len() < 1 {
-                if let Some(x) = self.moneyreset.clone() {
-                    self.outer.broadcast(x);
-                }
+                self.send_message(self.moneyreset.clone().expect("just checked that this worked 2 lines ago"),TRANSACTION_SEND_TO);
             } else {
                 self.moneyreset = None;
             }
         }
     }
+
+    /// returns the responces of each person you sent it to and deletes those who are dead from the view
+    fn send_message(&mut self, message: Vec<u8>, recipients: usize) -> Vec<Vec<u8>> {
+
+        let mut rng = &mut rand::thread_rng();
+        let v = self.view.choose_multiple(&mut rng, recipients).cloned().collect::<Vec<_>>();
+
+        let dead = Arc::new(Mutex::new(HashSet::<SocketAddr>::new()));
+        let responces = v.par_iter().filter_map(|&socket| {
+            if let Ok(mut stream) =  TcpStream::connect(socket) {
+                stream.write(&message).unwrap();
+                let mut responce = Vec::<u8>::new(); // using 6 byte buffer
+                if let Ok(_) = stream.read_to_end(&mut responce) {
+                    return Some(responce)
+                }
+            }
+            let mut dead = dead.lock().expect("can't lock the mutex that stores dead users!");
+            dead.insert(socket);
+            return None
+        }).collect();
+        let dead = dead.lock().expect("can't lock the mutex that stores dead users!");
+        self.view.retain(|x| !dead.contains(x));
+
+        let mut gm = (self.view.len() as u64).to_le_bytes().to_vec();
+        gm.push(4);
+        self.gui_sender.send(gm).expect("should be working");
+
+        responces
+    }
+
 }
 impl Future for KhoraNode {
     type Item = ();
@@ -554,11 +544,8 @@ impl Future for KhoraNode {
             // updates some gui info
             if self.gui_timer.elapsed().as_secs() > 5 {
                 self.gui_timer = Instant::now();
-                let mut friend = self.outer.plumtree_node().all_push_peers();
-                friend.remove(self.outer.plumtree_node().id());
-                let friend = friend.into_iter().collect::<Vec<_>>();
-                // println!("friends: {:?}",friend);
-                let mut gm = (friend.len() as u16).to_le_bytes().to_vec();
+
+                let mut gm = (self.view.len() as u64).to_le_bytes().to_vec();
                 gm.push(4);
                 self.gui_sender.send(gm).expect("should be working");
             }
@@ -819,7 +806,6 @@ impl Future for KhoraNode {
                                     println!("loc: {:?}",loc);
                                     println!("height: {}",self.height);
                                     self.rmems = HashMap::new();
-                                    self.outs = None;
                                     for (i,j) in loc.iter().zip(acc) {
                                         println!("i: {}, j.pk: {:?}",i,j.pk.compress());
                                         self.rmems.insert(*i,j);
@@ -829,11 +815,56 @@ impl Future for KhoraNode {
                                     let ring = recieve_ring(&self.rname).expect("shouldn't fail");
                                     if self.ringsize != 0 {
                                         println!("ring:----------------------------------\n{:?}",ring);
-                                        let mut rnamesend = self.rname.clone();
-                                        rnamesend.push(114);
-                                        self.outer.dm(rnamesend,&self.outer.plumtree_node().all_push_peers(),false);
-                                        self.outs = Some(outs);
+                                        let mut good = false;
+                                        for _ in 0..5 {
+                                            let mut rnamesend = self.rname.clone();
+                                            rnamesend.push(114);
+                                            let responces = self.send_message(rnamesend,RING_SEND_TO);
+                                            if responces.into_iter().filter(|m| {
+                                                let mut m = m.clone();
+                                                if Some(113) == m.pop() {
+                                                    if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(&m) {
+                                                        let locs = recieve_ring(&self.rname).unwrap();
+                                                        let rmems = r.iter().zip(locs).map(|(x,y)| (y,History::read_raw(x))).collect::<Vec<_>>();
+                                                        let mut ringchanged = false;
+                                                        for mem in rmems {
+                                                            if self.mine.iter().filter(|x| *x.0 == mem.0).count() == 0 {
+                                                                self.rmems.insert(mem.0,mem.1);
+                                                                ringchanged = true;
+                                                            }
+                                                        }
+                                                        if ringchanged {
+                                                            let ring = recieve_ring(&self.rname).unwrap();
+                                                            let mut got_the_ring = true;
+                                                            let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
+                                                            rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
+                                                            let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                                                            if got_the_ring && tx.verify().is_ok() {
+                                                                let tx = tx.polyform(&self.rname);
+                                                                // tx.verify().unwrap(); // as a user you won't be able to check this
+                                                                let mut txbin = bincode::serialize(&tx).unwrap();
+                                                                txbin.push(0);
+                                                                self.send_message(txbin,TRANSACTION_SEND_TO);
+                                                                println!("transaction ring filled and tx sent!");
+                                                                return true
+                                                            } else {
+                                                                println!("you can't make that transaction, user!");
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                return false
+                                            }).count() != 0 {
+                                                good = true;
+                                                break
+                                            }
+                                        }
+                                        if !good {
+                                            println!("FAILED TO SEND TRANSACTION");
+                                        }
+
                                         txbin = vec![];
+                                        
                                     } else {
                                         let mut rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
                                         let me = self.me;
@@ -893,7 +924,12 @@ impl Future for KhoraNode {
                         // if that tx is valid and ready as far as you know
                         if validtx && !txbin.is_empty() {
                             txbin.push(0);
-                            self.outer.broadcast_now(txbin);
+                            loop {
+                                let responces = self.send_message(txbin.clone(), TRANSACTION_SEND_TO);
+                                if !responces.is_empty() {
+                                    break
+                                }
+                            }
                             println!("transaction broadcasted");
                         } else {
                             println!("transaction not made right now");
@@ -940,7 +976,7 @@ impl Future for KhoraNode {
                                 }
                                 let mut txbin = bincode::serialize(&tx).unwrap();
                                 txbin.push(0);
-                                self.outer.broadcast_now(txbin.clone());
+                                self.send_message(txbin.clone(),TRANSACTION_SEND_TO);
                                 self.moneyreset = Some(txbin);
                                 println!("transaction made!");
                             } else {
@@ -973,67 +1009,44 @@ impl Future for KhoraNode {
                         let mut mynum = self.bnum.to_le_bytes().to_vec();
                         mynum.push(108); //l
                         mynum.push(121);
-                        let mut friend = self.outer.plumtree_node().all_push_peers();
-                        friend.remove(self.outer.plumtree_node().id());
-                        println!("{:?}",friend);
-                        let friend = friend.into_iter().collect::<Vec<_>>();
-                        println!("friends: {:?}",friend);
-                        let mut gm = (friend.len() as u16).to_le_bytes().to_vec();
+                        let mut gm = (self.view.len() as u64).to_le_bytes().to_vec();
                         gm.push(4);
                         self.gui_sender.send(gm).expect("should be working");
-                        if let Some(friend) = friend.choose(&mut rand::thread_rng()) {
-                            println!("asking for help from {:?}",friend);
-                            self.outer.dm(mynum, &[*friend], false);
-                        } else {
-                            println!("you're isolated");
-                        }
+                        let responces = self.send_message(mynum, SYNC_SEND_TO);
+
+                        // asdfasdffds
+
                     } else if istx == 42 /* * */ { // entry address
-                        let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
-                        println!("{}",m);
-                        if let Ok(socket) = m.parse() {
-                            println!("it's a socket");
-
-
-                            match TcpStream::connect(socket) {
-                                Ok(mut stream) => {
-                                    println!("Successfully connected to server in port 3333");
-                        
-                                    let msg = b"Hello!";
-                        
-                                    stream.write(msg).unwrap();
-                                    println!("Sent Hello, awaiting reply...");
-                        
-                                    let mut data = [0 as u8; 6]; // using 6 byte buffer
-                                    match stream.read_exact(&mut data) {
-                                        Ok(_) => {
-                                            if &data == msg {
-                                                println!("Reply is ok!");
-                                            } else {
-                                                let text = from_utf8(&data).unwrap();
-                                                println!("Unexpected reply: {}", text);
-                                            }
-                                        },
-                                        Err(e) => {
-                                            println!("Failed to receive data: {}", e);
+                        let socket = format!("{}:{}",String::from_utf8_lossy(&m),OUTSIDER_PORT);
+                        println!("{}",socket);
+                        match TcpStream::connect(socket) {
+                            Ok(mut stream) => {
+                                let msg = b"Hello!";
+                    
+                                stream.write(msg).unwrap();
+                                println!("Sent Hello, awaiting reply...");
+                    
+                                let mut data = Vec::<u8>::new(); // using 6 byte buffer
+                                match stream.read_to_end(&mut data) {
+                                    Ok(_) => {
+                                        if let Ok(x) = bincode::deserialize(&data) {
+                                            self.view = x;
+                                        } else {
+                                            println!("They didn't send a view!")
                                         }
+                                    },
+                                    Err(e) => {
+                                        println!("Failed to receive data: {}", e);
                                     }
-                                },
-                                Err(e) => {
-                                    println!("Failed to connect: {}", e);
                                 }
+                            },
+                            Err(e) => {
+                                println!("Failed to connect: {}", e);
                             }
-
-
-                            // knownnodes
-                            // self.outer.dm(vec![97],&[NodeId::new(socket, LocalNodeId::new(0))],true);
                         }
+
                     } else if istx == 64 /* @ */ {
-                        let mut friend = self.outer.plumtree_node().all_push_peers();
-                        friend.remove(self.outer.plumtree_node().id());
-                        println!("{:?}",friend);
-                        let friend = friend.into_iter().collect::<Vec<_>>();
-                        println!("friends: {:?}",friend);
-                        let mut gm = (friend.len() as u16).to_le_bytes().to_vec();
+                        let mut gm = (self.view.len() as u64).to_le_bytes().to_vec();
                         gm.push(4);
                         self.gui_sender.send(gm).expect("should be working");
                     } else if istx == 0 {

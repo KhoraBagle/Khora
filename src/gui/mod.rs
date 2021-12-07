@@ -1,2 +1,2 @@
-pub mod staker;
 pub mod user;
+pub mod staker;

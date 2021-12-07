@@ -281,7 +281,7 @@ fn main() -> Result<(), MainError> {
             track_any_err!(executor.run()).unwrap();
         });
         // creates the setup screen (sets the values used in the loops and sets some gui options)
-        let app = gui::user::KhoraStakerGUI::new(
+        let app = gui::staker::KhoraStakerGUI::new(
             ui_reciever,
             ui_sender,
             "".to_string(),
@@ -303,7 +303,7 @@ fn main() -> Result<(), MainError> {
         node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
         node.save();
 
-        let app = gui::user::KhoraStakerGUI::new(
+        let app = gui::staker::KhoraStakerGUI::new(
             ui_reciever,
             ui_sender,
             node.me.name(),

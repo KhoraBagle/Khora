@@ -814,8 +814,7 @@ impl Future for KhoraNode {
                                             rnamesend.push(114);
                                             let responces = self.send_message(rnamesend,RING_SEND_TO);
                                             if responces.into_iter().filter(|m| {
-                                                let mut m = m.clone();
-                                                if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(&m) {
+                                                if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(m) {
                                                     let locs = recieve_ring(&self.rname).unwrap();
                                                     let rmems = r.iter().zip(locs).map(|(x,y)| (y,History::read_raw(x))).collect::<Vec<_>>();
                                                     let mut ringchanged = false;

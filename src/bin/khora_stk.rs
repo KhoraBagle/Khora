@@ -322,10 +322,19 @@ fn main() -> Result<(), MainError> {
                             match stream.read_to_end(&mut m) {
                                 Ok(_) => {
                                     user.send(m).expect("Probelem sending from thread");
+                                    let mut t = Instant::now();
                                     loop {
                                         match responce.recv() {
-                                            Ok(x) => {stream.write(&x);},
-                                            Err(x) => {println!("# ERROR: {}",x);},
+                                            Ok(x) => {
+                                                t = Instant::now();
+                                                stream.write(&x);
+                                            },
+                                            Err(x) => {
+                                                println!("# ERROR: {}",x);
+                                            },
+                                        }
+                                        if t.elapsed().as_millis() > 500 {
+                                            break
                                         }
                                     }
                                     
@@ -1176,6 +1185,7 @@ impl Future for KhoraNode {
                                         self.outer.broadcast_now(m);
                                     }
                                 }
+                                self.outerwriter.send(vec![0u8]);
                             } else if mtype == 101 /* e */ {
                                 let x = self.outer.plumtree_node().all_push_peers();
                                 let y = self.outer.hyparview_node().active_view().into_iter().cloned().collect::<HashSet<_>>();
@@ -1190,15 +1200,16 @@ impl Future for KhoraNode {
                             } else if mtype == 114 /* r */ { // answer their ring question
                                 if let Ok(r) = recieve_ring(&m) {
                                     let y = r.iter().map(|y| History::get_raw(y).to_vec()).collect::<Vec<_>>();
-                                    let mut x = bincode::serialize(&y).unwrap();
+                                    let x = bincode::serialize(&y).unwrap();
                                     self.outerwriter.send(x);
+                                } else {
+                                    self.outerwriter.send(vec![0u8]);
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
-                                let mut i_cant_do_this = true;
                                 if let Ok(m) = m.try_into() {
                                     let mut sync_theirnum = u64::from_le_bytes(m);
                                     loop {
-                                        if let Ok(mut x) = LightningSyncBlock::read(&sync_theirnum) {
+                                        if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
                                             self.outerwriter.send(x);
                                             break
                                         }

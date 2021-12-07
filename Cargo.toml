@@ -13,8 +13,12 @@ panic = 'abort'     # Abort on panic
 # cargo build
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [[bin]]
-name = "khora"
-path = "src/bin/khora.rs"
+name = "khora_usr"
+path = "src/bin/khora_usr.rs"
+
+[[bin]]
+name = "khora_stk"
+path = "src/bin/khora_stk.rs"
 
 [[bin]]
 name = "entrypoint_example"

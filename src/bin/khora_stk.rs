@@ -15,8 +15,9 @@ use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::Build;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::path::Path;
+use std::thread;
 use trackable::error::MainError;
 use crossbeam::channel;
 
@@ -47,6 +48,8 @@ const EXIT_TIME: usize = REPLACERATE*5;
 const USURP_TIME: u64 = 3600;
 /// the default port
 const DEFAULT_PORT: u16 = 8334;
+/// the outsider port
+const OUTSIDER_PORT: u16 = 8335;
 /// total money ever produced
 const TOTAL_KHORA: f64 = 1.0e16;
 /// calculates the amount of time the current block takes to be created
@@ -62,7 +65,7 @@ fn reward(cumtime: f64, blocktime: f64) -> f64 {
 fn main() -> Result<(), MainError> {
     let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build())?; // info or debug
 
-        
+    
 
     // let mut n = Natpmp::new().unwrap();
     // n.send_public_address_request().unwrap();
@@ -72,15 +75,17 @@ fn main() -> Result<(), MainError> {
     // println!("{:?}",response);
 
 
+    let outerlister = TcpListener::bind(format!("0.0.0.0:{}",DEFAULT_PORT)).unwrap();
 
     
-    let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
-    // let mut p = ProviderDefaultV4::new();
-    // let global_addr = match p.get_addr() {
-    //     Ok(x) => x.v4addr.unwrap(),
-    //     Err(x) => {print!("Can't get global ip! Exiting because error: "); panic!("{}",x);},
-    // };
-    let global_addr = local_ip().unwrap(); // <----------this would be for local. uncomment above for global
+    // let local_socket: SocketAddr = format!("0.0.0.0:{}",OUTSIDER_PORT).parse().unwrap();
+    let local_socket: SocketAddr = format!("{}:{}",local_ip().unwrap(),OUTSIDER_PORT).parse().unwrap();;
+    let mut p = ProviderDefaultV4::new();
+    let global_addr = match p.get_addr() {
+        Ok(x) => x.v4addr.unwrap(),
+        Err(x) => {print!("Can't get global ip! Exiting because error: "); panic!("{}",x);},
+    };
+    // let global_addr = local_ip().unwrap(); // <----------this would be for local. uncomment above for global
     let global_socket = format!("{}:{}",global_addr,DEFAULT_PORT).parse::<SocketAddr>().unwrap();
     println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
 
@@ -104,6 +109,8 @@ fn main() -> Result<(), MainError> {
 
     let (ui_sender, mut urecv) = mpsc::channel();
     let (usend, ui_reciever) = channel::unbounded();
+    let (user, userrcv) = channel::unbounded();
+    let (responder, responce) = channel::unbounded();
 
 
 
@@ -165,7 +172,8 @@ fn main() -> Result<(), MainError> {
             let node = KhoraNode {
                 inner: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
                 outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
-                save_history: will_stk,
+                outerlister: channel::unbounded().1,
+                outerwriter: channel::unbounded().0,
                 me,
                 mine: HashMap::new(),
                 smine: smine.clone(), // [location, amount]
@@ -196,7 +204,7 @@ fn main() -> Result<(), MainError> {
                 headshard: 0,
                 usurpingtime: Instant::now(),
                 is_validator: !smine.is_empty(),
-                is_user: true,
+                is_node: true,
                 sent_onces: HashSet::new(),
                 knownvalidators: HashMap::new(),
                 newest: 0u64,
@@ -231,13 +239,41 @@ fn main() -> Result<(), MainError> {
             usend.send(info).expect("should work");
 
 
-            let node = KhoraNode::load(frontnode, backnode, usend, urecv);
+            let node = KhoraNode::load(frontnode, backnode, usend, urecv,userrcv,responder);
             let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
             mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
             mymoney.push(0);
             println!("my money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
             node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
             node.save();
+            thread::spawn(move || {
+                for stream in outerlister.incoming() {
+                    match stream {
+                        Ok(mut stream) => {
+                            let mut m = vec![];
+                            match stream.read_to_end(&mut m) {
+                                Ok(_) => {
+                                    user.send(m).expect("Probelem sending from thread");
+                                    loop {
+                                        match responce.recv() {
+                                            Ok(x) => {stream.write(&x);},
+                                            Err(x) => {println!("# ERROR: {}",x);},
+                                        }
+                                    }
+                                    
+                                }
+                                Err(err) => {
+                                    println!("# ERROR: {}",err);
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            println!("Error");
+                        }
+                    }
+
+                }
+            });
 
             executor.spawn(service.map_err(|e| panic!("{}", e)));
             executor.spawn(node);
@@ -245,7 +281,7 @@ fn main() -> Result<(), MainError> {
             track_any_err!(executor.run()).unwrap();
         });
         // creates the setup screen (sets the values used in the loops and sets some gui options)
-        let app = gui::KhoraGUI::new(
+        let app = gui::user::KhoraStakerGUI::new(
             ui_reciever,
             ui_sender,
             "".to_string(),
@@ -259,7 +295,7 @@ fn main() -> Result<(), MainError> {
         native_options.always_on_top = false;
         eframe::run_native(Box::new(app), native_options);
     } else {
-        let node = KhoraNode::load(frontnode, backnode, usend, urecv);
+        let node = KhoraNode::load(frontnode, backnode, usend, urecv,userrcv,responder);
         let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
         mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
         mymoney.push(0);
@@ -267,7 +303,7 @@ fn main() -> Result<(), MainError> {
         node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
         node.save();
 
-        let app = gui::KhoraGUI::new(
+        let app = gui::user::KhoraStakerGUI::new(
             ui_reciever,
             ui_sender,
             node.me.name(),
@@ -300,7 +336,6 @@ fn main() -> Result<(), MainError> {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 /// the information that you save to a file when the app is off (not including gui information like saved friends)
 struct SavedNode {
-    save_history: bool, //just testing. in real code this is true; but i need to pretend to be different people on the same computer
     me: Account,
     mine: HashMap<u64, OTAccount>,
     smine: Vec<[u64; 2]>, // [location, amount]
@@ -336,9 +371,10 @@ struct SavedNode {
 struct KhoraNode {
     inner: Node<Vec<u8>>, // for sending and recieving messages as a validator (as in inner sanctum)
     outer: Node<Vec<u8>>, // for sending and recieving messages as a non validator (as in not inner)
+    outerlister: channel::Receiver<Vec<u8>>, // for listening to people not in the network
+    outerwriter: channel::Sender<Vec<u8>>,
     gui_sender: channel::Sender<Vec<u8>>,
     gui_reciever: mpsc::Receiver<Vec<u8>>,
-    save_history: bool, //just testing. in real code this is true; but i need to pretend to be different people on the same computer
     me: Account,
     mine: HashMap<u64, OTAccount>,
     smine: Vec<[u64; 2]>, // [location, amount]
@@ -369,7 +405,7 @@ struct KhoraNode {
     headshard: usize,
     usurpingtime: Instant,
     is_validator: bool,
-    is_user: bool,
+    is_node: bool,
     sent_onces: HashSet<Vec<u8>>,
     knownvalidators: HashMap<u64,NodeId>,
     newest: u64,
@@ -393,7 +429,6 @@ impl KhoraNode {
     fn save(&self) {
         if !self.moneyreset.is_some() && !self.oldstk.is_some() {
             let sn = SavedNode {
-                save_history: self.save_history,
                 me: self.me,
                 mine: self.mine.clone(),
                 smine: self.smine.clone(), // [location, amount]
@@ -431,7 +466,7 @@ impl KhoraNode {
     }
 
     /// loads the node information from a file: "myNode"
-    fn load(inner: Node<Vec<u8>>, outer: Node<Vec<u8>>, gui_sender: channel::Sender<Vec<u8>>, gui_reciever: mpsc::Receiver<Vec<u8>>) -> KhoraNode {
+    fn load(inner: Node<Vec<u8>>, outer: Node<Vec<u8>>, gui_sender: channel::Sender<Vec<u8>>, gui_reciever: mpsc::Receiver<Vec<u8>>, outerlister: channel::Receiver<Vec<u8>>, outerwriter: channel::Sender<Vec<u8>>) -> KhoraNode {
         let mut buf = Vec::<u8>::new();
         let mut f = File::open("myNode").unwrap();
         f.read_to_end(&mut buf).unwrap();
@@ -444,6 +479,8 @@ impl KhoraNode {
         KhoraNode {
             inner,
             outer,
+            outerlister,
+            outerwriter,
             gui_sender,
             gui_reciever,
             timekeeper: Instant::now() - Duration::from_secs(1),
@@ -454,7 +491,6 @@ impl KhoraNode {
             usurpingtime: Instant::now(),
             txses: vec![], // if someone is not a leader for a really long time they'll have a wrongly long list of tx
             sigs: vec![],
-            save_history: sn.save_history,
             me: sn.me,
             mine: sn.mine.clone(),
             smine: sn.smine.clone(), // [location, amount]
@@ -476,7 +512,7 @@ impl KhoraNode {
             alltagsever: sn.alltagsever.clone(),
             headshard: sn.headshard.clone(),
             is_validator: sn.is_validator,
-            is_user: true,
+            is_node: true,
             sent_onces: HashSet::new(), // maybe occasionally clear this or replace with vecdeq?
             knownvalidators: HashMap::new(),
             doneerly: Instant::now(),
@@ -554,12 +590,10 @@ impl KhoraNode {
                     self.gui_sender.send(vec![!NextBlock::pay_self_empty(&self.headshard, &self.comittee, &mut self.smine, reward) as u8,1]).expect("there's a problem communicating to the gui!");
                     NextBlock::pay_all_empty(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
 
-                    if self.save_history {
-                        if !self.lightning_yielder {
-                            NextBlock::save(&vec![]);
-                        }
-                        LightningSyncBlock::save(&vec![]);
+                    if !self.lightning_yielder {
+                        NextBlock::save(&vec![]);
                     }
+                    LightningSyncBlock::save(&vec![]);
 
                     // if you're panicing, the transaction you have saved may need to be updated based on if you gain or loose money
                     if let Some(oldstk) = &mut self.oldstk {
@@ -584,16 +618,15 @@ impl KhoraNode {
                     guitruster = !lastlightning.scan(&self.me, &mut self.mine, &mut self.height, &mut self.alltagsever) && guitruster;
                     self.gui_sender.send(vec![guitruster as u8,1]).expect("there's a problem communicating to the gui!");
 
-                    if self.save_history {
-                        println!("saving block...");
-                        lastlightning.update_bloom(&mut self.bloom,&self.is_validator);
-                        if !self.lightning_yielder {
-                            NextBlock::save(&largeblock.unwrap()); // important! if you select to recieve full blocks you CAN NOT recieve with lightning blocks (because if you do youd miss full blocks)
-                        }
-                        LightningSyncBlock::save(&m);
+                    println!("saving block...");
+                    lastlightning.update_bloom(&mut self.bloom,&self.is_validator);
+                    if !self.lightning_yielder {
+                        NextBlock::save(&largeblock.unwrap()); // important! if you select to recieve full blocks you CAN NOT recieve with lightning blocks (because if you do youd miss full blocks)
                     }
+                    LightningSyncBlock::save(&m);
+
                     self.keylocation = self.smine.iter().map(|x| x[0]).collect();
-                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
+                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, true);
 
                     self.lastbnum = self.bnum;
                     let mut hasher = Sha3_512::new();
@@ -602,12 +635,10 @@ impl KhoraNode {
                 } else {
                     self.gui_sender.send(vec![!NextBlock::pay_self_empty(&self.headshard, &self.comittee, &mut self.smine, reward) as u8,1]).expect("there's a problem communicating to the gui!");
                     NextBlock::pay_all_empty(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
-                    if self.save_history {
-                        if !self.lightning_yielder {
-                            NextBlock::save(&vec![]);
-                        }
-                        LightningSyncBlock::save(&vec![]);
+                    if !self.lightning_yielder {
+                        NextBlock::save(&vec![]);
                     }
+                    LightningSyncBlock::save(&vec![]);
                 }
                 self.votes[self.exitqueue[self.headshard][0]] = 0; self.votes[self.exitqueue[self.headshard][1]] = 0;
                 self.newest = self.queue[self.headshard][0] as u64;
@@ -670,25 +701,21 @@ impl KhoraNode {
                     self.overthrown = HashSet::new();
                 }
                 // if you save the history, the txses you know about matter; otherwise, they don't (becuase you're not involved in block creation)
-                if self.save_history {
-                    let s = self.stkinfo.borrow();
-                    let bloom = self.bloom.borrow();
-                    println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\nhad {} tx",self.txses.len());
-                    self.txses = self.txses.iter().collect::<HashSet<_>>().into_iter().cloned().collect::<Vec<_>>();
-                    self.txses.retain(|x| {
-                        if let Ok(x) = bincode::deserialize::<PolynomialTransaction>(x) {
-                            if x.inputs.last() == Some(&1) {
-                                x.verifystk(s).is_ok()
-                            } else {
-                                x.tags.iter().all(|x| !bloom.contains(x.as_bytes())) && x.verify().is_ok()
-                            }
+                let s = self.stkinfo.borrow();
+                let bloom = self.bloom.borrow();
+                println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\nhad {} tx",self.txses.len());
+                self.txses = self.txses.iter().collect::<HashSet<_>>().into_iter().cloned().collect::<Vec<_>>();
+                self.txses.retain(|x| {
+                    if let Ok(x) = bincode::deserialize::<PolynomialTransaction>(x) {
+                        if x.inputs.last() == Some(&1) {
+                            x.verifystk(s).is_ok()
                         } else {
-                            false
+                            x.tags.iter().all(|x| !bloom.contains(x.as_bytes())) && x.verify().is_ok()
                         }
-                    });
-                } else {
-                    self.txses = vec![];
-                }
+                    } else {
+                        false
+                    }
+                });
                 
                 // runs any operations needed for the panic button to function
                 self.send_panic_or_stop(&lastlightning, reward);
@@ -731,18 +758,18 @@ impl KhoraNode {
                 // if you're on the comittee you need to pull on your inner node
                 // if you're not you need to poll on your user node
                 if self.keylocation.iter().all(|keylocation| !self.comittee[self.headshard].contains(&(*keylocation as usize)) ) { // if you're not in the comittee
-                    self.is_user = true;
+                    self.is_node = true;
                     self.is_validator = false;
                 } else { // if you're in the comittee
                     // println!("I'm in the comittee!");
-                    self.is_user = false;
+                    self.is_node = false;
                     self.is_validator = true;
                 }
                 // if you're about to be in the comittee you need to take these actions
                 self.keylocation.clone().iter().for_each(|keylocation| {
                     // announce yourself to the comittee because it's about to be your turn
                     if self.queue[self.headshard].range(0..REPLACERATE).any(|&x| x as u64 != *keylocation) {
-                        self.is_user = true;
+                        self.is_node = true;
                         self.is_validator = true;
 
 
@@ -1073,7 +1100,7 @@ impl Future for KhoraNode {
         |--0| ::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF/
              \*/
             // if you're not in the comittee
-            if self.is_user {
+            // if self.is_node {
                 // if you're syncing someone sync a few more blocks every loop time
                 if let Some(addr) = self.sync_returnaddr {
                     while self.sync_theirnum <= self.bnum {
@@ -1101,6 +1128,76 @@ impl Future for KhoraNode {
                 }
 
 
+                // jhgfjhfgj
+                if let Ok(mut m) = self.outerlister.try_recv() {
+                    // println!("# RECIEVED MESSAGE: {}",String::from_utf8_lossy(&m[..100]));
+                    if m.len() < 100_000 {
+                        if let Some(mtype) = m.pop() {
+                            println!("# MESSAGE TYPE: {:?}", mtype);
+        
+                            if mtype == 0 /* transaction someone wants to make */ {
+                                // to avoid spam
+                                if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
+                                    let ok = {
+                                        if t.inputs.last() == Some(&1) {
+                                            t.verifystk(&self.stkinfo).is_ok()
+                                        } else {
+                                            let bloom = self.bloom.borrow();
+                                            t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                                        }
+                                    };
+                                    if ok {
+                                        print!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\ngot a tx, was at {}!",self.txses.len());
+                                        m.push(0);
+                                        self.outer.broadcast_now(m);
+                                    }
+                                }
+                            } else if mtype == 114 /* r */ { // answer their ring question
+                                if let Ok(r) = recieve_ring(&m) {
+                                    let y = r.iter().map(|y| History::get_raw(y).to_vec()).collect::<Vec<_>>();
+                                    let mut x = bincode::serialize(&y).unwrap();
+                                    x.push(113);
+                                    self.outerwriter.send(x);
+                                }
+                            } else if mtype == 121 /* y */ { // someone sent a sync request
+                                let mut i_cant_do_this = true;
+                                if let Some(theyfast) = m.pop() {
+                                    if let Ok(m) = m.try_into() {
+                                        let sync_theirnum = u64::from_le_bytes(m);
+                                        let sync_lightning: bool;
+                                        if theyfast == 108 {
+                                            i_cant_do_this = false;
+                                            sync_lightning = true;
+                                        } else {
+                                            if !self.lightning_yielder {
+                                                i_cant_do_this = false;
+                                            }
+                                            sync_lightning = false;
+                                        }
+                                        println!("checking for file location for {}...",sync_theirnum);
+                                        if i_cant_do_this {
+                                            if sync_lightning {
+                                                if let Ok(mut x) = LightningSyncBlock::read(&sync_theirnum) {
+                                                    x.push(3);
+                                                    self.outerwriter.send(x);
+                                                }
+                                            } else {
+                                                if let Ok(mut x) = NextBlock::read(&self.sync_theirnum) {
+                                                    x.push(3);
+                                                    self.outerwriter.send(x);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    did_something = true;
+                }
+                // jhgfjhfgj
+
+
                 // recieved a message as a non comittee member
                 while let Async::Ready(Some(fullmsg)) = track_try_unwrap!(self.outer.poll()) {
                     let msg = fullmsg.message.clone();
@@ -1111,9 +1208,8 @@ impl Future for KhoraNode {
 
                         if mtype == 0 /* transaction someone wants to make */ {
                             // to avoid spam
-                            let m = m[..std::cmp::min(m.len(),100_000)].to_vec();
-                            if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
-                                if self.save_history {
+                            if m.len() < 100_000 {
+                                if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
                                     let ok = {
                                         if t.inputs.last() == Some(&1) {
                                             t.verifystk(&self.stkinfo).is_ok()
@@ -1126,12 +1222,12 @@ impl Future for KhoraNode {
                                         self.txses.push(m);
                                         print!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\ngot a tx, now at {}!",self.txses.len());
                                         self.outer.handle_gossip_now(fullmsg, true);
+                                    } else {
+                                        self.outer.handle_gossip_now(fullmsg, false);
                                     }
                                 } else {
-                                    self.outer.handle_gossip_now(fullmsg, true);
+                                    self.outer.handle_gossip_now(fullmsg, false);
                                 }
-                            } else {
-                                self.outer.handle_gossip_now(fullmsg, false);
                             }
                         } else if mtype == 3 /* recieved a full block */ {
                             if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&m) {
@@ -1163,7 +1259,7 @@ impl Future for KhoraNode {
                                 }
                             }
                         } else if mtype == 97 /* a */ {
-                            println!("Someone's trying to connect!!! Tell Kostya you got this message, [kostya's friend]!!! Thanks!!! :3\n(  this means you're recieving his messages >(^.^)>  )");
+                            println!("Someone's trying to connect!!! :3\n(  this means you're recieving connect request >(^.^)>  )");
                             self.outer.plumtree_node.lazy_push_peers.insert(fullmsg.sender);
                         } else if mtype == 108 /* l */ { // a lightning block
                             if self.lightning_yielder {
@@ -1226,22 +1322,20 @@ impl Future for KhoraNode {
                             }
                         } else if mtype == 121 /* y */ { // someone sent a sync request
                             let mut i_cant_do_this = true;
-                            if self.save_history {
-                                if self.sync_returnaddr.is_none() {
-                                    if let Some(theyfast) = m.pop() {
-                                        if let Ok(m) = m.try_into() {
-                                            if theyfast == 108 {
-                                                self.sync_lightning = true;
+                            if self.sync_returnaddr.is_none() {
+                                if let Some(theyfast) = m.pop() {
+                                    if let Ok(m) = m.try_into() {
+                                        if theyfast == 108 {
+                                            self.sync_lightning = true;
+                                            self.sync_returnaddr = Some(msg.id.node());
+                                            self.sync_theirnum = u64::from_le_bytes(m);
+                                            i_cant_do_this = false;
+                                        } else {
+                                            if !self.lightning_yielder {
+                                                self.sync_lightning = false;
                                                 self.sync_returnaddr = Some(msg.id.node());
                                                 self.sync_theirnum = u64::from_le_bytes(m);
                                                 i_cant_do_this = false;
-                                            } else {
-                                                if !self.lightning_yielder {
-                                                    self.sync_lightning = false;
-                                                    self.sync_returnaddr = Some(msg.id.node());
-                                                    self.sync_theirnum = u64::from_le_bytes(m);
-                                                    i_cant_do_this = false;
-                                                }
                                             }
                                         }
                                     }
@@ -1265,9 +1359,9 @@ impl Future for KhoraNode {
                             self.outer.handle_gossip_now(fullmsg, false);
                         }
                     }
+                    did_something = true;
                 }
-                did_something = true;
-            }
+            // }
 
 
 
@@ -1348,81 +1442,35 @@ impl Future for KhoraNode {
                         if txtype == 33 /* ! */ { // transaction should be spent with unstaked money
                             let (loc, acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(x.0,x.1.clone())).unzip();
 
-                            // if you need help with ring generation
-                            if !self.save_history {
-                                if self.mine.len() > 0 {                                
-                                    let (loc, acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(*x.0,x.1.clone())).unzip();
-                
-                                    println!("loc: {:?}",loc);
-                                    println!("height: {}",self.height);
-                                    self.rmems = HashMap::new();
-                                    self.outs = None;
-                                    for (i,j) in loc.iter().zip(acc) {
-                                        println!("i: {}, j.pk: {:?}",i,j.pk.compress());
-                                        self.rmems.insert(*i,j);
-                                    }
-                                    
-                                    self.rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
-                                    let ring = recieve_ring(&self.rname).expect("shouldn't fail");
-                                    if self.ringsize != 0 {
-                                        println!("ring:----------------------------------\n{:?}",ring);
-                                        let mut rnamesend = self.rname.clone();
-                                        rnamesend.push(114);
-                                        self.outer.dm(rnamesend,&self.outer.plumtree_node().all_push_peers(),false);
-                                        self.outs = Some(outs);
-                                        txbin = vec![];
-                                    } else {
-                                        let mut rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
-                                        let me = self.me;
-                                        rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
-                                        
-                                        let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (&x.0,&x.1)).collect());
 
-                                        println!("{:?}",rlring.iter().map(|x| x.com.amount).collect::<Vec<_>>());
-                                        if tx.verify().is_ok() {
-                                            let tx = tx.polyform(&self.rname);
-                                            if self.save_history {
-                                                tx.verify().unwrap(); // as a user you won't be able to check this
-                                            }
-                                            txbin = bincode::serialize(&tx).unwrap();
-                                            println!("transaction made!");
-                                        } else {
-                                            txbin = vec![];
-                                            println!("you can't make that transaction, user!");
-                                        }
-                                    }
+                            let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
+                            let ring = recieve_ring(&rname).expect("shouldn't fail");
+                            println!("ring: {:?}",ring);
+                            println!("mine: {:?}",acc.iter().map(|x|x.pk.compress()).collect::<Vec<_>>());
+                            // println!("ring: {:?}",ring.iter().map(|x|OTAccount::summon_ota(&History::get(&x)).pk.compress()).collect::<Vec<_>>());
+                            let mut rlring = ring.into_iter().map(|x| {
+                                let x = OTAccount::summon_ota(&History::get(&x));
+                                if acc.iter().all(|a| a.pk != x.pk) {
+                                    println!("not mine!");
+                                    x
                                 } else {
-                                    txbin = vec![];
+                                    println!("mine!");
+                                    acc.iter().filter(|a| a.pk == x.pk).collect::<Vec<_>>()[0].to_owned()
                                 }
+                            }).collect::<Vec<OTAccount>>();
+                            println!("ring len: {:?}",rlring.len());
+                            let me = self.me;
+                            rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
+                            let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                            let tx = tx.polyform(&rname);
+                            if tx.verify().is_ok() {
+                                txbin = bincode::serialize(&tx).unwrap();
+                                println!("transaction made!");
                             } else {
-                                let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
-                                let ring = recieve_ring(&rname).expect("shouldn't fail");
-                                println!("ring: {:?}",ring);
-                                println!("mine: {:?}",acc.iter().map(|x|x.pk.compress()).collect::<Vec<_>>());
-                                // println!("ring: {:?}",ring.iter().map(|x|OTAccount::summon_ota(&History::get(&x)).pk.compress()).collect::<Vec<_>>());
-                                let mut rlring = ring.into_iter().map(|x| {
-                                    let x = OTAccount::summon_ota(&History::get(&x));
-                                    if acc.iter().all(|a| a.pk != x.pk) {
-                                        println!("not mine!");
-                                        x
-                                    } else {
-                                        println!("mine!");
-                                        acc.iter().filter(|a| a.pk == x.pk).collect::<Vec<_>>()[0].to_owned()
-                                    }
-                                }).collect::<Vec<OTAccount>>();
-                                println!("ring len: {:?}",rlring.len());
-                                let me = self.me;
-                                rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
-                                let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                                let tx = tx.polyform(&rname);
-                                if tx.verify().is_ok() {
-                                    txbin = bincode::serialize(&tx).unwrap();
-                                    println!("transaction made!");
-                                } else {
-                                    txbin = vec![];
-                                    println!("you can't make that transaction!");
-                                }
+                                txbin = vec![];
+                                println!("you can't make that transaction!");
                             }
+                            
                         } else if txtype == 63 /* ? */ { // transaction should be spent with staked money
                             let (loc, amnt): (Vec<u64>,Vec<u64>) = self.smine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
                             let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
@@ -1489,11 +1537,8 @@ impl Future for KhoraNode {
 
                             println!("{:?}",rlring.iter().map(|x| x.com.amount).collect::<Vec<_>>());
                             println!("{:?}",amnt);
+                            let tx = tx.polyform(&rname);
                             if tx.verify().is_ok() {
-                                let tx = tx.polyform(&rname);
-                                if self.save_history {
-                                    tx.verify().unwrap(); // as a user you won't be able to check this
-                                }
                                 let mut txbin = bincode::serialize(&tx).unwrap();
                                 self.txses.push(txbin.clone());
                                 txbin.push(0);

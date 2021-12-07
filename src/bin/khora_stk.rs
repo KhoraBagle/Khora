@@ -1226,6 +1226,8 @@ impl Future for KhoraNode {
                                         }
                                     }
                                 }
+                            } else {
+                                self.outerwriter.send(vec![0u8;2]);
                             }
                         }
                     }

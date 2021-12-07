@@ -347,15 +347,8 @@ impl KhoraNode {
         }
     }
 
-    /// reads a full block (by converting it to lightning then reading that)
-    fn readblock(&mut self, lastblock: NextBlock, m: Vec<u8>) -> bool {
-        let lastlightning = lastblock.tolightning();
-        let l = bincode::serialize(&lastlightning).unwrap();
-        self.readlightning(lastlightning,l,Some(m.clone()))
-    }
-
     /// reads a lightning block and saves information when appropriate
-    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, largeblock: Option<Vec<u8>>) -> bool {
+    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>) -> bool {
         if lastlightning.bnum >= self.bnum {
             let com = self.comittee.par_iter().map(|x| x.par_iter().map(|y| *y as u64).collect::<Vec<_>>()).collect::<Vec<_>>();
             if lastlightning.shards.len() == 0 {
@@ -488,7 +481,7 @@ impl KhoraNode {
 
         let mut rng = &mut rand::thread_rng();
         let v = self.view.choose_multiple(&mut rng, recipients).cloned().collect::<Vec<_>>();
-
+        
         let dead = Arc::new(Mutex::new(HashSet::<SocketAddr>::new()));
         let responces = v.par_iter().filter_map(|&socket| {
             if let Ok(mut stream) =  TcpStream::connect(socket) {
@@ -1006,13 +999,22 @@ impl Future for KhoraNode {
                         self.gui_sender.send(m5).expect("should be working");
 
                     } else if istx == 121 /* y */ { // you clicked sync
-                        let mut mynum = self.bnum.to_le_bytes().to_vec();
-                        mynum.push(108); //l
-                        mynum.push(121);
                         let mut gm = (self.view.len() as u64).to_le_bytes().to_vec();
                         gm.push(4);
                         self.gui_sender.send(gm).expect("should be working");
-                        let responces = self.send_message(mynum, SYNC_SEND_TO);
+                        loop {
+                            let mut mynum = self.bnum.to_le_bytes().to_vec();
+                            mynum.push(121);
+                            let responces = self.send_message(mynum, SYNC_SEND_TO);
+                            if responces.len() == 0 {
+                                break
+                            }
+                            responces.iter().for_each(|x| {
+                                if let Ok(block) = bincode::deserialize(&x) {
+                                    self.readlightning(block,x.to_vec());
+                                }
+                            });
+                        }
 
                         // asdfasdffds
 

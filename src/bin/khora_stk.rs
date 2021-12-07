@@ -291,8 +291,7 @@ fn main() -> Result<(), MainError> {
             vec![],
             true,
         );
-        let mut native_options = eframe::NativeOptions::default();
-        native_options.always_on_top = false;
+        let native_options = eframe::NativeOptions::default();
         eframe::run_native(Box::new(app), native_options);
     } else {
         let node = KhoraNode::load(frontnode, backnode, usend, urecv,userrcv,responder);
@@ -315,6 +314,35 @@ fn main() -> Result<(), MainError> {
         );
         let native_options = eframe::NativeOptions::default();
         std::thread::spawn(move || {
+            thread::spawn(move || {
+                for stream in outerlister.incoming() {
+                    match stream {
+                        Ok(mut stream) => {
+                            let mut m = vec![];
+                            match stream.read_to_end(&mut m) {
+                                Ok(_) => {
+                                    user.send(m).expect("Probelem sending from thread");
+                                    loop {
+                                        match responce.recv() {
+                                            Ok(x) => {stream.write(&x);},
+                                            Err(x) => {println!("# ERROR: {}",x);},
+                                        }
+                                    }
+                                    
+                                }
+                                Err(err) => {
+                                    println!("# ERROR: {}",err);
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            println!("Error");
+                        }
+                    }
+
+                }
+            });
+
             executor.spawn(service.map_err(|e| panic!("{}", e)));
             executor.spawn(node);
     
@@ -1161,32 +1189,16 @@ impl Future for KhoraNode {
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
                                 let mut i_cant_do_this = true;
-                                if let Some(theyfast) = m.pop() {
-                                    if let Ok(m) = m.try_into() {
-                                        let sync_theirnum = u64::from_le_bytes(m);
-                                        let sync_lightning: bool;
-                                        if theyfast == 108 {
-                                            i_cant_do_this = false;
-                                            sync_lightning = true;
-                                        } else {
-                                            if !self.lightning_yielder {
-                                                i_cant_do_this = false;
-                                            }
-                                            sync_lightning = false;
+                                if let Ok(m) = m.try_into() {
+                                    let mut sync_theirnum = u64::from_le_bytes(m);
+                                    loop {
+                                        if let Ok(mut x) = LightningSyncBlock::read(&sync_theirnum) {
+                                            self.outerwriter.send(x);
+                                            break
                                         }
-                                        println!("checking for file location for {}...",sync_theirnum);
-                                        if i_cant_do_this {
-                                            if sync_lightning {
-                                                if let Ok(mut x) = LightningSyncBlock::read(&sync_theirnum) {
-                                                    x.push(3);
-                                                    self.outerwriter.send(x);
-                                                }
-                                            } else {
-                                                if let Ok(mut x) = NextBlock::read(&self.sync_theirnum) {
-                                                    x.push(3);
-                                                    self.outerwriter.send(x);
-                                                }
-                                            }
+                                        sync_theirnum += 1;
+                                        if sync_theirnum == self.bnum {
+                                            break
                                         }
                                     }
                                 }

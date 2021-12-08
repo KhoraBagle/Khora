@@ -755,7 +755,10 @@ impl KhoraNode {
                 // if you save the history, the txses you know about matter; otherwise, they don't (becuase you're not involved in block creation)
                 let s = self.stkinfo.borrow();
                 let bloom = self.bloom.borrow();
-                println!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\nhad {} tx",self.txses.len());
+                println!("had {} tx",self.txses.len());
+                println!("block had {} stkin",lastlightning.info.stkin.len());
+                println!("block had {} stkout",lastlightning.info.stkin.len());
+                println!("block had {} otain",lastlightning.info.txout.len());
                 self.txses = self.txses.iter().collect::<HashSet<_>>().into_iter().cloned().collect::<Vec<_>>();
                 self.txses.retain(|x| {
                     if let Ok(x) = bincode::deserialize::<PolynomialTransaction>(x) {
@@ -768,6 +771,7 @@ impl KhoraNode {
                         false
                     }
                 });
+                println!("have {} tx",self.txses.len());
                 
                 // runs any operations needed for the panic button to function
                 self.send_panic_or_stop(&lastlightning, reward);

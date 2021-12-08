@@ -69,9 +69,6 @@ pub struct KhoraUserGUI {
     staked: u64,
     friends: Vec<String>,
     friend_names: Vec<String>,
-    staking: bool,
-    stake: String,
-    unstake: String,
     addr: String,
     stkaddr: String,
     dont_trust_amounts: bool,
@@ -86,16 +83,14 @@ pub struct KhoraUserGUI {
     next_pswrd2: String,
     panic_fee: String,
     entrypoint: String,
-    stkspeand: bool,
     setup: bool,
-    lightning_yielder: bool,
-    validating: bool,
     sk: Vec<u8>,
     vsk: Vec<u8>,
     tsk: Vec<u8>,
     ringsize: u8,
     lonely: u64,
-    
+    save_extra: bool,
+
     #[cfg_attr(feature = "persistence", serde(skip))]
     options_menu: bool,
     #[cfg_attr(feature = "persistence", serde(skip))]
@@ -128,8 +123,6 @@ impl Default for KhoraUserGUI {
         let (_,r) = channel::bounded::<Vec<u8>>(0);
         let (s,_) = mpsc::channel::<Vec<u8>>();
         KhoraUserGUI{
-            stake: "0".to_string(),
-            unstake: "0".to_string(),
             fee: "0".to_string(),
             reciever: r,
             sender: s,
@@ -138,9 +131,9 @@ impl Default for KhoraUserGUI {
             friends: vec![],
             edit_names: vec![],
             friend_names: vec![],
+            save_extra: false,
             friend_adding: "".to_string(),
             name_adding: "".to_string(),
-            staking: false,
             addr: "".to_string(),
             stkaddr: "".to_string(),
             dont_trust_amounts: false,
@@ -156,7 +149,6 @@ impl Default for KhoraUserGUI {
             next_pswrd2: random_pswrd()[..5].to_string(),
             panic_fee: "1".to_string(),
             entrypoint: "".to_string(),
-            stkspeand: false,
             show_reset: false,
             you_cant_do_that: false,
             eta: 60,
@@ -165,8 +157,6 @@ impl Default for KhoraUserGUI {
             send_name: vec!["".to_string()],
             send_addr: vec!["".to_string()],
             send_amnt: vec!["".to_string()],
-            lightning_yielder: false,
-            validating: false,
             lonely: 0,
             sk: vec![],
             vsk: vec![],
@@ -304,9 +294,7 @@ impl epi::App for KhoraUserGUI {
             friend_names,
             friend_adding,
             name_adding,
-            staking,
-            stake,
-            unstake,
+            save_extra,
             addr,
             stkaddr,
             dont_trust_amounts,
@@ -324,15 +312,12 @@ impl epi::App for KhoraUserGUI {
             next_pswrd2,
             panic_fee,
             entrypoint,
-            stkspeand,
             show_reset,
             you_cant_do_that,
             setup,
             send_name,
             send_addr,
             send_amnt,
-            lightning_yielder,
-            validating,
             lonely,
             sk,
             vsk,
@@ -464,20 +449,7 @@ impl epi::App for KhoraUserGUI {
                     }
                     ui.add(Label::new("Wallet Address").underline()).on_hover_text(&*addr);
                 });
-                if *staking {
-                    ui.horizontal(|ui| {
-                        if ui.button("📋").on_hover_text("Click to copy your staking wallet address to clipboard").clicked() {
-                            ui.output().copied_text = stkaddr.clone();
-                        }
-                        ui.add(Label::new("Staking Address").underline()).on_hover_text(&*stkaddr);
-                    });
-                }
-                if *validating {
-                    ui.horizontal(|ui| {
-                        ui.add(Label::new("You are validating blocks,").text_color(egui::Color32::GREEN));
-                        ui.add(Label::new("please don't use all of your ram on video games").text_color(egui::Color32::RED));
-                    });
-                }
+                ui.add(Checkbox::new(save_extra,"I want to be a staker!"));
             }
             ui.label("\n");
 
@@ -493,68 +465,9 @@ impl epi::App for KhoraUserGUI {
                     }
                 });
                 ui.horizontal(|ui| {
-                    if *staking {
-                        ui.label("Unstaked Khora");
-                    } else {
-                        ui.label("Khora Balance");
-                    }
+                    ui.label("Khora Balance");
                     ui.label(&unstaked.separated_string());
                 });
-                if *staking {
-                    ui.horizontal(|ui| {
-                        ui.label("Staked Khora");
-                        ui.label(&staked.separated_string());
-                    });
-                    ui.horizontal(|ui| {
-                        ui.text_edit_singleline(stake);
-                        if pswd_guess0 == password0 {
-                            if ui.button("Stake").clicked() && !*setup {
-                                let mut m = vec![];
-                                m.extend(stkaddr.as_bytes().to_vec());
-                                m.extend(retain_numeric(stake.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec());
-                                // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",unstaked,fee,stake);
-                                let x = *unstaked - retain_numeric(fee.to_string()).parse::<u64>().unwrap() - retain_numeric(stake.to_string()).parse::<u64>().unwrap();
-                                if x > 0 {
-                                    m.extend(addr.as_bytes().to_vec());
-                                    m.extend(x.to_le_bytes().to_vec());
-                                }
-                                m.push(*ringsize);
-                                m.push(33);
-                                m.push(33);
-                                if *unstaked < retain_numeric(fee.to_string()).parse::<u64>().unwrap() + retain_numeric(stake.to_string()).parse::<u64>().unwrap() {
-                                    *you_cant_do_that = true;
-                                } else {
-                                    sender.send(m).expect("something's wrong with communication from the gui");
-                                }
-                            }
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.text_edit_singleline(unstake);
-                        if pswd_guess0 == password0 {
-                            if ui.button("Unstake").clicked() && !*setup {
-                                // println!("unstaking {:?}!",unstake.parse::<u64>());
-                                let mut m = vec![];
-                                m.extend(addr.as_bytes().to_vec());
-                                m.extend(retain_numeric(unstake.to_string()).parse::<u64>().unwrap().to_le_bytes());
-                                // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",staked,fee,unstake);
-                                let x = *staked - retain_numeric(fee.to_string()).parse::<u64>().unwrap() - retain_numeric(unstake.to_string()).parse::<u64>().unwrap();
-                                if x > 0 {
-                                    m.extend(stkaddr.as_bytes());
-                                    m.extend(x.to_le_bytes());
-                                }
-                                m.push(63);
-                                m.push(33);
-                                // println!("{}",String::from_utf8_lossy(&m));
-                                if *staked < retain_numeric(fee.to_string()).parse::<u64>().unwrap() + retain_numeric(unstake.to_string()).parse::<u64>().unwrap() {
-                                    *you_cant_do_that = true;
-                                } else {
-                                    sender.send(m).expect("something's wrong with communication from the gui");
-                                }
-                            }
-                        }
-                    });
-                }
                 if ui.button("Sync Wallet").clicked() && !*setup {
                     sender.send(vec![121]).expect("something's wrong with communication from the gui");
                 }
@@ -600,20 +513,14 @@ impl epi::App for KhoraUserGUI {
                                 break
                             }
                         }
-                        loop {
-                            if sender.send(vec![!*staking as u8]).is_ok() {
+                        loop { // this will be used to say if you want to store info
+                            if sender.send(vec![!*save_extra as u8]).is_ok() {
                                 break
                             }
                         }
                     }
                 });
-                ui.add(Checkbox::new(staking,"I want to be a staker!"));
-                if *staking {
-                    ui.horizontal(|ui| {
-                        ui.add(Checkbox::new(lightning_yielder,"I only want to store lightning blocks!"));
-                        ui.add(Label::new("Checking this box means you'll use less memory on your computer").text_color(egui::Color32::YELLOW));    
-                    });
-                }
+                ui.add(Checkbox::new(save_extra,"I want to save extra information for easier ring making!"));
             }
             if *dont_trust_amounts {
                 ui.add(Label::new("Money owned is not yet verified").text_color(egui::Color32::RED));
@@ -676,42 +583,21 @@ impl epi::App for KhoraUserGUI {
                                         }
                                     }
                                 }
-                                if *stkspeand {
-                                    *you_cant_do_that = *staked + 1 < tot + retain_numeric(fee.to_string()).parse::<u64>().unwrap();
-                                } else {
-                                    *you_cant_do_that = *unstaked + 1 < tot + retain_numeric(fee.to_string()).parse::<u64>().unwrap();
-                                }
+                                *you_cant_do_that = *unstaked + 1 < tot + retain_numeric(fee.to_string()).parse::<u64>().unwrap();
+                                
 ;                                if !*you_cant_do_that {
-                                    if *stkspeand {
-                                        let x = *staked - tot - retain_numeric(fee.to_string()).parse::<u64>().unwrap();
-                                        if x > 0 {
-                                            m.extend(str::to_ascii_lowercase(&stkaddr).as_bytes());
-                                            m.extend(x.to_le_bytes());
-                                        }
-                                        m.push(63);
-                                    } else {
-                                        let x = *unstaked - tot - retain_numeric(fee.to_string()).parse::<u64>().unwrap();
-                                        if x > 0 {
-                                            m.extend(str::to_ascii_lowercase(&addr).as_bytes());
-                                            m.extend(x.to_le_bytes());
-                                        }
-                                        m.push(*ringsize);
-                                        m.push(33);
+                                    let x = *unstaked - tot - retain_numeric(fee.to_string()).parse::<u64>().unwrap();
+                                    if x > 0 {
+                                        m.extend(str::to_ascii_lowercase(&addr).as_bytes());
+                                        m.extend(x.to_le_bytes());
                                     }
+                                    m.push(*ringsize);
                                     m.push(33);
                                     sender.send(m).expect("something's wrong with communication from the gui");
                                     *send_name = vec!["".to_string()];
                                     *send_addr = vec!["".to_string()];
                                     *send_amnt = vec!["".to_string()];
                                 }
-                            }
-                            if *staking {
-                                ui.end_row();
-                                ui.label("");
-                                ui.label("");
-                                ui.label("");
-                                ui.label("");
-                                ui.add(Checkbox::new(stkspeand,"Spend with staked money"));
                             }
                         }
                     });
@@ -796,11 +682,7 @@ impl epi::App for KhoraUserGUI {
         }
         egui::Window::new("Options Menu").open(options_menu).show(ctx, |ui| {
             ui.label("This is the number of accounts that aren't yours that the transaction could have been made by from the perspective of spying eyes.");
-            if *staking {
-                ui.label("This only affects non staking transactions.");
-            } else {
-                ui.label("If the ring size is 0, you won't need to rely on the network to give you true ring members.");
-            }
+            ui.label("If the ring size is 0, you won't need to rely on the network to give you true ring members.");
             ui.label("\n");
             ui.add(Slider::new(ringsize, 0..=22).text("Ring Size"));
         });
@@ -808,13 +690,8 @@ impl epi::App for KhoraUserGUI {
             ui.label("Logging out of your account will refresh all of your wallet settings and will require resync with the blockchain.");
             ui.label("");
             if ui.button("Quit Account- Will require resync with blockchain").clicked() {
-                fs::remove_file("myNode");
-                fs::remove_file("fullblocks");
-                fs::remove_file("fullblocks_metadata");
-                fs::remove_file("lightningblocks");
-                fs::remove_file("lightningblocks_metadata");
+                fs::remove_file("myUsr");
                 fs::remove_file("history");
-                fs::remove_file("bloomfile");
                 *setup = true;
                 frame.quit();
             }

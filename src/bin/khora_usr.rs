@@ -151,7 +151,6 @@ fn main() -> Result<(), MainError> {
             let mut info = bincode::serialize(&
                 vec![
                 bincode::serialize(&node.me.name()).expect("should work"),
-                bincode::serialize(&node.me.stake_acc().name()).expect("should work"),
                 bincode::serialize(&node.me.sk.as_bytes().to_vec()).expect("should work"),
                 bincode::serialize(&node.me.vsk.as_bytes().to_vec()).expect("should work"),
                 bincode::serialize(&node.me.ask.as_bytes().to_vec()).expect("should work"),
@@ -171,7 +170,6 @@ fn main() -> Result<(), MainError> {
             ui_reciever,
             ui_sender,
             "".to_string(),
-            "".to_string(),
             vec![],
             vec![],
             vec![],
@@ -190,7 +188,6 @@ fn main() -> Result<(), MainError> {
             ui_reciever,
             ui_sender,
             node.me.name(),
-            node.me.stake_acc().name(),
             node.me.sk.as_bytes().to_vec(),
             node.me.vsk.as_bytes().to_vec(),
             node.me.ask.as_bytes().to_vec(),
@@ -965,21 +962,17 @@ impl Future for KhoraNode {
                         self.mine = HashMap::new();
                         self.me = newacc;
                         self.key = self.me.stake_acc().receive_ot(&self.me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap().sk.unwrap();
-                        let mut m1 = self.me.name().as_bytes().to_vec();
-                        m1.extend([0,u8::MAX]);
-                        let mut m2 = self.me.stake_acc().name().as_bytes().to_vec();
-                        m2.extend([1,u8::MAX]);
-                        let mut m3 = self.me.sk.as_bytes().to_vec();
-                        m3.extend([2,u8::MAX]);
-                        let mut m4 = self.me.vsk.as_bytes().to_vec();
-                        m4.extend([3,u8::MAX]);
-                        let mut m5 = self.me.ask.as_bytes().to_vec();
-                        m5.extend([4,u8::MAX]);
-                        self.gui_sender.send(m1).expect("should be working");
-                        self.gui_sender.send(m2).expect("should be working");
-                        self.gui_sender.send(m3).expect("should be working");
-                        self.gui_sender.send(m4).expect("should be working");
-                        self.gui_sender.send(m5).expect("should be working");
+
+                        let mut info = bincode::serialize(&
+                            vec![
+                            bincode::serialize(&self.me.name()).expect("should work"),
+                            bincode::serialize(&self.me.sk.as_bytes().to_vec()).expect("should work"),
+                            bincode::serialize(&self.me.vsk.as_bytes().to_vec()).expect("should work"),
+                            bincode::serialize(&self.me.ask.as_bytes().to_vec()).expect("should work"),
+                            ]
+                        ).expect("should work");
+                        info.push(254);
+                        self.gui_sender.send(info).expect("should work");
 
                     } else if istx == 121 /* y */ { // you clicked sync
                         let mut gm = (self.view.len() as u64).to_le_bytes().to_vec();

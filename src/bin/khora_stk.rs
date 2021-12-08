@@ -174,6 +174,7 @@ fn main() -> Result<(), MainError> {
                 outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
                 outerlister: channel::unbounded().1,
                 outerwriter: channel::unbounded().0,
+                allnetwork: vec![],
                 me,
                 mine: HashMap::new(),
                 smine: smine.clone(), // [location, amount]
@@ -377,6 +378,7 @@ fn main() -> Result<(), MainError> {
 struct SavedNode {
     me: Account,
     mine: HashMap<u64, OTAccount>,
+    allnetwork: Vec<SocketAddr>,
     smine: Vec<[u64; 2]>, // [location, amount]
     key: Scalar,
     keylocation: HashSet<u64>,
@@ -414,6 +416,7 @@ struct KhoraNode {
     outerwriter: channel::Sender<Vec<u8>>,
     gui_sender: channel::Sender<Vec<u8>>,
     gui_reciever: mpsc::Receiver<Vec<u8>>,
+    allnetwork: Vec<SocketAddr>,
     me: Account,
     mine: HashMap<u64, OTAccount>,
     smine: Vec<[u64; 2]>, // [location, amount]
@@ -471,6 +474,7 @@ impl KhoraNode {
                 me: self.me,
                 mine: self.mine.clone(),
                 smine: self.smine.clone(), // [location, amount]
+                allnetwork: self.allnetwork.clone(),
                 key: self.key,
                 keylocation: self.keylocation.clone(),
                 leader: self.leader.clone(),
@@ -522,6 +526,7 @@ impl KhoraNode {
             outerwriter,
             gui_sender,
             gui_reciever,
+            allnetwork: sn.allnetwork.clone(),
             timekeeper: Instant::now() - Duration::from_secs(1),
             waitingforentrybool: true,
             waitingforleaderbool: false,
@@ -653,9 +658,15 @@ impl KhoraNode {
                 // calculate the reward for this block as a function of the current time and scan either the block or an empty block based on conditions
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
+                    let smine = self.smine.clone();
+
                     let mut guitruster = !lastlightning.scanstk(&self.me, &mut self.smine, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
                     guitruster = !lastlightning.scan(&self.me, &mut self.mine, &mut self.height, &mut self.alltagsever) && guitruster;
                     self.gui_sender.send(vec![guitruster as u8,1]).expect("there's a problem communicating to the gui!");
+
+                    self.smine.iter()
+                    smine
+                    
 
                     println!("saving block...");
                     lastlightning.update_bloom(&mut self.bloom,&self.is_validator);

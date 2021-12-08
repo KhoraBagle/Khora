@@ -70,7 +70,6 @@ pub struct KhoraUserGUI {
     friends: Vec<String>,
     friend_names: Vec<String>,
     addr: String,
-    stkaddr: String,
     dont_trust_amounts: bool,
     password0: String,
     pswd_guess0: String,
@@ -135,7 +134,6 @@ impl Default for KhoraUserGUI {
             friend_adding: "".to_string(),
             name_adding: "".to_string(),
             addr: "".to_string(),
-            stkaddr: "".to_string(),
             dont_trust_amounts: false,
             password0: "".to_string(),
             pswd_guess0: "".to_string(),
@@ -168,12 +166,11 @@ impl Default for KhoraUserGUI {
     }
 }
 impl KhoraUserGUI {
-    pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: mpsc::Sender<Vec<u8>>, addr: String, stkaddr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
+    pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: mpsc::Sender<Vec<u8>>, addr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
         KhoraUserGUI{
             reciever,
             sender,
             addr,
-            stkaddr,
             setup,
             sk,
             vsk,
@@ -205,7 +202,6 @@ impl epi::App for KhoraUserGUI {
                 let r = self.reciever.clone();
                 let s = self.sender.clone();
                 let a = self.addr.clone();
-                let sa = self.stkaddr.clone();
                 let sk = self.sk.clone();
                 let vsk = self.vsk.clone();
                 let tsk = self.tsk.clone();
@@ -215,7 +211,6 @@ impl epi::App for KhoraUserGUI {
                 self.sender = s;
                 self.reciever = r;
                 self.addr = a;
-                self.stkaddr = sa;
                 self.sk = sk;
                 self.vsk = vsk;
                 self.tsk = tsk;
@@ -260,25 +255,11 @@ impl epi::App for KhoraUserGUI {
             } else if modification == 254 {
                 let i: Vec<Vec<u8>> = bincode::deserialize(&i).unwrap();
                 self.addr = bincode::deserialize(&i[0]).unwrap();
-                self.stkaddr = bincode::deserialize(&i[1]).unwrap();
                 self.sk = bincode::deserialize(&i[2]).unwrap();
                 self.vsk = bincode::deserialize(&i[3]).unwrap();
                 self.tsk = bincode::deserialize(&i[4]).unwrap();
                 self.setup = false;
                 // println!("Done with setup!");
-            } else if modification == u8::MAX {
-                let info = i.pop().unwrap();
-                if info == 0 {
-                    self.addr = String::from_utf8_lossy(&i).to_string();
-                } else if info == 1 {
-                    self.stkaddr = String::from_utf8_lossy(&i).to_string();
-                } else if info == 2 {
-                    self.sk = i;
-                } else if info == 3 {
-                    self.vsk = i;
-                } else if info == 4 {
-                    self.tsk = i;
-                }
             }
             ctx.request_repaint();
         }
@@ -296,7 +277,6 @@ impl epi::App for KhoraUserGUI {
             name_adding,
             save_extra,
             addr,
-            stkaddr,
             dont_trust_amounts,
             password0,
             pswd_guess0,

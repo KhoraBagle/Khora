@@ -809,7 +809,7 @@ impl Future for KhoraNode {
                                     if self.ringsize != 0 {
                                         println!("ring:----------------------------------\n{:?}",ring);
                                         let mut good = false;
-                                        for _ in 0..5 {
+                                        loop {
                                             let mut rnamesend = self.rname.clone();
                                             rnamesend.push(114);
                                             let responces = self.send_message(rnamesend,RING_SEND_TO);
@@ -847,6 +847,8 @@ impl Future for KhoraNode {
                                             }).count() != 0 {
                                                 good = true;
                                                 break
+                                            } else {
+                                                println!("you need better members")
                                             }
                                         }
                                         if !good {
@@ -930,7 +932,6 @@ impl Future for KhoraNode {
                         // let amnt = Scalar::from(amnt);
                         let newacc = Account::new(&format!("{}",String::from_utf8_lossy(&m)));
 
-                        // send unstaked money
                         if self.mine.len() > 0 {
                             let (loc, _acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(x.0,x.1.clone())).unzip();
 
@@ -998,8 +999,15 @@ impl Future for KhoraNode {
                             let mut mynum = self.bnum.to_le_bytes().to_vec();
                             mynum.push(121);
                             let responces = self.send_message(mynum, SYNC_SEND_TO);
+
                             if responces.len() == 0 {
                                 break
+                            } else {
+                                responces.iter().for_each(|x| {
+                                    if let Ok(l) = bincode::deserialize(&x) {
+                                        self.readlightning(l,x.to_vec());
+                                    }
+                                })
                             }
                         }
 

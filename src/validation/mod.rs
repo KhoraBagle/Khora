@@ -740,7 +740,7 @@ impl LightningSyncBlock {
     }
 
     /// scans the block for any transactions sent to you or any rewards and punishments you recieved. it additionally updates the height of stakers
-    pub fn scanstk(&self, me: &Account, mine: &mut Vec<[u64;2]>, height: &mut u64, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &Vec<(CompressedRistretto,u64)>) -> bool {
+    pub fn scanstk(&self, me: &Account, mine: &mut Vec<[u64;2]>, height: &mut u64, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &Vec<(CompressedRistretto,u64)>) -> (bool,Vec<[u64; 2]>) {
 
         let winners: Vec<usize>;
         let masochists: Vec<usize>;
@@ -805,11 +805,12 @@ impl LightningSyncBlock {
         *height -= self.info.stkout.len() as u64;
         
         let stkcr = me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
-        mine.extend(self.info.stkin.iter().enumerate().filter_map(|(i,x)| if stkcr == x.0 {Some([i as u64+*height,x.1])} else {None}).collect::<Vec<[u64;2]>>());
+        let new = self.info.stkin.iter().enumerate().filter_map(|(i,x)| if stkcr == x.0 {Some([i as u64+*height,x.1])} else {None}).collect::<Vec<[u64;2]>>();
+        mine.extend(new.iter());
         *height += self.info.stkin.len() as u64;
 
         let changed = *changed.read().unwrap();
-        changed
+        (changed,new)
 
     }
 

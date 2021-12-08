@@ -658,14 +658,16 @@ impl KhoraNode {
                 // calculate the reward for this block as a function of the current time and scan either the block or an empty block based on conditions
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
-                    let smine = self.smine.clone();
-
-                    let mut guitruster = !lastlightning.scanstk(&self.me, &mut self.smine, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
-                    guitruster = !lastlightning.scan(&self.me, &mut self.mine, &mut self.height, &mut self.alltagsever) && guitruster;
+                    let (mut guitruster,new) = lastlightning.scanstk(&self.me, &mut self.smine, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
+                    guitruster = !(lastlightning.scan(&self.me, &mut self.mine, &mut self.height, &mut self.alltagsever) || guitruster);
                     self.gui_sender.send(vec![guitruster as u8,1]).expect("there's a problem communicating to the gui!");
 
-                    self.smine.iter()
-                    smine
+                    new.iter().for_each(|info| {
+                        let message = bincode::serialize(&self.outer.plumtree_node().id().address().ip()).unwrap();
+                        let mut fullmsg = Signature::sign_message(&self.key,message,&info[0]);
+                        fullmsg.push();
+                        self.outer.broadcast_now(fullmsg);
+                    });
                     
 
                     println!("saving block...");

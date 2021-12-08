@@ -38,7 +38,7 @@ use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
 use khora::validation::{NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE};
 
-use gip::{GlobalAddress, Provider, ProviderDefaultV4};
+use gip::{Provider, ProviderDefaultV4};
 use local_ip_address::local_ip;
 
 
@@ -75,11 +75,11 @@ fn main() -> Result<(), MainError> {
     // println!("{:?}",response);
 
 
-    let outerlister = TcpListener::bind(format!("0.0.0.0:{}",DEFAULT_PORT)).unwrap();
+    let outerlistener = TcpListener::bind(format!("0.0.0.0:{}",OUTSIDER_PORT)).unwrap();
 
     
-    // let local_socket: SocketAddr = format!("0.0.0.0:{}",OUTSIDER_PORT).parse().unwrap();
-    let local_socket: SocketAddr = format!("{}:{}",local_ip().unwrap(),OUTSIDER_PORT).parse().unwrap();;
+    // let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
+    let local_socket: SocketAddr = format!("{}:{}",local_ip().unwrap(),DEFAULT_PORT).parse().unwrap();;
     let mut p = ProviderDefaultV4::new();
     let global_addr = match p.get_addr() {
         Ok(x) => x.v4addr.unwrap(),
@@ -134,12 +134,6 @@ fn main() -> Result<(), MainError> {
             }
             loop {
                 if let Async::Ready(Some(m)) = urecv.poll().expect("Shouldn't fail") {
-                    will_stk = m[0] == 0;
-                    break
-                }
-            }
-            loop {
-                if let Async::Ready(Some(m)) = urecv.poll().expect("Shouldn't fail") {
                     lightning_yielder = m[0] == 1;
                     break
                 }
@@ -148,28 +142,25 @@ fn main() -> Result<(), MainError> {
             let me = Account::new(&pswrd);
             let validator = me.stake_acc().receive_ot(&me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap(); //make a new account
             let key = validator.sk.unwrap();
-            let mut keylocation = HashSet::new();
-            if will_stk {
-                if !lightning_yielder {
-                    NextBlock::initialize_saving();
-                }
-                LightningSyncBlock::initialize_saving();
-                History::initialize();
-                BloomFile::initialize_bloom_file();    
+            if !lightning_yielder {
+                NextBlock::initialize_saving();
             }
+            LightningSyncBlock::initialize_saving();
+            History::initialize();
+            BloomFile::initialize_bloom_file();
             let bloom = BloomFile::from_randomness();
     
             let (smine, keylocation) = {
-                if initial_history[i].0 == me.stake_acc().derive_stk_ot(&Scalar::from(initial_history[i].1)).pk.compress() {
+                if initial_history.0 == me.stake_acc().derive_stk_ot(&Scalar::from(initial_history.1)).pk.compress() {
                     println!("\n\nhey i guess i founded this crypto!\n\n");
                     (Some([0u64,initial_history.1]), Some(0))
                 } else {
-                    None
+                    (None, None)
                 }
             };
     
             let mut allnetwork = HashMap::new();
-            allnetwork.insert(initial_history.0, (0u64,"0.0.0.0:0".parse().unwrap()));
+            allnetwork.insert(initial_history.0, (0u64,None));
             // creates the node with the specified conditions then saves it to be used from now on
             let node = KhoraNode {
                 inner: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
@@ -185,16 +176,16 @@ fn main() -> Result<(), MainError> {
                 leader: person0,
                 overthrown: HashSet::new(),
                 votes: vec![0;NUMBER_OF_VALIDATORS],
-                stkinfo: initial_history.clone(),
-                queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)%initial_history.len()).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
+                stkinfo: vec![initial_history.clone()],
+                queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
                 exitqueue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
-                comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)%initial_history.len()).collect::<Vec<usize>>()).collect::<Vec<_>>(),
+                comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|x| 0).collect::<Vec<usize>>()).collect::<Vec<_>>(),
                 lastname: Scalar::one().as_bytes().to_vec(),
                 bloom,
                 bnum: 0u64,
                 lastbnum: 0u64,
                 height: 0u64,
-                sheight: initial_history.len() as u64,
+                sheight: 1u64,
                 alltagsever: vec![],
                 txses: vec![],
                 sigs: vec![],
@@ -206,7 +197,7 @@ fn main() -> Result<(), MainError> {
                 doneerly: Instant::now(),
                 headshard: 0,
                 usurpingtime: Instant::now(),
-                is_validator: !smine.is_empty(),
+                is_validator: smine.is_some(),
                 is_node: true,
                 sent_onces: HashSet::new(),
                 knownvalidators: HashMap::new(),
@@ -247,7 +238,7 @@ fn main() -> Result<(), MainError> {
             node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
             node.save();
             thread::spawn(move || {
-                for stream in outerlister.incoming() {
+                for stream in outerlistener.incoming() {
                     match stream {
                         Ok(mut stream) => {
                             let mut m = vec![];
@@ -316,7 +307,7 @@ fn main() -> Result<(), MainError> {
         let native_options = eframe::NativeOptions::default();
         std::thread::spawn(move || {
             thread::spawn(move || {
-                for stream in outerlister.incoming() {
+                for stream in outerlistener.incoming() {
                     match stream {
                         Ok(mut stream) => {
                             let mut m = vec![];
@@ -379,7 +370,7 @@ struct SavedNode {
     me: Account,
     mine: HashMap<u64, OTAccount>,
     smine: Option<[u64; 2]>, // [location, amount]
-    allnetwork: HashMap<CompressedRistretto,(u64,SocketAddr)>,
+    allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     key: Scalar,
     keylocation: Option<u64>,
     leader: CompressedRistretto,
@@ -416,7 +407,7 @@ struct KhoraNode {
     outerwriter: channel::Sender<Vec<u8>>,
     gui_sender: channel::Sender<Vec<u8>>,
     gui_reciever: mpsc::Receiver<Vec<u8>>,
-    allnetwork: HashMap<CompressedRistretto,(u64,SocketAddr)>,
+    allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     me: Account,
     mine: HashMap<u64, OTAccount>,
     smine: Option<[u64; 2]>, // [location, amount]
@@ -522,7 +513,7 @@ impl KhoraNode {
 
 
         let key = sn.key;
-        if sn.smine.len() != 0 {
+        if sn.smine.is_some() {
             let message = bincode::serialize(&outer.plumtree_node().id().address().ip()).unwrap();
             let mut fullmsg = Signature::sign_message2(&key,&message);
             fullmsg.push(110);
@@ -613,13 +604,14 @@ impl KhoraNode {
                 self.save();
 
                 // if you are one of the validators who leave this turn, it is your responcibility to send the block to the outside world
-                if self.exitqueue[self.headshard].range(..REPLACERATE).map(|&x| self.comittee[self.headshard][x]).any(|x| self.keylocation.contains(&(x as u64))) {
-                    if let Some(mut lastblock) = largeblock.clone() {
-                        lastblock.push(3);
-                        println!("-----------------------------------------------\nsending out the new block {}!\n-----------------------------------------------",lastlightning.bnum);
-                        self.outer.broadcast_now(lastblock); /* broadcast the block to the outside world */
+                if let Some(keylocation) = self.keylocation {
+                    if self.exitqueue[self.headshard].range(..REPLACERATE).map(|&x| self.comittee[self.headshard][x]).any(|x| keylocation == x as u64) {
+                        if let Some(mut lastblock) = largeblock.clone() {
+                            lastblock.push(3);
+                            println!("-----------------------------------------------\nsending out the new block {}!\n-----------------------------------------------",lastlightning.bnum);
+                            self.outer.broadcast_now(lastblock); /* broadcast the block to the outside world */
+                        }
                     }
-
                 }
                 self.headshard = lastlightning.shards[0] as usize;
 
@@ -664,11 +656,11 @@ impl KhoraNode {
                 // calculate the reward for this block as a function of the current time and scan either the block or an empty block based on conditions
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
-                    let (mut guitruster,new) = lastlightning.scanstk(&self.me, &mut self.smine, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
+                    let (mut guitruster, new) = lastlightning.scanstk(&self.me, &mut self.smine, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
                     guitruster = !(lastlightning.scan(&self.me, &mut self.mine, &mut self.height, &mut self.alltagsever) || guitruster);
                     self.gui_sender.send(vec![guitruster as u8,1]).expect("there's a problem communicating to the gui!");
 
-                    if new.len() != 0 {
+                    if new {
                         let message = bincode::serialize(&self.outer.plumtree_node().id().address().ip()).unwrap();
                         let mut fullmsg = Signature::sign_message2(&self.key,&message);
                         fullmsg.push(110);
@@ -948,7 +940,7 @@ impl Future for KhoraNode {
                     println!("time thing happpened");
     
                     // if you are the newest member of the comittee you're responcible for choosing the tx that goes into the next block
-                    if self.keylocation.contains(&(self.newest as u64)) {
+                    if self.keylocation == Some(self.newest as u64) {
                         let m = bincode::serialize(&self.txses).unwrap();
                         println!("_._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._.\nsending {} txses!",self.txses.len());
                         let mut m = Signature::sign_message_nonced(&self.key, &m, &self.newest,&self.bnum);
@@ -1331,7 +1323,7 @@ impl Future for KhoraNode {
                             if let Some(who) = Signature::recieve_signed_message2(&mut m) {
                                 if let Ok(m) = bincode::deserialize::<IpAddr>(&m) {
                                     if let Some(x) = self.allnetwork.get_mut(&who) {
-                                        x.1 = SocketAddr::new(m, OUTSIDER_PORT);
+                                        x.1 = Some(SocketAddr::new(m, OUTSIDER_PORT));
                                     }
                                     self.outer.handle_gossip_now(fullmsg, true);
                                 } else {
@@ -1587,9 +1579,9 @@ impl Future for KhoraNode {
                         }
 
                         // send staked money
-                        if self.smine.len() > 0 {
-                            let (loc, amnt): (Vec<u64>,Vec<u64>) = self.smine.iter().map(|x|(x[0],x[1])).unzip();
-                            let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
+                        if let Some(smine) = &self.smine {
+                            let (loc, amnt) = (smine[0],smine[1]);
+                            let inps = self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(amnt))).unwrap();
 
 
                             let mut outs = vec![];
@@ -1598,11 +1590,11 @@ impl Future for KhoraNode {
                                 let stkamnt = Scalar::from(stkamnt/y);
                                 outs.push((&newacc,stkamnt));
                             }
-                            let tx = Transaction::spend_ring(&inps, &outs.iter().map(|x| (x.0,&x.1)).collect());
+                            let tx = Transaction::spend_ring(&vec![inps], &outs.iter().map(|x| (x.0,&x.1)).collect());
                             println!("about to verify!");
                             tx.verify().unwrap();
                             println!("finished to verify!");
-                            let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
+                            let mut loc = loc.to_le_bytes().to_vec();
                             loc.push(1);
                             let tx = tx.polyform(&loc); // push 0
                             if tx.verifystk(&self.stkinfo).is_ok() {
@@ -1619,25 +1611,24 @@ impl Future for KhoraNode {
 
 
                         self.mine = HashMap::new();
-                        self.smine = vec![];
+                        self.smine = None;
                         self.me = newacc;
                         self.key = self.me.stake_acc().receive_ot(&self.me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap().sk.unwrap();
-                        self.keylocation = HashSet::new();
-                        let mut m1 = self.me.name().as_bytes().to_vec();
-                        m1.extend([0,u8::MAX]);
-                        let mut m2 = self.me.stake_acc().name().as_bytes().to_vec();
-                        m2.extend([1,u8::MAX]);
-                        let mut m3 = self.me.sk.as_bytes().to_vec();
-                        m3.extend([2,u8::MAX]);
-                        let mut m4 = self.me.vsk.as_bytes().to_vec();
-                        m4.extend([3,u8::MAX]);
-                        let mut m5 = self.me.ask.as_bytes().to_vec();
-                        m5.extend([4,u8::MAX]);
-                        self.gui_sender.send(m1).expect("should be working");
-                        self.gui_sender.send(m2).expect("should be working");
-                        self.gui_sender.send(m3).expect("should be working");
-                        self.gui_sender.send(m4).expect("should be working");
-                        self.gui_sender.send(m5).expect("should be working");
+                        self.keylocation = None;
+
+
+                        let mut info = bincode::serialize(&
+                            vec![
+                                bincode::serialize(&self.me.name()).expect("should work"),
+                                bincode::serialize(&self.me.stake_acc().name()).expect("should work"),
+                                bincode::serialize(&self.me.sk.as_bytes().to_vec()).expect("should work"),
+                                bincode::serialize(&self.me.vsk.as_bytes().to_vec()).expect("should work"),
+                                bincode::serialize(&self.me.ask.as_bytes().to_vec()).expect("should work"),
+                            ]
+                        ).expect("should work");
+                        info.push(254);
+                        self.gui_sender.send(info).expect("should work");
+
 
                     } else if istx == 121 /* y */ { // you clicked sync
                         let mut mynum = self.bnum.to_le_bytes().to_vec();

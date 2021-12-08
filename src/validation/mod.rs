@@ -640,7 +640,7 @@ impl LightningSyncBlock {
     }
 
     /// updates the staker state by dulling out punishments and gifting rewards. also updates the queue, exitqueue, and comittee if stakers left
-    pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, netinfo: &mut HashMap<CompressedRistretto, (u64, SocketAddr)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
+    pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, netinfo: &mut HashMap<CompressedRistretto, (u64, Option<SocketAddr>)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
         if save_history {History::append(&self.info.txout)};
 
         let winners: Vec<usize>;
@@ -680,8 +680,9 @@ impl LightningSyncBlock {
 
 
 
+        let mut savelist = HashMap::new();
         for x in self.info.stkout.iter().rev() {
-            netinfo.remove(&valinfo[*x as usize].0);
+            savelist.insert(valinfo[*x as usize].0, netinfo.remove(&valinfo[*x as usize].0).expect("this IS in netinfo"));
             valinfo[*x as usize + 1..].iter().for_each(|(x,_)| {
                 netinfo.get_mut(x).unwrap().0 -= 1;
             });
@@ -765,11 +766,6 @@ impl LightningSyncBlock {
         });
 
 
-        self.info.stkin.iter().enumerate().for_each(|(i,(x,_))| {
-            if !netinfo.contains_key(x) {
-                netinfo.insert(*x, ((i + valinfo.len()) as u64,"0.0.0.0:0".parse().unwrap()));
-            }
-        });
         let realstkin = self.info.stkin.iter().filter(|x| {
             if let Some(&(i,_)) = netinfo.get(&x.0) {
                 valinfo[i as usize].1 += x.1;
@@ -778,7 +774,18 @@ impl LightningSyncBlock {
             true
         }).copied().collect::<Vec<_>>();
         valinfo.extend(&realstkin);
+        
+        self.info.stkin.iter().enumerate().for_each(|(i,(x,_))| {
+            if !netinfo.contains_key(x) {
+                netinfo.insert(*x, ((i + valinfo.len()) as u64,None));
+            }
+        });
 
+        for (x,v) in savelist {
+            if let Some(val) = netinfo.get_mut(&x) {
+                *val = v;
+            }
+        }
 
     }
 
@@ -799,12 +806,14 @@ impl LightningSyncBlock {
         imtrue
     }
 
-    /// scans the block for any transactions sent to you or any rewards and punishments you recieved. it additionally updates the height of stakers
-    pub fn scanstk(&self, me: &Account, mine: &mut Option<[u64;2]>, height: &mut u64, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &Vec<(CompressedRistretto,u64)>,  netinfo: &HashMap<CompressedRistretto, (u64, SocketAddr)>) {
+    /// scans the block for any transactions sent to you or any rewards and punishments you recieved. it additionally updates the height of stakers. returns if your money changed then if your index changed
+    pub fn scanstk(&self, me: &Account, mine: &mut Option<[u64;2]>, height: &mut u64, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &Vec<(CompressedRistretto,u64)>) -> (bool,bool) {
 
         
 
         let mut benone = false;
+        let changed = mine.clone();
+        let nonetosome = mine.is_none();
         if let Some(mine) = mine {
             let winners: Vec<usize>;
             let masochists: Vec<usize>;
@@ -854,7 +863,7 @@ impl LightningSyncBlock {
     
     
     
-            if self.info.stkout.contains(mine[0]) {
+            if self.info.stkout.contains(&mine[0]) {
                 benone = true;
             }
             *height -= self.info.stkout.len() as u64;
@@ -863,7 +872,7 @@ impl LightningSyncBlock {
             if benone {
                 for (i,x) in self.info.stkin.iter().enumerate() {
                     if stkcr == x.0 {
-                        mine = [i as u64+*height,x.1];
+                        *mine = [i as u64+*height,x.1];
                         benone = false;
                         break
                     }
@@ -885,8 +894,10 @@ impl LightningSyncBlock {
         }
 
         if benone {
-            mine = None
+            *mine = None;
         }
+
+        (changed == *mine, nonetosome && mine.is_some())
 
 
     }

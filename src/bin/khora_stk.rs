@@ -120,7 +120,7 @@ fn main() -> Result<(), MainError> {
     if setup {
         // everyone agrees this person starts with 1 khora token
         let person0 = CompressedRistretto([46, 235, 227, 188, 55, 53, 9, 126, 167, 207, 202, 101, 150, 150, 172, 207, 209, 208, 211, 52, 47, 206, 19, 115, 199, 189, 202, 10, 56, 220, 138, 55]);
-        let initial_history = vec![(person0,1u64)];
+        let initial_history = (person0,1u64);
 
         std::thread::spawn(move || {
             let pswrd: Vec<u8>;
@@ -159,22 +159,24 @@ fn main() -> Result<(), MainError> {
             }
             let bloom = BloomFile::from_randomness();
     
-            let mut smine = vec![];
-            for i in 0..initial_history.len() {
+            let (smine, keylocation) = {
                 if initial_history[i].0 == me.stake_acc().derive_stk_ot(&Scalar::from(initial_history[i].1)).pk.compress() {
-                    smine.push([i as u64,initial_history[i].1]);
-                    keylocation.insert(i as u64);
                     println!("\n\nhey i guess i founded this crypto!\n\n");
+                    (Some([0u64,initial_history.1]), Some(0))
+                } else {
+                    None
                 }
-            }
+            };
     
+            let mut allnetwork = HashMap::new();
+            allnetwork.insert(initial_history.0, (0u64,"0.0.0.0:0".parse().unwrap()));
             // creates the node with the specified conditions then saves it to be used from now on
             let node = KhoraNode {
                 inner: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
                 outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
                 outerlister: channel::unbounded().1,
                 outerwriter: channel::unbounded().0,
-                allnetwork: HashMap::new(),
+                allnetwork,
                 me,
                 mine: HashMap::new(),
                 smine: smine.clone(), // [location, amount]
@@ -209,14 +211,12 @@ fn main() -> Result<(), MainError> {
                 sent_onces: HashSet::new(),
                 knownvalidators: HashMap::new(),
                 newest: 0u64,
-                rname: vec![],
                 gui_sender: usend.clone(),
                 gui_reciever: mpsc::channel().1,
                 moneyreset: None,
                 sync_returnaddr: None,
                 sync_theirnum: 0u64,
                 sync_lightning: false,
-                outs: None,
                 oldstk: None,
                 cumtime: 0f64,
                 blocktime: blocktime(0.0),
@@ -378,10 +378,10 @@ fn main() -> Result<(), MainError> {
 struct SavedNode {
     me: Account,
     mine: HashMap<u64, OTAccount>,
+    smine: Option<[u64; 2]>, // [location, amount]
     allnetwork: HashMap<CompressedRistretto,(u64,SocketAddr)>,
-    smine: Vec<[u64; 2]>, // [location, amount]
     key: Scalar,
-    keylocation: HashSet<u64>,
+    keylocation: Option<u64>,
     leader: CompressedRistretto,
     overthrown: HashSet<CompressedRistretto>,
     votes: Vec<i32>,
@@ -399,9 +399,8 @@ struct SavedNode {
     headshard: usize,
     outer_view: HashSet<NodeId>,
     outer_eager: HashSet<NodeId>,
-    rname: Vec<u8>,
     moneyreset: Option<Vec<u8>>,
-    oldstk: Option<(Account, Vec<[u64;2]>, u64)>,
+    oldstk: Option<(Account, Option<[u64;2]>, u64)>,
     cumtime: f64,
     blocktime: f64,
     lightning_yielder: bool,
@@ -420,9 +419,9 @@ struct KhoraNode {
     allnetwork: HashMap<CompressedRistretto,(u64,SocketAddr)>,
     me: Account,
     mine: HashMap<u64, OTAccount>,
-    smine: Vec<[u64; 2]>, // [location, amount]
+    smine: Option<[u64; 2]>, // [location, amount]
     key: Scalar,
-    keylocation: HashSet<u64>,
+    keylocation: Option<u64>,
     leader: CompressedRistretto, // would they ever even reach consensus on this for new people when a dishonest person is eliminated???
     overthrown: HashSet<CompressedRistretto>,
     votes: Vec<i32>,
@@ -452,13 +451,11 @@ struct KhoraNode {
     sent_onces: HashSet<Vec<u8>>,
     knownvalidators: HashMap<u64,NodeId>,
     newest: u64,
-    rname: Vec<u8>,
     moneyreset: Option<Vec<u8>>,
     sync_returnaddr: Option<NodeId>,
     sync_theirnum: u64,
     sync_lightning: bool,
-    outs: Option<Vec<(Account, Scalar)>>,
-    oldstk: Option<(Account, Vec<[u64;2]>, u64)>,
+    oldstk: Option<(Account, Option<[u64;2]>, u64)>,
     cumtime: f64,
     blocktime: f64,
     lightning_yielder: bool,
@@ -494,7 +491,6 @@ impl KhoraNode {
                 headshard: self.headshard.clone(),
                 outer_view: self.outer.plumtree_node().lazy_push_peers().clone(),
                 outer_eager: self.outer.plumtree_node().eager_push_peers().clone(),
-                rname: self.rname.clone(),
                 moneyreset: self.moneyreset.clone(),
                 oldstk: self.oldstk.clone(),
                 cumtime: self.cumtime,
@@ -574,12 +570,10 @@ impl KhoraNode {
             knownvalidators: HashMap::new(),
             doneerly: Instant::now(),
             newest: 0u64,
-            rname: vec![],
             moneyreset: sn.moneyreset,
             sync_returnaddr: None,
             sync_theirnum: 0u64,
             sync_lightning: false,
-            outs: None,
             oldstk: sn.oldstk,
             cumtime: sn.cumtime,
             blocktime: sn.blocktime,
@@ -689,8 +683,10 @@ impl KhoraNode {
                     }
                     LightningSyncBlock::save(&m);
 
-                    self.keylocation = self.smine.iter().map(|x| x[0]).collect();
-                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, true);
+                    if let Some(x) = &self.smine {
+                        self.keylocation = Some(x[0])
+                    }
+                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, true);
 
                     self.lastbnum = self.bnum;
                     let mut hasher = Sha3_512::new();

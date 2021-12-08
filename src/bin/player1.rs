@@ -25,6 +25,8 @@ fn get_pswrd(a: &String, b: &String, c: &String) -> Vec<u8> {
 /// this is also the place to test code
 fn main() {
 
+    // let a = [1,2,3];
+    // println!("{:?}",a[3..].to_vec());
     let person0 = get_pswrd(&"1234".to_string(),&"1234567".to_string(),&"12345".to_string());
     let leader = Account::new(&person0).stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
     println!("{:?}",leader);

@@ -5,6 +5,7 @@ use rayon::prelude::*;
 use crate::transaction::*;
 use std::convert::TryInto;
 use std::iter::FromIterator;
+use std::net::SocketAddr;
 use crate::bloom::BloomFile;
 use rand::{thread_rng};
 use sha3::{Digest, Sha3_512};
@@ -487,13 +488,18 @@ impl NextBlock {
     }
 
     /// the function you use to pay yourself if you are not saving the block
-    pub fn pay_self_empty(shard: &usize, comittee: &Vec<Vec<usize>>, mine: &mut Vec<[u64;2]>, reward: f64) -> bool {
+    pub fn pay_self_empty(shard: &usize, comittee: &Vec<Vec<usize>>, mine: &mut Option<[u64;2]>, reward: f64) -> bool {
 
-        let winners = comittee[*shard].iter();
-        let inflation = (reward/winners.len() as f64) as u64;
         let mut changed = false;
-        for &i in winners {
-            mine.iter_mut().for_each(|x| if x[0] == i as u64 {changed = true; x[1] += inflation;});
+        if let Some(mine) = mine {
+            let winners = comittee[*shard].iter();
+            let inflation = (reward/winners.len() as f64) as u64;
+            for &i in winners {
+                if mine[0] == i as u64 {
+                    changed = true;
+                    mine[1] += inflation;
+                }
+            }
         }
         changed
     }
@@ -634,7 +640,7 @@ impl LightningSyncBlock {
     }
 
     /// updates the staker state by dulling out punishments and gifting rewards. also updates the queue, exitqueue, and comittee if stakers left
-    pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
+    pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, netinfo: &mut HashMap<CompressedRistretto, (u64, SocketAddr)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
         if save_history {History::append(&self.info.txout)};
 
         let winners: Vec<usize>;
@@ -675,6 +681,10 @@ impl LightningSyncBlock {
 
 
         for x in self.info.stkout.iter().rev() {
+            netinfo.remove(&valinfo[*x as usize].0);
+            valinfo[*x as usize + 1..].iter().for_each(|(x,_)| {
+                netinfo.get_mut(x).unwrap().0 -= 1;
+            });
             valinfo.remove(*x as usize);
             *queue = queue.into_par_iter().map(|y| {
                 let z = y.into_par_iter().filter_map(|z|
@@ -755,7 +765,19 @@ impl LightningSyncBlock {
         });
 
 
-        valinfo.extend(&self.info.stkin);
+        self.info.stkin.iter().enumerate().for_each(|(i,(x,_))| {
+            if !netinfo.contains_key(x) {
+                netinfo.insert(*x, ((i + valinfo.len()) as u64,"0.0.0.0:0".parse().unwrap()));
+            }
+        });
+        let realstkin = self.info.stkin.iter().filter(|x| {
+            if let Some(&(i,_)) = netinfo.get(&x.0) {
+                valinfo[i as usize].1 += x.1;
+                return false
+            }
+            true
+        }).copied().collect::<Vec<_>>();
+        valinfo.extend(&realstkin);
 
 
     }
@@ -778,77 +800,94 @@ impl LightningSyncBlock {
     }
 
     /// scans the block for any transactions sent to you or any rewards and punishments you recieved. it additionally updates the height of stakers
-    pub fn scanstk(&self, me: &Account, mine: &mut Vec<[u64;2]>, height: &mut u64, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &Vec<(CompressedRistretto,u64)>) -> (bool,Vec<[u64; 2]>) {
+    pub fn scanstk(&self, me: &Account, mine: &mut Option<[u64;2]>, height: &mut u64, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &Vec<(CompressedRistretto,u64)>,  netinfo: &HashMap<CompressedRistretto, (u64, SocketAddr)>) {
 
-        let winners: Vec<usize>;
-        let masochists: Vec<usize>;
-        let lucky: Vec<usize>;
-        let feelovers: Vec<usize>;
-
-        let x = self.validators.iter().map(|x| x.pk as usize).collect::<HashSet<_>>();
-
-        winners = comittee[self.shards[0] as usize].iter().filter(|&y| x.contains(y)).map(|x| *x).collect::<Vec<_>>();
-        masochists = comittee[self.shards[0] as usize].iter().filter(|&y| !x.contains(y)).map(|x| *x).collect::<Vec<_>>();
-        if self.shards.len() > 1 {
-            feelovers = self.shards[1..].iter().map(|x| comittee[*x as usize].clone()).flatten().chain(winners.clone()).collect::<Vec<_>>();
-        } else {
-            feelovers = winners.clone();
-        }
-        lucky = comittee[*self.shards.iter().max().unwrap() as usize + 1].clone();
         
-        let fees = self.info.fees/(feelovers.len() as u64);
-        let inflation = (reward/winners.len() as f64) as u64;
 
-        let changed = std::sync::Arc::new(std::sync::RwLock::new(false));
-        for i in winners {
-            mine.iter_mut().for_each(|x| if x[0] == i as u64 {*changed.write().unwrap() = true; x[1] += inflation;});
-        }
-        for i in feelovers {
-            mine.iter_mut().for_each(|x| if x[0] == i as u64 {*changed.write().unwrap() = true; x[1] += fees;});
-        }
-        let mut punishments = 0u64;
-        for i in masochists {
-            punishments += valinfo[i].1/PUNISHMENT_FRACTION;
-            mine.iter_mut().for_each(|x| if x[0] == i as u64 {*changed.write().unwrap() = true; x[1] -= valinfo[i].1/PUNISHMENT_FRACTION;});
-        }
-        punishments = punishments/lucky.len() as u64;
-        for i in lucky {
-            mine.iter_mut().for_each(|x| if x[0] == i as u64 {*changed.write().unwrap() = true; x[1] += punishments;});
-        }
-
-
+        let mut benone = false;
+        if let Some(mine) = mine {
+            let winners: Vec<usize>;
+            let masochists: Vec<usize>;
+            let lucky: Vec<usize>;
+            let feelovers: Vec<usize>;
     
-
-
-
-        for (i,m) in mine.clone().iter().enumerate().rev() {
-            for v in self.info.stkout.iter() {
-                if m[0] == *v {
-                    *changed.write().unwrap() = true;
-                    mine.remove(i as usize);
+            let x = self.validators.iter().map(|x| x.pk as usize).collect::<HashSet<_>>();
+    
+            winners = comittee[self.shards[0] as usize].iter().filter(|&y| x.contains(y)).map(|x| *x).collect::<Vec<_>>();
+            masochists = comittee[self.shards[0] as usize].iter().filter(|&y| !x.contains(y)).map(|x| *x).collect::<Vec<_>>();
+            if self.shards.len() > 1 {
+                feelovers = self.shards[1..].iter().map(|x| comittee[*x as usize].clone()).flatten().chain(winners.clone()).collect::<Vec<_>>();
+            } else {
+                feelovers = winners.clone();
+            }
+            lucky = comittee[*self.shards.iter().max().unwrap() as usize + 1].clone();
+            
+            let fees = self.info.fees/(feelovers.len() as u64);
+            let inflation = (reward/winners.len() as f64) as u64;
+    
+            for i in winners {
+                if mine[0] == i as u64 {
+                    mine[1] += inflation;
+                };
+            }
+            for i in feelovers {
+                if mine[0] == i as u64 {
+                    mine[1] += fees;
+                };
+            }
+            let mut punishments = 0u64;
+            for i in masochists {
+                punishments += valinfo[i].1/PUNISHMENT_FRACTION;
+                if mine[0] == i as u64 {
+                    mine[1] -= valinfo[i].1/PUNISHMENT_FRACTION;
                 }
             }
-        }
-        for (i,m) in mine.clone().iter().enumerate().rev() {
-            for n in self.info.stkout.iter() {
-                if *n < m[0] {
-                    *changed.write().unwrap() = true;
-                    mine[i][0] -= 1;
-                }
-                else {
-                    break;
+            punishments = punishments/lucky.len() as u64;
+            for i in lucky {
+                if mine[0] == i as u64 {
+                    mine[1] += punishments;
                 }
             }
-        }
-        *height -= self.info.stkout.len() as u64;
+    
+    
         
-        let stkcr = me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
-        let new = self.info.stkin.iter().enumerate().filter_map(|(i,x)| if stkcr == x.0 {Some([i as u64+*height,x.1])} else {None}).collect::<Vec<[u64;2]>>();
-        mine.extend(new.iter());
-        *height += self.info.stkin.len() as u64;
+    
+    
+    
+            if self.info.stkout.contains(mine[0]) {
+                benone = true;
+            }
+            *height -= self.info.stkout.len() as u64;
+            
+            let stkcr = me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
+            if benone {
+                for (i,x) in self.info.stkin.iter().enumerate() {
+                    if stkcr == x.0 {
+                        mine = [i as u64+*height,x.1];
+                        benone = false;
+                        break
+                    }
+                }
+            } else {
+                for (i,x) in self.info.stkin.iter().enumerate() {
+                    if stkcr == x.0 {
+                        mine[1] += x.1;
+                        break
+                    }
+                }
+            }
+            
+            *height += self.info.stkin.len() as u64;
 
-        let changed = *changed.read().unwrap();
-        (changed,new)
+        } else {
+            *height -= self.info.stkout.len() as u64;
+            *height += self.info.stkin.len() as u64;
+        }
+
+        if benone {
+            mine = None
+        }
+
 
     }
 

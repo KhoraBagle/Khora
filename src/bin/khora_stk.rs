@@ -209,7 +209,6 @@ fn main() -> Result<(), MainError> {
                 sent_onces: HashSet::new(),
                 knownvalidators: HashMap::new(),
                 newest: 0u64,
-                rmems: HashMap::new(),
                 rname: vec![],
                 gui_sender: usend.clone(),
                 gui_reciever: mpsc::channel().1,
@@ -379,7 +378,7 @@ fn main() -> Result<(), MainError> {
 struct SavedNode {
     me: Account,
     mine: HashMap<u64, OTAccount>,
-    allnetwork: HashMap<CompressedRistretto,(Vec<u64>,SocketAddr)>,
+    allnetwork: HashMap<CompressedRistretto,(u64,SocketAddr)>,
     smine: Vec<[u64; 2]>, // [location, amount]
     key: Scalar,
     keylocation: HashSet<u64>,
@@ -418,7 +417,7 @@ struct KhoraNode {
     outerwriter: channel::Sender<Vec<u8>>,
     gui_sender: channel::Sender<Vec<u8>>,
     gui_reciever: mpsc::Receiver<Vec<u8>>,
-    allnetwork: HashMap<CompressedRistretto,(Vec<u64>,SocketAddr)>,
+    allnetwork: HashMap<CompressedRistretto,(u64,SocketAddr)>,
     me: Account,
     mine: HashMap<u64, OTAccount>,
     smine: Vec<[u64; 2]>, // [location, amount]
@@ -453,7 +452,6 @@ struct KhoraNode {
     sent_onces: HashSet<Vec<u8>>,
     knownvalidators: HashMap<u64,NodeId>,
     newest: u64,
-    rmems: HashMap<u64,OTAccount>,
     rname: Vec<u8>,
     moneyreset: Option<Vec<u8>>,
     sync_returnaddr: Option<NodeId>,
@@ -576,7 +574,6 @@ impl KhoraNode {
             knownvalidators: HashMap::new(),
             doneerly: Instant::now(),
             newest: 0u64,
-            rmems: HashMap::new(),
             rname: vec![],
             moneyreset: sn.moneyreset,
             sync_returnaddr: None,

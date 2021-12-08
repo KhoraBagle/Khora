@@ -15,9 +15,9 @@ use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::Build;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, IpAddr};
 use std::path::Path;
-use std::thread;
+use std::{thread, cmp};
 use trackable::error::MainError;
 use crossbeam::channel;
 
@@ -174,7 +174,7 @@ fn main() -> Result<(), MainError> {
                 outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
                 outerlister: channel::unbounded().1,
                 outerwriter: channel::unbounded().0,
-                allnetwork: vec![],
+                allnetwork: HashMap::new(),
                 me,
                 mine: HashMap::new(),
                 smine: smine.clone(), // [location, amount]
@@ -303,6 +303,7 @@ fn main() -> Result<(), MainError> {
         node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
         node.save();
 
+
         let app = gui::staker::KhoraStakerGUI::new(
             ui_reciever,
             ui_sender,
@@ -378,7 +379,7 @@ fn main() -> Result<(), MainError> {
 struct SavedNode {
     me: Account,
     mine: HashMap<u64, OTAccount>,
-    allnetwork: Vec<SocketAddr>,
+    allnetwork: HashMap<CompressedRistretto,(Vec<u64>,SocketAddr)>,
     smine: Vec<[u64; 2]>, // [location, amount]
     key: Scalar,
     keylocation: HashSet<u64>,
@@ -397,7 +398,8 @@ struct SavedNode {
     sheight: u64,
     alltagsever: Vec<CompressedRistretto>,
     headshard: usize,
-    outer_view: Vec<NodeId>,
+    outer_view: HashSet<NodeId>,
+    outer_eager: HashSet<NodeId>,
     rname: Vec<u8>,
     moneyreset: Option<Vec<u8>>,
     oldstk: Option<(Account, Vec<[u64;2]>, u64)>,
@@ -416,7 +418,7 @@ struct KhoraNode {
     outerwriter: channel::Sender<Vec<u8>>,
     gui_sender: channel::Sender<Vec<u8>>,
     gui_reciever: mpsc::Receiver<Vec<u8>>,
-    allnetwork: Vec<SocketAddr>,
+    allnetwork: HashMap<CompressedRistretto,(Vec<u64>,SocketAddr)>,
     me: Account,
     mine: HashMap<u64, OTAccount>,
     smine: Vec<[u64; 2]>, // [location, amount]
@@ -492,7 +494,8 @@ impl KhoraNode {
                 sheight: self.sheight,
                 alltagsever: self.alltagsever.clone(),
                 headshard: self.headshard.clone(),
-                outer_view: self.outer.plumtree_node().all_push_peers().into_iter().collect(),
+                outer_view: self.outer.plumtree_node().lazy_push_peers().clone(),
+                outer_eager: self.outer.plumtree_node().eager_push_peers().clone(),
                 rname: self.rname.clone(),
                 moneyreset: self.moneyreset.clone(),
                 oldstk: self.oldstk.clone(),
@@ -519,6 +522,18 @@ impl KhoraNode {
         // tries to get back all the friends you may have lost since turning off the app
         let mut outer = outer;
         outer.dm(vec![], &sn.outer_view, true);
+        outer.plumtree_node.eager_push_peers = sn.outer_eager;
+        outer.plumtree_node.eager_push_peers = sn.outer_view;
+
+
+
+        let key = sn.key;
+        if sn.smine.len() != 0 {
+            let message = bincode::serialize(&outer.plumtree_node().id().address().ip()).unwrap();
+            let mut fullmsg = Signature::sign_message2(&key,&message);
+            fullmsg.push(110);
+            outer.broadcast_now(fullmsg);
+        }
         KhoraNode {
             inner,
             outer,
@@ -662,12 +677,12 @@ impl KhoraNode {
                     guitruster = !(lastlightning.scan(&self.me, &mut self.mine, &mut self.height, &mut self.alltagsever) || guitruster);
                     self.gui_sender.send(vec![guitruster as u8,1]).expect("there's a problem communicating to the gui!");
 
-                    new.iter().for_each(|info| {
+                    if new.len() != 0 {
                         let message = bincode::serialize(&self.outer.plumtree_node().id().address().ip()).unwrap();
-                        let mut fullmsg = Signature::sign_message(&self.key,message,&info[0]);
-                        fullmsg.push();
+                        let mut fullmsg = Signature::sign_message2(&self.key,&message);
+                        fullmsg.push(110);
                         self.outer.broadcast_now(fullmsg);
-                    });
+                    }
                     
 
                     println!("saving block...");
@@ -1049,6 +1064,7 @@ impl Future for KhoraNode {
                         } else if mtype == 118 /* v */ /* evidence someone announced is a validator */ {
                             if let Some(who) = Signature::recieve_signed_message(&mut m, &self.stkinfo) {
                                 if let Ok(m) = bincode::deserialize::<NodeId>(&m) {
+
                                     if self.queue[self.headshard].contains(&(who as usize)) {
                                         self.inner.plumtree_node.lazy_push_peers.insert(m);
                                     }
@@ -1318,44 +1334,20 @@ impl Future for KhoraNode {
                                     self.readlightning(lastblock, m, None); // that whole thing with 3 and 8 makes it super unlikely to get more blocks (expecially for my small thing?)
                                 }
                             }
-                        } else if mtype == 113 /* q */ { // they just sent you a ring member
-                            if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(&m) {
-                                let locs = recieve_ring(&self.rname).unwrap();
-                                let rmems = r.iter().zip(locs).map(|(x,y)| (y,History::read_raw(x))).collect::<Vec<_>>();
-                                let mut ringchanged = false;
-                                for mem in rmems {
-                                    if self.mine.iter().filter(|x| *x.0 == mem.0).count() == 0 {
-                                        self.rmems.insert(mem.0,mem.1);
-                                        ringchanged = true;
+                        } else if mtype == 110 /* n */ {
+                            if let Some(who) = Signature::recieve_signed_message2(&mut m) {
+                                if let Ok(m) = bincode::deserialize::<IpAddr>(&m) {
+                                    if let Some(x) = self.allnetwork.get_mut(&who) {
+                                        x.1 = SocketAddr::new(m, OUTSIDER_PORT);
                                     }
+                                    self.outer.handle_gossip_now(fullmsg, true);
+                                } else {
+                                    self.outer.handle_gossip_now(fullmsg, false);
                                 }
-                                if ringchanged {
-                                    if let Some(outs) = self.outs.clone() {
-                                        let ring = recieve_ring(&self.rname).unwrap();
-                                        let mut got_the_ring = true;
-                                        let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
-                                        rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
-                                        let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                                        if got_the_ring && tx.verify().is_ok() {
-                                            let tx = tx.polyform(&self.rname);
-                                            // tx.verify().unwrap(); // as a user you won't be able to check this
-                                            let mut txbin = bincode::serialize(&tx).unwrap();
-                                            txbin.push(0);
-                                            self.outer.broadcast(txbin);
-                                            println!("transaction ring filled and tx sent!");
-                                        } else {
-                                            println!("you can't make that transaction, user!");
-                                        }
-                                    }
-                                }
+                            } else {
+                                self.outer.handle_gossip_now(fullmsg, false);
                             }
-                        } else if mtype == 114 /* r */ { // answer their ring question
-                            if let Ok(r) = recieve_ring(&m) {
-                                let y = r.iter().map(|y| History::get_raw(y).to_vec()).collect::<Vec<_>>();
-                                let mut x = bincode::serialize(&y).unwrap();
-                                x.push(113);
-                                self.outer.dm(x,&vec![msg.id.node()],false);
-                            }
+                            
                         } else if mtype == 118 /* v */ { // someone announcing they're about to be in the comittee
                             if let Some(who) = Signature::recieve_signed_message(&mut m, &self.stkinfo) {
                                 if let Ok(m) = bincode::deserialize::<NodeId>(&m) {

@@ -189,6 +189,44 @@ impl Signature {
         }
     }
 
+
+    /// signs any message with your staker public key (without a location)
+    pub fn sign_message2(key: &Scalar, message: &Vec<u8>) -> Vec<u8> {
+        let mut s = Sha3_512::new();
+        s.update(&message); // impliment non block check stuff for signatures
+        let mut csprng = thread_rng();
+        let a = Scalar::random(&mut csprng);
+        s.update((a*PEDERSEN_H()).compress().to_bytes());
+        let c = Scalar::from_hash(s.to_owned());
+        let mut out = c.as_bytes().to_vec();
+        out.par_extend((a - c*key).as_bytes());
+        out.par_extend((key*PEDERSEN_H()).compress().as_bytes());
+        out.par_extend(message);
+        out
+    }
+
+    /// recieves a signed message and returns the key that signed it (for if it's not signed with a location)
+    pub fn recieve_signed_message2(signed_message: &mut Vec<u8>) -> Option<CompressedRistretto> {
+        if signed_message.len() < 96 {
+            let sig = signed_message.par_drain(..96).collect::<Vec<_>>();
+            let c = Scalar::from_bits(sig[..32].try_into().unwrap());
+            let r = Scalar::from_bits(sig[32..64].try_into().unwrap());
+            let pk = CompressedRistretto::from_slice(&sig[64..96]);
+            
+            if let Some(pkdecom) = pk.decompress() {
+    
+                let mut h = Sha3_512::new();
+                h.update(signed_message);
+                h.update((r*PEDERSEN_H() + c*pkdecom).compress().to_bytes());
+                
+                if c == Scalar::from_hash(h) {
+                    return Some(pk)
+                }
+            }
+        }
+        None
+    }
+
     /// signs a message with the block number as a timestamp with your staker public key
     pub fn sign_message_nonced(key: &Scalar, message: &Vec<u8>, location: &u64, bnum: &u64) -> Vec<u8> {
         let mut s = Sha3_512::new();

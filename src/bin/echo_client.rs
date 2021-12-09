@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::net::{TcpStream};
 use std::io::{Read, Write};
 use std::str::from_utf8;
@@ -7,20 +8,18 @@ fn main() {
         Ok(mut stream) => {
             println!("Successfully connected to server in port 3333");
 
-            let msg = b"Hello!";
+            // let msg = b"Hello!";
+            let msg = &[0u8;1028];
 
             stream.write(msg).unwrap();
             println!("Sent Hello, awaiting reply...");
 
             let mut data = vec![]; // using 6 byte buffer
             match stream.read_to_end(&mut data) {
-                Ok(_) => {
-                    if &data == msg {
-                        println!("Reply is ok!");
-                    } else {
-                        let text = from_utf8(&data).unwrap();
-                        println!("Unexpected reply: {}", text);
-                    }
+                Ok(n) => {
+                    println!("recieved {} bytes!",n);
+                    let mut f = File::create("khora_usr").unwrap();
+                    f.write(&data);
                 },
                 Err(e) => {
                     println!("Failed to receive data: {}", e);

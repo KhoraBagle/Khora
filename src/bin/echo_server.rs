@@ -7,7 +7,7 @@ use std::io::Write;
 fn handle_client(mut stream: TcpStream) {
     // read 20 bytes at a time from stream echoing back to stream
     let mut bin = vec![];
-    let mut f = File::open("khora_usr").unwrap();
+    let mut f = File::open("target/release/khora_usr").unwrap();
     f.read_to_end(&mut bin);
     println!("got message! sending {} bytes",bin.len());
     

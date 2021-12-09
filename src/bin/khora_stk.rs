@@ -386,6 +386,8 @@ struct SavedNode {
     headshard: usize,
     outer_view: HashSet<NodeId>,
     outer_eager: HashSet<NodeId>,
+    av: Vec<NodeId>,
+    pv: Vec<NodeId>,
     moneyreset: Option<Vec<u8>>,
     oldstk: Option<(Account, Option<[u64;2]>, u64)>,
     cumtime: f64,
@@ -483,6 +485,8 @@ impl KhoraNode {
                 lightning_yielder: self.lightning_yielder,
                 is_validator: self.is_validator,
                 ringsize: self.ringsize,
+                av: self.outer.hyparview_node.active_view.clone(),
+                pv: self.outer.hyparview_node.passive_view.clone(),
             }; // just redo initial conditions on the rest
             let mut sn = bincode::serialize(&sn).unwrap();
             let mut f = File::create("myNode").unwrap();
@@ -491,7 +495,7 @@ impl KhoraNode {
     }
 
     /// loads the node information from a file: "myNode"
-    fn load(inner: Node<Vec<u8>>, outer: Node<Vec<u8>>, gui_sender: channel::Sender<Vec<u8>>, gui_reciever: mpsc::Receiver<Vec<u8>>, outerlister: channel::Receiver<Vec<u8>>, outerwriter: channel::Sender<Vec<u8>>) -> KhoraNode {
+    fn load(inner: Node<Vec<u8>>, mut outer: Node<Vec<u8>>, gui_sender: channel::Sender<Vec<u8>>, gui_reciever: mpsc::Receiver<Vec<u8>>, outerlister: channel::Receiver<Vec<u8>>, outerwriter: channel::Sender<Vec<u8>>) -> KhoraNode {
         let mut buf = Vec::<u8>::new();
         let mut f = File::open("myNode").unwrap();
         f.read_to_end(&mut buf).unwrap();
@@ -499,11 +503,16 @@ impl KhoraNode {
         let sn = bincode::deserialize::<SavedNode>(&buf).unwrap();
 
         // tries to get back all the friends you may have lost since turning off the app
-        let mut outer = outer;
-        outer.dm(vec![], &sn.outer_view, true);
+        sn.outer_view.iter().chain(sn.outer_eager.iter()).collect::<HashSet<_>>().into_iter().for_each(|&x| {
+            outer.join(x);
+        });
         outer.plumtree_node.eager_push_peers = sn.outer_eager;
         outer.plumtree_node.eager_push_peers = sn.outer_view;
 
+        outer.hyparview_node.active_view = sn.av;
+        outer.hyparview_node.passive_view = sn.pv;
+
+        
 
 
         let key = sn.key;
@@ -1249,19 +1258,11 @@ impl Future for KhoraNode {
                                 mynum.push(102); //f
                             }
                             mynum.push(121);
-                            if let Ok(x) = bincode::deserialize(&m) {
-                                self.outer.dm(mynum, &[x], false);
+                            if let Some(friend) = self.allnetwork.iter().filter_map(|(_,(_,x))| x.as_ref()).collect::<Vec<_>>().choose(&mut rand::thread_rng()) {
+                                println!("asking for help from {:?}",friend);
+                                self.outer.dm(mynum, &[*friend], false);
                             } else {
-                                let mut friend = self.outer.plumtree_node().all_push_peers();
-                                friend.remove(&msg.id.node());
-                                friend.remove(self.outer.plumtree_node().id());
-                                let friend = friend.into_iter().collect::<Vec<_>>();
-                                if let Some(friend) = friend.choose(&mut rand::thread_rng()) {
-                                    println!("asking for help from {:?}",friend);
-                                    self.outer.dm(mynum, &[*friend], false);
-                                } else {
-                                    println!("you're isolated");
-                                }
+                                println!("you don't know anyone on the network by their name");
                             }
                         } else if mtype == 97 /* a */ {
                             println!("Someone's trying to connect!!! :3\n(  this means you're recieving connect request >(^.^)>  )");
@@ -1308,17 +1309,7 @@ impl Future for KhoraNode {
                                 }
                             }
                             if msg.id.node() != *self.outer.plumtree_node().id() && i_cant_do_this {
-                                let mut friend = self.outer.plumtree_node().all_push_peers().into_iter().collect::<Vec<_>>();
-                                friend.retain(|&x| x != fullmsg.sender);
-                                if let Some(friend) = friend.choose(&mut rand::thread_rng()) {
-                                    println!("asking for help from {:?}",friend);
-                                    let mut m = bincode::serialize(friend).unwrap();
-                                    m.push(60);
-                                    self.outer.dm(m, &[*friend], false);
-                                } else {
-                                    self.outer.dm(vec![60], &[msg.id.node()], false);
-                                    println!("you're isolated");
-                                }
+                                self.outer.dm(vec![60], &[msg.id.node()], false);
                             }
                         } else /* spam */ {
                             // self.outer.kill(&fullmsg.sender);
@@ -1570,32 +1561,26 @@ impl Future for KhoraNode {
 
                     } else if istx == 121 /* y */ { // you clicked sync
                         let mut mynum = self.bnum.to_le_bytes().to_vec();
-                        if self.lightning_yielder {
+                        if self.lightning_yielder { // lightning users don't ask for full blocks
                             mynum.push(108); //l
                         } else {
                             mynum.push(102); //f
                         }
                         mynum.push(121);
-                        let mut friend = self.outer.plumtree_node().all_push_peers();
-                        friend.remove(self.outer.plumtree_node().id());
-                        println!("{:?}",friend);
-                        let friend = friend.into_iter().collect::<Vec<_>>();
-                        println!("friends: {:?}",friend);
-                        let mut gm = (friend.len() as u16).to_le_bytes().to_vec();
-                        gm.push(4);
-                        self.gui_sender.send(gm).expect("should be working");
-                        if let Some(friend) = friend.choose(&mut rand::thread_rng()) {
+                        if let Some(friend) = self.allnetwork.iter().filter_map(|(_,(_,x))| x.as_ref()).collect::<Vec<_>>().choose(&mut rand::thread_rng()) {
                             println!("asking for help from {:?}",friend);
                             self.outer.dm(mynum, &[*friend], false);
                         } else {
-                            println!("you're isolated");
+                            println!("you don't know anyone on the network by their name");
                         }
+                        
                     } else if istx == 42 /* * */ { // entry address
                         let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
                         println!("{}",m);
                         if let Ok(socket) = m.parse() {
-                            println!("it's a socket");
                             self.outer.dm(vec![97],&[NodeId::new(socket, LocalNodeId::new(0))],true);
+                        } else {
+                            println!("that's not an ip address!");
                         }
                     } else if istx == 64 /* @ */ {
                         let mut friend = self.outer.plumtree_node().all_push_peers();

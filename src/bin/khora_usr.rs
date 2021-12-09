@@ -22,7 +22,7 @@ use khora::{account::*, gui};
 use curve25519_dalek::scalar::Scalar;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryInto;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use khora::transaction::*;
 use curve25519_dalek::ristretto::{CompressedRistretto};
 use sha3::{Digest, Sha3_512};
@@ -978,6 +978,7 @@ impl Future for KhoraNode {
                             let responces = self.send_message(mynum, SYNC_SEND_TO);
 
                             if responces.len() == 0 {
+                                println!("no responce");
                                 n_check += 1;
                             } else {
                                 n_check = 0;
@@ -997,7 +998,7 @@ impl Future for KhoraNode {
                     } else if istx == 42 /* * */ { // entry address
                         let socket = format!("{}:{}",String::from_utf8_lossy(&m),OUTSIDER_PORT);
                         println!("{}",socket);
-                        match TcpStream::connect(socket) {
+                        match TcpStream::connect_timeout(&socket.parse().unwrap(), Duration::from_secs(5)) {
                             Ok(mut stream) => {
                                 let msg = vec![101u8];
                                 stream.write(&msg).unwrap();
@@ -1008,6 +1009,7 @@ impl Future for KhoraNode {
                                     Ok(_) => {
                                         if let Ok(x) = bincode::deserialize(&data) {
                                             self.sendview = x;
+                                            println!("View: {:?}",self.sendview);
                                         } else {
                                             println!("They didn't send a view!")
                                         }

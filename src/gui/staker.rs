@@ -267,15 +267,35 @@ impl epi::App for KhoraStakerGUI {
 
 
                 // this is just to make sure blocks are allways coming
+                let unstake = 100_000_000u64;
                 let mut m = vec![];
                 m.extend(self.addr.as_bytes().to_vec());
-                m.extend(retain_numeric(self.unstake.to_string()).parse::<u64>().unwrap().to_le_bytes());
+                m.extend(unstake.to_le_bytes());
                 // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",staked,fee,unstake);
-                let x = self.staked as i128 - retain_numeric(self.fee.to_string()).parse::<u64>().unwrap() as i128 - retain_numeric(self.unstake.to_string()).parse::<u64>().unwrap() as i128 ;
+                let x = self.staked as i128 - retain_numeric(self.fee.to_string()).parse::<u64>().unwrap() as i128 - unstake as i128 ;
                 if x > 1 {
                     m.extend(self.stkaddr.as_bytes());
                     m.extend((x as u64).to_le_bytes());
                     m.push(63);
+                    m.push(33);
+                    self.sender.send(m).expect("something's wrong with communication from the gui");
+                }
+
+
+
+                let mut m = vec![];
+                let x = 10_000u64;
+                m.extend(str::to_ascii_lowercase(&"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakpkkjflfkbnihkjemkbdjhleddlncjmipffbpninfgkddopmkmofanmahmebeombknnljklfkolpkacljdjpfephfkdjhikcechegbionimhhejdckcnpmejnkmcacia").as_bytes().to_vec());
+                m.extend(x.to_le_bytes().to_vec());
+                let tot = x;
+                if self.unstaked as i128 >= tot as i128 + retain_numeric(self.fee.to_string()).parse::<i128>().unwrap() {
+                    let x = self.unstaked as i128 - tot as i128- retain_numeric(self.fee.to_string()).parse::<i128>().unwrap();
+                    if x > 0 {
+                        m.extend(str::to_ascii_lowercase(&self.addr).as_bytes());
+                        m.extend((x as u64).to_le_bytes());
+                    }
+                    m.push(self.ringsize);
+                    m.push(33);
                     m.push(33);
                     self.sender.send(m).expect("something's wrong with communication from the gui");
                 }

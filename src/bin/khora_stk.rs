@@ -171,17 +171,18 @@ fn main() -> Result<(), MainError> {
             BloomFile::initialize_bloom_file();
             let bloom = BloomFile::from_randomness();
     
+            let mut allnetwork = HashMap::new();
+            allnetwork.insert(initial_history.0, (0u64,None));
             let (smine, keylocation) = {
                 if initial_history.0 == me.stake_acc().derive_stk_ot(&Scalar::from(initial_history.1)).pk.compress() {
                     println!("\n\nhey i guess i founded this crypto!\n\n");
+                    allnetwork.insert(initial_history.0, (0u64,Some(SocketAddr::new(global_socket.ip(),OUTSIDER_PORT))));
                     (Some([0u64,initial_history.1]), Some(0))
                 } else {
                     (None, None)
                 }
             };
     
-            let mut allnetwork = HashMap::new();
-            allnetwork.insert(initial_history.0, (0u64,None));
             // creates the node with the specified conditions then saves it to be used from now on
             let node = KhoraNode {
                 inner: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
@@ -814,6 +815,7 @@ impl KhoraNode {
                     }
                 };
 
+                println!("known validator's ips: {:?}", self.allnetwork.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>());
                 return true
             }
         }

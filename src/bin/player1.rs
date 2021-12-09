@@ -31,5 +31,9 @@ fn main() {
     let leader = Account::new(&person0).stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
     println!("{:?}",leader);
 
+    let person0 = get_pswrd(&"4321".to_string(),&"7654321".to_string(),&"54321".to_string());
+    let leader = Account::new(&person0).name();
+    println!("{:?}",leader);
+
 
 }

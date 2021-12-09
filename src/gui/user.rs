@@ -341,7 +341,7 @@ impl epi::App for KhoraUserGUI {
             ui.horizontal(|ui| {
                 ui.label("Mesh Network Gate IP");
                 ui.add(TextEdit::singleline(entrypoint).desired_width(100.0).hint_text("put entry here"));
-                ui.add(Label::new(":8334").text_color(egui::Color32::LIGHT_GRAY));
+                ui.add(Label::new(":8335").text_color(egui::Color32::LIGHT_GRAY));
                 if ui.button("Connect").clicked() && !*setup {
                     let mut m = entrypoint.as_bytes().to_vec();
                     m.push(42);

@@ -264,6 +264,23 @@ impl epi::App for KhoraStakerGUI {
                 self.dont_trust_amounts = i.pop() == Some(0);
             } else if modification == 2 {
                 self.block_number = u64::from_le_bytes(i.try_into().unwrap());
+
+
+                // this is just to make sure blocks are allways coming
+                let mut m = vec![];
+                m.extend(self.addr.as_bytes().to_vec());
+                m.extend(retain_numeric(self.unstake.to_string()).parse::<u64>().unwrap().to_le_bytes());
+                // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",staked,fee,unstake);
+                let x = self.staked as i128 - retain_numeric(self.fee.to_string()).parse::<u64>().unwrap() as i128 - retain_numeric(self.unstake.to_string()).parse::<u64>().unwrap() as i128 ;
+                if x > 1 {
+                    m.extend(self.stkaddr.as_bytes());
+                    m.extend((x as u64).to_le_bytes());
+                    m.push(63);
+                    m.push(33);
+                    self.sender.send(m).expect("something's wrong with communication from the gui");
+                }
+
+
             } else if modification == 3 {
                 self.validating = i == vec![1];
             } else if modification == 4 {

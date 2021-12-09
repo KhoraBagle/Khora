@@ -562,7 +562,7 @@ impl epi::App for KhoraUserGUI {
                                         }
                                     }
                                 }
-                                *you_cant_do_that = *unstaked + 1 < tot + retain_numeric(fee.to_string()).parse::<u64>().unwrap();
+                                *you_cant_do_that = *unstaked < tot + retain_numeric(fee.to_string()).parse::<u64>().unwrap();
                                 
 ;                                if !*you_cant_do_that {
                                     let x = *unstaked - tot - retain_numeric(fee.to_string()).parse::<u64>().unwrap();

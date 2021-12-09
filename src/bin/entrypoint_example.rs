@@ -14,7 +14,6 @@ use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use trackable::error::MainError;
 use gip::{Provider, ProviderDefaultV4};
 use local_ip_address::local_ip;
-use natpmp::*;
 use std::thread;
 use std::time::Duration;
 use std::io::BufRead;

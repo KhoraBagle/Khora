@@ -509,18 +509,16 @@ impl epi::App for KhoraStakerGUI {
                             m.extend(stkaddr.as_bytes().to_vec());
                             m.extend(retain_numeric(stake.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec());
                             // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",unstaked,fee,stake);
-                            let x = *unstaked - retain_numeric(fee.to_string()).parse::<u64>().unwrap() - retain_numeric(stake.to_string()).parse::<u64>().unwrap();
+                            let x = *unstaked  as i128 - retain_numeric(fee.to_string()).parse::<i128>().unwrap() - retain_numeric(stake.to_string()).parse::<i128>().unwrap();
                             if x > 0 {
                                 m.extend(addr.as_bytes().to_vec());
-                                m.extend(x.to_le_bytes().to_vec());
-                            }
-                            m.push(*ringsize);
-                            m.push(33);
-                            m.push(33);
-                            if *unstaked < retain_numeric(fee.to_string()).parse::<u64>().unwrap() + retain_numeric(stake.to_string()).parse::<u64>().unwrap() {
-                                *you_cant_do_that = true;
-                            } else {
+                                m.extend((x as u64).to_le_bytes().to_vec());
+                                m.push(*ringsize);
+                                m.push(33);
+                                m.push(33);
                                 sender.send(m).expect("something's wrong with communication from the gui");
+                            } else {
+                                *you_cant_do_that = true;
                             }
                         }
                     }
@@ -534,18 +532,15 @@ impl epi::App for KhoraStakerGUI {
                             m.extend(addr.as_bytes().to_vec());
                             m.extend(retain_numeric(unstake.to_string()).parse::<u64>().unwrap().to_le_bytes());
                             // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",staked,fee,unstake);
-                            let x = *staked - retain_numeric(fee.to_string()).parse::<u64>().unwrap() - retain_numeric(unstake.to_string()).parse::<u64>().unwrap();
+                            let x = *staked as i128 - retain_numeric(fee.to_string()).parse::<u64>().unwrap() as i128 - retain_numeric(unstake.to_string()).parse::<u64>().unwrap() as i128 ;
                             if x > 0 {
                                 m.extend(stkaddr.as_bytes());
-                                m.extend(x.to_le_bytes());
-                            }
-                            m.push(63);
-                            m.push(33);
-                            // println!("{}",String::from_utf8_lossy(&m));
-                            if *staked < retain_numeric(fee.to_string()).parse::<u64>().unwrap() + retain_numeric(unstake.to_string()).parse::<u64>().unwrap() {
-                                *you_cant_do_that = true;
-                            } else {
+                                m.extend((x as u64).to_le_bytes());
+                                m.push(63);
+                                m.push(33);
                                 sender.send(m).expect("something's wrong with communication from the gui");
+                            } else {
+                                *you_cant_do_that = true;
                             }
                         }
                     }
@@ -658,34 +653,34 @@ impl epi::App for KhoraStakerGUI {
                             ui.label("");
                             if ui.button("Send Transaction").clicked() && !*setup {
                                 let mut m = vec![];
-                                let mut tot = 0u64;
+                                let mut tot = 0i128;
                                 for (who,amnt) in send_addr.iter_mut().zip(send_amnt.iter_mut()) {
                                     if let Ok(x) = retain_numeric(amnt.to_string()).parse::<u64>() {
                                         if x > 0 {
                                             m.extend(str::to_ascii_lowercase(&who).as_bytes().to_vec());
                                             m.extend(x.to_le_bytes().to_vec());
-                                            tot += x;
+                                            tot += x as i128;
                                         }
                                     }
                                 }
                                 if *stkspeand {
-                                    *you_cant_do_that = *staked + 1 < tot + retain_numeric(fee.to_string()).parse::<u64>().unwrap();
+                                    *you_cant_do_that = *staked as i128+ 1 < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
                                 } else {
-                                    *you_cant_do_that = *unstaked + 1 < tot + retain_numeric(fee.to_string()).parse::<u64>().unwrap();
+                                    *you_cant_do_that = *unstaked as i128+ 1 < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
                                 }
 ;                                if !*you_cant_do_that {
                                     if *stkspeand {
-                                        let x = *staked - tot - retain_numeric(fee.to_string()).parse::<u64>().unwrap();
+                                        let x = *staked as i128 - tot - retain_numeric(fee.to_string()).parse::<i128>().unwrap();
                                         if x > 0 {
                                             m.extend(str::to_ascii_lowercase(&stkaddr).as_bytes());
-                                            m.extend(x.to_le_bytes());
+                                            m.extend((x as u64).to_le_bytes());
                                         }
                                         m.push(63);
                                     } else {
-                                        let x = *unstaked - tot - retain_numeric(fee.to_string()).parse::<u64>().unwrap();
+                                        let x = *unstaked as i128 - tot - retain_numeric(fee.to_string()).parse::<i128>().unwrap();
                                         if x > 0 {
                                             m.extend(str::to_ascii_lowercase(&addr).as_bytes());
-                                            m.extend(x.to_le_bytes());
+                                            m.extend((x as u64).to_le_bytes());
                                         }
                                         m.push(*ringsize);
                                         m.push(33);

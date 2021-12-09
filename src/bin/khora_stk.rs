@@ -14,7 +14,7 @@ use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::Build;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, IpAddr};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, IpAddr, TcpStream};
 use std::path::Path;
 use std::{thread, cmp};
 use trackable::error::MainError;
@@ -108,12 +108,42 @@ fn main() -> Result<(), MainError> {
 
     let (ui_sender, mut urecv) = channel::unbounded();
     let (usend, ui_reciever) = channel::unbounded();
-    let (user, userrcv) = channel::unbounded();
-    let (responder, responce) = channel::unbounded();
+    // let (user, userrcv) = channel::unbounded();
+    // let (responder, responce) = channel::unbounded();
+    let (sendtcp, recvtcp) = channel::bounded::<TcpStream>(1);
 
+    // thread::spawn(move || { // this was just checking that you can send a tcpstream between threads
+    //     let outerlistener = TcpListener::bind("0.0.0.0:9999").unwrap();
+    //     for stream in outerlistener.incoming() {
+    //         let mut stream = stream.unwrap();
+    //         println!("got stream {:?}",stream);
+    //         loop {
 
+    //             let mut m = vec![0;100];
+    //             match stream.read(&mut m) {
+    //                 Ok(x) => {
+    //                     println!("{}:\n{:?}",x,m);
+                        
+    //                 }
+    //                 Err(err) => {
+    //                     println!("# ERROR: {}",err);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // });
+    // thread::spawn(move || {
+    //     let mut x = TcpStream::connect("0.0.0.0:9999").unwrap();
+    //     x.write(b"hi").unwrap();
+    //     println!("wrote high");
+    //     sendtcp.send(x).unwrap();
+    //     println!("sent tcpstream");
+    // });
+    // thread::sleep(Duration::from_secs(1));
+    // let mut x = recvtcp.try_recv().unwrap();
+    // x.write(b"hi").unwrap();
+    // thread::sleep(Duration::from_secs(100));
 
-    
     // the myNode file only exists if you already have an account made
     let setup = !Path::new("myNode").exists();
     if setup {
@@ -163,7 +193,6 @@ fn main() -> Result<(), MainError> {
                 inner: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
                 outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
                 outerlister: channel::unbounded().1,
-                outerwriter: channel::unbounded().0,
                 allnetwork,
                 me,
                 mine: HashMap::new(),
@@ -225,7 +254,7 @@ fn main() -> Result<(), MainError> {
             usend.send(info).expect("should work");
 
 
-            let node = KhoraNode::load(frontnode, backnode, usend, urecv,userrcv,responder);
+            let node = KhoraNode::load(frontnode, backnode, usend, urecv,recvtcp);
             let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
             mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
             mymoney.push(0);
@@ -236,25 +265,26 @@ fn main() -> Result<(), MainError> {
                 for stream in outerlistener.incoming() {
                     match stream {
                         Ok(mut stream) => {
-                            let mut m = vec![];
-                            match stream.read_to_end(&mut m) {
-                                Ok(_) => {
-                                    user.send(m).expect("Probelem sending from thread");
-                                    loop {
-                                        match responce.recv() {
-                                            Ok(x) => {stream.write(&x);},
-                                            Err(x) => {println!("# ERROR: {}",x);},
-                                        }
-                                    }
+                            sendtcp.send(stream).unwrap();
+                            // let mut m = vec![];
+                            // match stream.read_to_end(&mut m) { // CAN NOT BE READ TO END
+                            //     Ok(_) => {
+                            //         user.send(m).expect("Probelem sending from thread");
+                            //         loop {
+                            //             match responce.recv() {
+                            //                 Ok(x) => {stream.write(&x);},
+                            //                 Err(x) => {println!("# ERROR: {}",x);},
+                            //             }
+                            //         }
                                     
-                                }
-                                Err(err) => {
-                                    println!("# ERROR: {}",err);
-                                }
-                            }
+                            //     }
+                            //     Err(err) => {
+                            //         println!("# ERROR: {}",err);
+                            //     }
+                            // }
                         }
                         Err(_) => {
-                            println!("Error");
+                            println!("Error in recieving TcpStream");
                         }
                     }
 
@@ -280,7 +310,7 @@ fn main() -> Result<(), MainError> {
         let native_options = eframe::NativeOptions::default();
         eframe::run_native(Box::new(app), native_options);
     } else {
-        let node = KhoraNode::load(frontnode, backnode, usend, urecv,userrcv,responder);
+        let node = KhoraNode::load(frontnode, backnode, usend, urecv,recvtcp);
         let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
         mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
         mymoney.push(0);
@@ -305,33 +335,7 @@ fn main() -> Result<(), MainError> {
                 for stream in outerlistener.incoming() {
                     match stream {
                         Ok(mut stream) => {
-                            let mut m = vec![];
-                            match stream.read_to_end(&mut m) {
-                                Ok(_) => {
-                                    user.send(m).expect("Probelem sending from thread");
-                                    let mut t = Instant::now();
-                                    loop {
-                                        match responce.recv() {
-                                            Ok(x) => {
-                                                t = Instant::now();
-                                                if x.len() > 1 {
-                                                    stream.write(&x);
-                                                }
-                                            },
-                                            Err(x) => {
-                                                println!("# ERROR: {}",x);
-                                            },
-                                        }
-                                        if t.elapsed().as_millis() > 20 {
-                                            break
-                                        }
-                                    }
-                                    
-                                }
-                                Err(err) => {
-                                    println!("# ERROR: {}",err);
-                                }
-                            }
+                            sendtcp.send(stream).unwrap();
                         }
                         Err(_) => {
                             println!("Error");
@@ -400,8 +404,7 @@ struct SavedNode {
 struct KhoraNode {
     inner: Node<Vec<u8>>, // for sending and recieving messages as a validator (as in inner sanctum)
     outer: Node<Vec<u8>>, // for sending and recieving messages as a non validator (as in not inner)
-    outerlister: channel::Receiver<Vec<u8>>, // for listening to people not in the network
-    outerwriter: channel::Sender<Vec<u8>>,
+    outerlister: channel::Receiver<TcpStream>, // for listening to people not in the network
     gui_sender: channel::Sender<Vec<u8>>,
     gui_reciever: channel::Receiver<Vec<u8>>,
     allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
@@ -494,7 +497,7 @@ impl KhoraNode {
     }
 
     /// loads the node information from a file: "myNode"
-    fn load(inner: Node<Vec<u8>>, mut outer: Node<Vec<u8>>, gui_sender: channel::Sender<Vec<u8>>, gui_reciever: channel::Receiver<Vec<u8>>, outerlister: channel::Receiver<Vec<u8>>, outerwriter: channel::Sender<Vec<u8>>) -> KhoraNode {
+    fn load(inner: Node<Vec<u8>>, mut outer: Node<Vec<u8>>, gui_sender: channel::Sender<Vec<u8>>, gui_reciever: channel::Receiver<Vec<u8>>, outerlister: channel::Receiver<TcpStream>) -> KhoraNode {
         let mut buf = Vec::<u8>::new();
         let mut f = File::open("myNode").unwrap();
         f.read_to_end(&mut buf).unwrap();
@@ -525,7 +528,6 @@ impl KhoraNode {
             inner,
             outer,
             outerlister,
-            outerwriter,
             gui_sender,
             gui_reciever,
             allnetwork: sn.allnetwork.clone(),
@@ -1143,9 +1145,10 @@ impl Future for KhoraNode {
 
 
                 // jhgfjhfgj
-                if let Ok(mut m) = self.outerlister.try_recv() {
-                    // println!("# RECIEVED MESSAGE: {}",String::from_utf8_lossy(&m[..100]));
-                    if m.len() < 100_000 {
+                if let Ok(mut stream) = self.outerlister.try_recv() {
+                    let mut m = vec![0;100_000];
+                    if let Ok(i) = stream.read(&mut m) {
+                        m = m[..i].to_vec();
                         if let Some(mtype) = m.pop() {
                             println!("# MESSAGE TYPE: {:?}", mtype);
         
@@ -1161,10 +1164,10 @@ impl Future for KhoraNode {
                                         m.push(0);
                                         self.outer.broadcast_now(m);
                                     } else {
-                                        self.outerwriter.send(vec![0u8;2]);
+                                        stream.write(&[0u8;2]);
                                     }
                                 } else {
-                                    self.outerwriter.send(vec![0u8;2]);
+                                    stream.write(&[0u8;2]);
                                 }
                             } else if mtype == 101 /* e */ {
                                 let x = self.outer.plumtree_node().all_push_peers();
@@ -1174,26 +1177,26 @@ impl Future for KhoraNode {
                                 let x = x.union(&y).collect::<Vec<_>>();
                                 let x = x.into_iter().map(|&x| SocketAddr::new(x.address().ip(),OUTSIDER_PORT)).collect::<Vec<_>>();
 
-                                self.outerwriter.send(bincode::serialize(&x).unwrap());
+                                stream.write(&bincode::serialize(&x).unwrap());
 
 
                             } else if mtype == 114 /* r */ { // answer their ring question
                                 if let Ok(r) = recieve_ring(&m) {
                                     let y = r.iter().map(|y| History::get_raw(y).to_vec()).collect::<Vec<_>>();
                                     let x = bincode::serialize(&y).unwrap();
-                                    self.outerwriter.send(x);
+                                    stream.write(&x);
                                 } else {
-                                    self.outerwriter.send(vec![0u8;2]);
+                                    stream.write(&[0u8;2]);
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
                                 if let Ok(m) = m.try_into() {
                                     let mut sync_theirnum = u64::from_le_bytes(m);
                                     loop {
                                         if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
-                                            self.outerwriter.send(x);
+                                            stream.write(&x);
                                             break
                                         } else {
-                                            self.outerwriter.send(vec![0u8]);
+                                            stream.write(&[0u8]);
                                         }
                                         sync_theirnum += 1;
                                         if sync_theirnum == self.bnum {
@@ -1202,7 +1205,7 @@ impl Future for KhoraNode {
                                     }
                                 }
                             } else {
-                                self.outerwriter.send(vec![0u8;2]);
+                                stream.write(&[0u8;2]);
                             }
                         }
                     }

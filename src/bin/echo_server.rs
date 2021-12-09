@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::io::Read;
@@ -5,23 +6,29 @@ use std::io::Write;
 
 fn handle_client(mut stream: TcpStream) {
     // read 20 bytes at a time from stream echoing back to stream
-    loop {
+    let mut bin = vec![];
+    let mut f = File::open("khora_usr").unwrap();
+    f.read_to_end(&mut bin);
+    println!("got message! sending {} bytes",bin.len());
+    
+    // loop {
+        println!(".");
         let mut read = [0; 1028];
         match stream.read(&mut read) {
             Ok(n) => {
-                println!("# RECIEVED MESSAGE: {}",String::from_utf8_lossy(&read));
+                println!("# RECIEVED MESSAGE: {} bytes",n);
                 // if n == 0 { 
                 //     // connection was closed
                 //     break;
                 // }
-                stream.write(&read[0..n]).unwrap();
-                break
+                stream.write(&bin).unwrap();
+                // break
             }
             Err(err) => {
                 panic!("# ERROR: {}",err);
             }
         }
-    }
+    // }
 }
 const DEFAULT_PORT: u16 = 8334;
 

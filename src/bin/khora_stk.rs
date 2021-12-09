@@ -1099,16 +1099,16 @@ impl Future for KhoraNode {
                     }
                 }
             }
-             /*\______________________________________________________________________________________________
-        |--0| STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::\
-        |--0| ::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF|\
-        |--0| STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::|/\
-        |--0| ::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF/\/\___________________________________
-        |--0| STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::\/\/
-        |--0| ::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF|\/
-        |--0| STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::|/
-        |--0| ::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF/
-             \*/
+                /*\______________________________________________________________________________________________
+            |--0| STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::\
+            |--0| ::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF|\
+            |--0| STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::|/\
+            |--0| ::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF/\/\___________________________________
+            |--0| STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::\/\/
+            |--0| ::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF|\/
+            |--0| STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::|/
+            |--0| ::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF::::::::::::STAKER STUFF/
+                \*/
             // if you're not in the comittee
             // if self.is_node {
                 // if you're syncing someone sync a few more blocks every loop time
@@ -1141,7 +1141,7 @@ impl Future for KhoraNode {
                 // jhgfjhfgj
                 if let Ok(mut stream) = self.outerlister.try_recv() {
                     let mut m = vec![0;100_000]; // maybe choose an upper bound in an actually thoughtful way?
-                    if let Ok(i) = stream.read(&mut m) {
+                    if let Ok(i) = stream.read(&mut m) { // stream must be read before responding bte
                         m = m[..i].to_vec();
                         if let Some(mtype) = m.pop() {
                             println!("# MESSAGE TYPE: {:?}", mtype);
@@ -1157,31 +1157,16 @@ impl Future for KhoraNode {
                                         m.push(0);
                                         self.outer.broadcast_now(m);
                                         stream.write(&[1u8]);
-                                    } else {
-                                        stream.write(&[0u8]);
                                     }
-                                } else {
-                                    stream.write(&[0u8]);
                                 }
                             } else if mtype == 101 /* e */ {
                                 let x = self.allnetwork.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>();
-                                // let x = self.outer.plumtree_node().all_push_peers();
-                                // let y = self.outer.hyparview_node().active_view().into_iter().cloned().collect::<HashSet<_>>();
-                                // let x = x.union(&y).collect::<HashSet<_>>();
-                                // let y = self.outer.hyparview_node().passive_view().into_iter().collect::<HashSet<_>>();
-                                // let x = x.union(&y).collect::<Vec<_>>();
-                                // let x = x.into_iter().map(|&x| SocketAddr::new(x.address().ip(),OUTSIDER_PORT)).collect::<Vec<_>>();
-
                                 stream.write(&bincode::serialize(&x).unwrap());
-
-
                             } else if mtype == 114 /* r */ { // answer their ring question
                                 if let Ok(r) = recieve_ring(&m) {
                                     let y = r.iter().map(|y| History::get_raw(y).to_vec()).collect::<Vec<_>>();
                                     let x = bincode::serialize(&y).unwrap();
                                     stream.write(&x);
-                                } else {
-                                    stream.write(&[0u8]);
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
                                 if let Ok(m) = m.try_into() {
@@ -1197,8 +1182,6 @@ impl Future for KhoraNode {
                                         }
                                     }
                                 }
-                            } else {
-                                stream.write(&[0u8]);
                             }
                         }
                     }

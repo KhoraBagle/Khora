@@ -12,8 +12,8 @@ fn main() {
             stream.write(msg).unwrap();
             println!("Sent Hello, awaiting reply...");
 
-            let mut data = [0 as u8; 6]; // using 6 byte buffer
-            match stream.read_exact(&mut data) {
+            let mut data = vec![]; // using 6 byte buffer
+            match stream.read_to_end(&mut data) {
                 Ok(_) => {
                     if &data == msg {
                         println!("Reply is ok!");

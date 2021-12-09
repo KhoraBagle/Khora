@@ -64,15 +64,6 @@ fn reward(cumtime: f64, blocktime: f64) -> f64 {
 fn main() -> Result<(), MainError> {
     let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build())?; // info or debug
 
-    
-
-    // let mut n = Natpmp::new().unwrap();
-    // n.send_public_address_request().unwrap();
-    // n.send_port_mapping_request(natpmp::Protocol::TCP, DEFAULT_PORT, DEFAULT_PORT, 30).unwrap();
-    // std::thread::sleep(Duration::from_millis(250));
-    // let response = n.read_response_or_retry();
-    // println!("{:?}",response);
-
 
     let outerlistener = TcpListener::bind(format!("0.0.0.0:{}",OUTSIDER_PORT)).unwrap();
 
@@ -108,8 +99,6 @@ fn main() -> Result<(), MainError> {
 
     let (ui_sender, mut urecv) = channel::unbounded();
     let (usend, ui_reciever) = channel::unbounded();
-    // let (user, userrcv) = channel::unbounded();
-    // let (responder, responce) = channel::unbounded();
     let (sendtcp, recvtcp) = channel::bounded::<TcpStream>(1);
 
     // thread::spawn(move || { // this was just checking that you can send a tcpstream between threads
@@ -122,8 +111,8 @@ fn main() -> Result<(), MainError> {
     //             let mut m = vec![0;100];
     //             match stream.read(&mut m) {
     //                 Ok(x) => {
-    //                     println!("{}:\n{:?}",x,m);
-                        
+    //                     println!("{}:\n{:?}",x,String::from_utf8_lossy(&m));
+    //                     break
     //                 }
     //                 Err(err) => {
     //                     println!("# ERROR: {}",err);
@@ -133,15 +122,20 @@ fn main() -> Result<(), MainError> {
     //     }
     // });
     // thread::spawn(move || {
-    //     let mut x = TcpStream::connect("0.0.0.0:9999").unwrap();
-    //     x.write(b"hi").unwrap();
-    //     println!("wrote high");
-    //     sendtcp.send(x).unwrap();
+    //     let x = TcpStream::connect("0.0.0.0:9999").unwrap();
+    //     s.send(x).unwrap();
+    //     println!("sent tcpstream");
+    //     thread::sleep(Duration::from_secs(1));
+    //     let x = TcpStream::connect("0.0.0.0:9999").unwrap();
+    //     s.send(x).unwrap();
     //     println!("sent tcpstream");
     // });
     // thread::sleep(Duration::from_secs(1));
-    // let mut x = recvtcp.try_recv().unwrap();
+    // let mut x = r.try_recv().unwrap();
     // x.write(b"hi").unwrap();
+    // thread::sleep(Duration::from_secs(1));
+    // let mut x = r.try_recv().unwrap();
+    // x.write(b"ho").unwrap();
     // thread::sleep(Duration::from_secs(100));
 
     // the myNode file only exists if you already have an account made
@@ -1146,12 +1140,11 @@ impl Future for KhoraNode {
 
                 // jhgfjhfgj
                 if let Ok(mut stream) = self.outerlister.try_recv() {
-                    let mut m = vec![0;100_000];
+                    let mut m = vec![0;100_000]; // maybe choose an upper bound in an actually thoughtful way?
                     if let Ok(i) = stream.read(&mut m) {
                         m = m[..i].to_vec();
                         if let Some(mtype) = m.pop() {
                             println!("# MESSAGE TYPE: {:?}", mtype);
-        
                             if mtype == 0 /* transaction someone wants to make */ {
                                 // to avoid spam
                                 if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
@@ -1163,19 +1156,21 @@ impl Future for KhoraNode {
                                         print!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\ngot a tx, was at {}!",self.txses.len());
                                         m.push(0);
                                         self.outer.broadcast_now(m);
+                                        stream.write(&[1u8]);
                                     } else {
-                                        stream.write(&[0u8;2]);
+                                        stream.write(&[0u8]);
                                     }
                                 } else {
-                                    stream.write(&[0u8;2]);
+                                    stream.write(&[0u8]);
                                 }
                             } else if mtype == 101 /* e */ {
-                                let x = self.outer.plumtree_node().all_push_peers();
-                                let y = self.outer.hyparview_node().active_view().into_iter().cloned().collect::<HashSet<_>>();
-                                let x = x.union(&y).collect::<HashSet<_>>();
-                                let y = self.outer.hyparview_node().passive_view().into_iter().collect::<HashSet<_>>();
-                                let x = x.union(&y).collect::<Vec<_>>();
-                                let x = x.into_iter().map(|&x| SocketAddr::new(x.address().ip(),OUTSIDER_PORT)).collect::<Vec<_>>();
+                                let x = self.allnetwork.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>();
+                                // let x = self.outer.plumtree_node().all_push_peers();
+                                // let y = self.outer.hyparview_node().active_view().into_iter().cloned().collect::<HashSet<_>>();
+                                // let x = x.union(&y).collect::<HashSet<_>>();
+                                // let y = self.outer.hyparview_node().passive_view().into_iter().collect::<HashSet<_>>();
+                                // let x = x.union(&y).collect::<Vec<_>>();
+                                // let x = x.into_iter().map(|&x| SocketAddr::new(x.address().ip(),OUTSIDER_PORT)).collect::<Vec<_>>();
 
                                 stream.write(&bincode::serialize(&x).unwrap());
 
@@ -1186,7 +1181,7 @@ impl Future for KhoraNode {
                                     let x = bincode::serialize(&y).unwrap();
                                     stream.write(&x);
                                 } else {
-                                    stream.write(&[0u8;2]);
+                                    stream.write(&[0u8]);
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
                                 if let Ok(m) = m.try_into() {
@@ -1195,8 +1190,6 @@ impl Future for KhoraNode {
                                         if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
                                             stream.write(&x);
                                             break
-                                        } else {
-                                            stream.write(&[0u8]);
                                         }
                                         sync_theirnum += 1;
                                         if sync_theirnum == self.bnum {
@@ -1205,7 +1198,7 @@ impl Future for KhoraNode {
                                     }
                                 }
                             } else {
-                                stream.write(&[0u8;2]);
+                                stream.write(&[0u8]);
                             }
                         }
                     }

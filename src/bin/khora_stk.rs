@@ -3,7 +3,6 @@
 extern crate trackable;
 
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_COMPRESSED;
-use fibers::sync::mpsc;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
 use khora::seal::BETA;
@@ -107,7 +106,7 @@ fn main() -> Result<(), MainError> {
     println!("{:?}",frontnode.id()); // this should be the validator survice
 
 
-    let (ui_sender, mut urecv) = mpsc::channel();
+    let (ui_sender, mut urecv) = channel::unbounded();
     let (usend, ui_reciever) = channel::unbounded();
     let (user, userrcv) = channel::unbounded();
     let (responder, responce) = channel::unbounded();
@@ -125,13 +124,13 @@ fn main() -> Result<(), MainError> {
             let pswrd: Vec<u8>;
             let lightning_yielder: bool;
             loop {
-                if let Async::Ready(Some(m)) = urecv.poll().expect("Shouldn't fail") {
+                if let Ok(m) = urecv.try_recv() {
                     pswrd = m;
                     break
                 }
             }
             loop {
-                if let Async::Ready(Some(m)) = urecv.poll().expect("Shouldn't fail") {
+                if let Ok(m) = urecv.try_recv() {
                     lightning_yielder = m[0] == 1;
                     break
                 }
@@ -199,7 +198,7 @@ fn main() -> Result<(), MainError> {
                 is_node: true,
                 newest: 0u64,
                 gui_sender: usend.clone(),
-                gui_reciever: mpsc::channel().1,
+                gui_reciever: channel::unbounded().1,
                 moneyreset: None,
                 sync_returnaddr: None,
                 sync_theirnum: 0u64,
@@ -404,7 +403,7 @@ struct KhoraNode {
     outerlister: channel::Receiver<Vec<u8>>, // for listening to people not in the network
     outerwriter: channel::Sender<Vec<u8>>,
     gui_sender: channel::Sender<Vec<u8>>,
-    gui_reciever: mpsc::Receiver<Vec<u8>>,
+    gui_reciever: channel::Receiver<Vec<u8>>,
     allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     me: Account,
     mine: HashMap<u64, OTAccount>,
@@ -495,7 +494,7 @@ impl KhoraNode {
     }
 
     /// loads the node information from a file: "myNode"
-    fn load(inner: Node<Vec<u8>>, mut outer: Node<Vec<u8>>, gui_sender: channel::Sender<Vec<u8>>, gui_reciever: mpsc::Receiver<Vec<u8>>, outerlister: channel::Receiver<Vec<u8>>, outerwriter: channel::Sender<Vec<u8>>) -> KhoraNode {
+    fn load(inner: Node<Vec<u8>>, mut outer: Node<Vec<u8>>, gui_sender: channel::Sender<Vec<u8>>, gui_reciever: channel::Receiver<Vec<u8>>, outerlister: channel::Receiver<Vec<u8>>, outerwriter: channel::Sender<Vec<u8>>) -> KhoraNode {
         let mut buf = Vec::<u8>::new();
         let mut f = File::open("myNode").unwrap();
         f.read_to_end(&mut buf).unwrap();
@@ -1258,9 +1257,9 @@ impl Future for KhoraNode {
                                 mynum.push(102); //f
                             }
                             mynum.push(121);
-                            if let Some(friend) = self.allnetwork.iter().filter_map(|(_,(_,x))| x.as_ref()).collect::<Vec<_>>().choose(&mut rand::thread_rng()) {
+                            if let Some(&&friend) = self.allnetwork.iter().filter_map(|(_,(_,x))| x.as_ref()).collect::<Vec<_>>().choose(&mut rand::thread_rng()) {
                                 println!("asking for help from {:?}",friend);
-                                self.outer.dm(mynum, &[*friend], false);
+                                self.outer.dm(mynum, &[NodeId::new(friend,LocalNodeId::new(0))], false);
                             } else {
                                 println!("you don't know anyone on the network by their name");
                             }
@@ -1343,7 +1342,7 @@ impl Future for KhoraNode {
             ||||||||||||| USER STUFF ||||||||||||| USER STUFF ||||||||||||| USER STUFF ||||||||||||| USER STUFF
             */
             // interacting with the gui
-            while let Async::Ready(Some(mut m)) = self.gui_reciever.poll().expect("Never fails") {
+            while let Ok(mut m) = self.gui_reciever.try_recv() {
                 println!("got message from gui!\n{}",String::from_utf8_lossy(&m));
                 if let Some(istx) = m.pop() {
                     let mut validtx = true;
@@ -1567,13 +1566,13 @@ impl Future for KhoraNode {
                             mynum.push(102); //f
                         }
                         mynum.push(121);
-                        if let Some(friend) = self.allnetwork.iter().filter_map(|(_,(_,x))| x.as_ref()).collect::<Vec<_>>().choose(&mut rand::thread_rng()) {
+
+                        if let Some(&&friend) = self.allnetwork.iter().filter_map(|(_,(_,x))| x.as_ref()).collect::<Vec<_>>().choose(&mut rand::thread_rng()) {
                             println!("asking for help from {:?}",friend);
-                            self.outer.dm(mynum, &[*friend], false);
+                            self.outer.dm(mynum, &[NodeId::new(friend,LocalNodeId::new(0))], false);
                         } else {
                             println!("you don't know anyone on the network by their name");
                         }
-                        
                     } else if istx == 42 /* * */ { // entry address
                         let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
                         println!("{}",m);

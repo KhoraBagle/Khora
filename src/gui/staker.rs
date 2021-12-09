@@ -3,7 +3,6 @@ use std::{convert::TryInto, fs, time::Instant};
 use curve25519_dalek::scalar::Scalar;
 use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit}, epi};
 use crossbeam::channel;
-use fibers::sync::mpsc;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
@@ -62,7 +61,7 @@ pub struct KhoraStakerGUI {
 
     // this how you opt-out of serialization of a member
     #[cfg_attr(feature = "persistence", serde(skip))] // this feature doesn't work for sender
-    sender: mpsc::Sender<Vec<u8>>,
+    sender: channel::Sender<Vec<u8>>,
 
     fee: String,
     unstaked: u64,
@@ -126,7 +125,7 @@ pub struct KhoraStakerGUI {
 impl Default for KhoraStakerGUI {
     fn default() -> Self {
         let (_,r) = channel::bounded::<Vec<u8>>(0);
-        let (s,_) = mpsc::channel::<Vec<u8>>();
+        let (s,_) = channel::bounded::<Vec<u8>>(0);
         KhoraStakerGUI{
             stake: "0".to_string(),
             unstake: "0".to_string(),
@@ -177,7 +176,7 @@ impl Default for KhoraStakerGUI {
     }
 }
 impl KhoraStakerGUI {
-    pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: mpsc::Sender<Vec<u8>>, addr: String, stkaddr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
+    pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: channel::Sender<Vec<u8>>, addr: String, stkaddr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
         KhoraStakerGUI{
             reciever,
             sender,

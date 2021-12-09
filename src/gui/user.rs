@@ -3,7 +3,6 @@ use std::{convert::TryInto, fs, time::Instant};
 use curve25519_dalek::scalar::Scalar;
 use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit}, epi};
 use crossbeam::channel;
-use fibers::sync::mpsc;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
@@ -62,7 +61,7 @@ pub struct KhoraUserGUI {
 
     // this how you opt-out of serialization of a member
     #[cfg_attr(feature = "persistence", serde(skip))] // this feature doesn't work for sender
-    sender: mpsc::Sender<Vec<u8>>,
+    sender: channel::Sender<Vec<u8>>,
 
     fee: String,
     unstaked: u64,
@@ -120,7 +119,7 @@ pub struct KhoraUserGUI {
 impl Default for KhoraUserGUI {
     fn default() -> Self {
         let (_,r) = channel::bounded::<Vec<u8>>(0);
-        let (s,_) = mpsc::channel::<Vec<u8>>();
+        let (s,_) = channel::bounded::<Vec<u8>>(0);
         KhoraUserGUI{
             fee: "0".to_string(),
             reciever: r,
@@ -166,7 +165,7 @@ impl Default for KhoraUserGUI {
     }
 }
 impl KhoraUserGUI {
-    pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: mpsc::Sender<Vec<u8>>, addr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
+    pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: channel::Sender<Vec<u8>>, addr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
         KhoraUserGUI{
             reciever,
             sender,
@@ -255,9 +254,9 @@ impl epi::App for KhoraUserGUI {
             } else if modification == 254 {
                 let i: Vec<Vec<u8>> = bincode::deserialize(&i).unwrap();
                 self.addr = bincode::deserialize(&i[0]).unwrap();
-                self.sk = bincode::deserialize(&i[2]).unwrap();
-                self.vsk = bincode::deserialize(&i[3]).unwrap();
-                self.tsk = bincode::deserialize(&i[4]).unwrap();
+                self.sk = bincode::deserialize(&i[1]).unwrap();
+                self.vsk = bincode::deserialize(&i[2]).unwrap();
+                self.tsk = bincode::deserialize(&i[3]).unwrap();
                 self.setup = false;
                 // println!("Done with setup!");
             }

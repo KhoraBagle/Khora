@@ -3,7 +3,6 @@
 extern crate trackable;
 
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_COMPRESSED;
-use fibers::sync::mpsc;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
 use khora::seal::BETA;
@@ -79,7 +78,7 @@ fn main() -> Result<(), MainError> {
     // println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
     let executor = track_any_err!(ThreadPoolExecutor::new())?;
 
-    let (ui_sender, mut urecv) = mpsc::channel();
+    let (ui_sender, mut urecv) = channel::unbounded();
     let (usend, ui_reciever) = channel::unbounded();
 
 
@@ -95,13 +94,13 @@ fn main() -> Result<(), MainError> {
             let pswrd: Vec<u8>;
             let will_stk: bool;
             loop {
-                if let Async::Ready(Some(m)) = urecv.poll().expect("Shouldn't fail") {
+                if let Ok(m) = urecv.try_recv() {
                     pswrd = m;
                     break
                 }
             }
             loop {
-                if let Async::Ready(Some(m)) = urecv.poll().expect("Shouldn't fail") {
+                if let Ok(m) = urecv.try_recv() {
                     will_stk = m[0] == 0;
                     break
                 }
@@ -140,7 +139,7 @@ fn main() -> Result<(), MainError> {
                 rmems: HashMap::new(),
                 rname: vec![],
                 gui_sender: usend.clone(),
-                gui_reciever: mpsc::channel().1,
+                gui_reciever: channel::unbounded().1,
                 moneyreset: None,
                 cumtime: 0f64,
                 blocktime: blocktime(0.0),
@@ -241,7 +240,7 @@ struct SavedNode {
 /// the node used to run all the networking
 struct KhoraNode {
     gui_sender: channel::Sender<Vec<u8>>,
-    gui_reciever: mpsc::Receiver<Vec<u8>>,
+    gui_reciever: channel::Receiver<Vec<u8>>,
     sendview: Vec<SocketAddr>,
     allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     save_history: bool, // do i really want this? yes?
@@ -304,7 +303,7 @@ impl KhoraNode {
     }
 
     /// loads the node information from a file: "myUsr"
-    fn load(gui_sender: channel::Sender<Vec<u8>>, gui_reciever: mpsc::Receiver<Vec<u8>>) -> KhoraNode {
+    fn load(gui_sender: channel::Sender<Vec<u8>>, gui_reciever: channel::Receiver<Vec<u8>>) -> KhoraNode {
         let mut buf = Vec::<u8>::new();
         let mut f = File::open("myUsr").unwrap();
         f.read_to_end(&mut buf).unwrap();
@@ -719,7 +718,7 @@ impl Future for KhoraNode {
             ||||||||||||| USER STUFF ||||||||||||| USER STUFF ||||||||||||| USER STUFF ||||||||||||| USER STUFF
             */
             // interacting with the gui
-            while let Async::Ready(Some(mut m)) = self.gui_reciever.poll().expect("Never fails") {
+            while let Ok(mut m) = self.gui_reciever.try_recv() {
                 println!("got message from gui!\n{}",String::from_utf8_lossy(&m));
                 if let Some(istx) = m.pop() {
                     let mut validtx = true;
@@ -965,7 +964,7 @@ impl Future for KhoraNode {
                         self.gui_sender.send(info).expect("should work");
 
                     } else if istx == 121 /* y */ { // you clicked sync
-                        let mut gm = (self.view.len() as u64).to_le_bytes().to_vec();
+                        let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
                         gm.push(4);
                         self.gui_sender.send(gm).expect("should be working");
                         loop {

@@ -30,6 +30,8 @@ pub const QUEUE_LENGTH: usize = 10;
 pub const REPLACERATE: usize = 2;
 /// the fraction of money you use for failing to do your duties as a comittee member
 pub const PUNISHMENT_FRACTION: u64 = 1000;
+/// user 0: the first person in the blockchain
+pub const PERSON0: CompressedRistretto = CompressedRistretto([46, 235, 227, 188, 55, 53, 9, 126, 167, 207, 202, 101, 150, 150, 172, 207, 209, 208, 211, 52, 47, 206, 19, 115, 199, 189, 202, 10, 56, 220, 138, 55]);
 
 
 #[derive(Default, Clone, Serialize, Deserialize, Eq, Hash, Debug)]
@@ -774,7 +776,7 @@ impl LightningSyncBlock {
             true
         }).copied().collect::<Vec<_>>();
         valinfo.extend(&realstkin);
-        
+
         self.info.stkin.iter().enumerate().for_each(|(i,(x,_))| {
             if !netinfo.contains_key(x) {
                 netinfo.insert(*x, ((i + valinfo.len()) as u64,None));

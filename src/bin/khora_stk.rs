@@ -36,7 +36,7 @@ use khora::bloom::*;
 use khora::validation::*;
 use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
-use khora::validation::{NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE};
+use khora::validation::{NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0};
 
 use gip::{Provider, ProviderDefaultV4};
 use local_ip_address::local_ip;
@@ -119,12 +119,10 @@ fn main() -> Result<(), MainError> {
     let setup = !Path::new("myNode").exists();
     if setup {
         // everyone agrees this person starts with 1 khora token
-        let person0 = CompressedRistretto([46, 235, 227, 188, 55, 53, 9, 126, 167, 207, 202, 101, 150, 150, 172, 207, 209, 208, 211, 52, 47, 206, 19, 115, 199, 189, 202, 10, 56, 220, 138, 55]);
-        let initial_history = (person0,1u64);
+        let initial_history = (PERSON0,1u64);
 
         std::thread::spawn(move || {
             let pswrd: Vec<u8>;
-            let will_stk: bool;
             let lightning_yielder: bool;
             loop {
                 if let Async::Ready(Some(m)) = urecv.poll().expect("Shouldn't fail") {
@@ -173,7 +171,7 @@ fn main() -> Result<(), MainError> {
                 smine: smine.clone(), // [location, amount]
                 key,
                 keylocation,
-                leader: person0,
+                leader: PERSON0,
                 overthrown: HashSet::new(),
                 votes: vec![0;NUMBER_OF_VALIDATORS],
                 stkinfo: vec![initial_history.clone()],
@@ -199,8 +197,6 @@ fn main() -> Result<(), MainError> {
                 usurpingtime: Instant::now(),
                 is_validator: smine.is_some(),
                 is_node: true,
-                sent_onces: HashSet::new(),
-                knownvalidators: HashMap::new(),
                 newest: 0u64,
                 gui_sender: usend.clone(),
                 gui_reciever: mpsc::channel().1,
@@ -439,8 +435,6 @@ struct KhoraNode {
     usurpingtime: Instant,
     is_validator: bool,
     is_node: bool,
-    sent_onces: HashSet<Vec<u8>>,
-    knownvalidators: HashMap<u64,NodeId>,
     newest: u64,
     moneyreset: Option<Vec<u8>>,
     sync_returnaddr: Option<NodeId>,
@@ -557,8 +551,6 @@ impl KhoraNode {
             headshard: sn.headshard.clone(),
             is_validator: sn.is_validator,
             is_node: true,
-            sent_onces: HashSet::new(), // maybe occasionally clear this or replace with vecdeq?
-            knownvalidators: HashMap::new(),
             doneerly: Instant::now(),
             newest: 0u64,
             moneyreset: sn.moneyreset,
@@ -716,24 +708,8 @@ impl KhoraNode {
                     }
                 }).unwrap().0].0;
                 /* LEADER CHOSEN BY VOTES (off blockchain, says which comittee member they should send stuff to) */
-                // which ip's are in the comittee
-                self.knownvalidators = self.knownvalidators.iter().filter_map(|(&location,&node)| {
-                    if lastlightning.info.stkout.contains(&location) {
-                        None
-                    } else {
-                        let location = location - lastlightning.info.stkout.iter().map(|x| (*x < location) as u64).sum::<u64>();
-                        Some((location,node))
-                    }
-                }).collect::<HashMap<_,_>>();
-                self.knownvalidators = self.knownvalidators.iter().filter_map(|(&location,&node)| {
-                    if self.queue[self.headshard].contains(&(location as usize)) || self.comittee[self.headshard].contains(&(location as usize)) {
-                        Some((location,node))
-                    } else {
-                        None
-                    }
-                }).collect::<HashMap<_,_>>();
 
-
+                
                 // send info to the gui
                 let mut mymoney = self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
                 mymoney.extend(self.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
@@ -778,8 +754,8 @@ impl KhoraNode {
 
                 // if you're lonely and on the comittee, you try to reconnect with the comittee (WARNING: DOES NOT HANDLE IF YOU HAVE FRIENDS BUT THEY ARE IGNORING YOU)
                 if self.is_validator && self.inner.plumtree_node().all_push_peers().is_empty() {
-                    for n in self.knownvalidators.iter() {
-                        self.inner.join(n.1.with_id(1));
+                    for n in self.comittee[self.headshard].iter().filter_map(|&x| self.allnetwork.get(&self.stkinfo[x].0).unwrap().1).collect::<Vec<_>>() {
+                        self.inner.join(NodeId::new(SocketAddr::from((n.ip(),DEFAULT_PORT)),LocalNodeId::new(1)));
                     }
                 }
 
@@ -822,34 +798,17 @@ impl KhoraNode {
                     self.is_validator = true;
                 }
                 // if you're about to be in the comittee you need to take these actions
-                self.keylocation.clone().iter().for_each(|keylocation| {
+                if let Some(keylocation) = &self.keylocation {
                     // announce yourself to the comittee because it's about to be your turn
                     if self.queue[self.headshard].range(0..REPLACERATE).any(|&x| x as u64 != *keylocation) {
                         self.is_node = true;
                         self.is_validator = true;
 
-
-                        let message = bincode::serialize(self.inner.plumtree_node().id()).unwrap();
-                        let mut evidence = Signature::sign_message(&self.key, &message, &keylocation);
-                        evidence.push(118); // v
-                        self.inner.dm_now(evidence,&self.knownvalidators.iter().filter_map(|(&location,&node)| {
-                            if self.comittee[self.headshard].contains(&(location as usize)) && !(self.inner.plumtree_node().all_push_peers().contains(&node) || (node == self.inner.plumtree_node().id)) {
-                                println!("(((((((((((((((((((((((((((((((((((((((((((((((dm'ing validators)))))))))))))))))))))))))))))))))))))))))))))))))))))");
-                                Some(node)
-                            } else {
-                                None
-                            }
-                        }).collect::<Vec<_>>(), true);
-
-                        let message = bincode::serialize(self.inner.plumtree_node().id()).unwrap();
-                        if self.sent_onces.insert(message.clone().into_iter().chain(self.bnum.to_le_bytes().to_vec().into_iter()).collect::<Vec<_>>()) {
-                            println!("broadcasting name!");
-                            let mut evidence = Signature::sign_message(&self.key, &message, keylocation);
-                            evidence.push(118); // v
-                            self.outer.broadcast_now(evidence);
+                        for n in self.comittee[self.headshard].iter().filter_map(|&x| self.allnetwork.get(&self.stkinfo[x].0).unwrap().1).collect::<Vec<_>>() {
+                            self.inner.join(NodeId::new(SocketAddr::from((n.ip(),DEFAULT_PORT)),LocalNodeId::new(1)));
                         }
                     }
-                });
+                };
 
                 return true
             }
@@ -1050,16 +1009,6 @@ impl Future for KhoraNode {
                             } else {
                                 self.inner.handle_gossip_now(fullmsg, false);
                             }
-                        } else if mtype == 118 /* v */ /* evidence someone announced is a validator */ {
-                            if let Some(who) = Signature::recieve_signed_message(&mut m, &self.stkinfo) {
-                                if let Ok(m) = bincode::deserialize::<NodeId>(&m) {
-
-                                    if self.queue[self.headshard].contains(&(who as usize)) {
-                                        self.inner.plumtree_node.lazy_push_peers.insert(m);
-                                    }
-                                }
-                            }
-                            self.inner.handle_gossip_now(fullmsg, false);
                         } else /* spam that you choose not to propegate */ {
                             // self.inner.kill(&fullmsg.sender);
                             self.inner.handle_gossip_now(fullmsg, false);
@@ -1337,21 +1286,6 @@ impl Future for KhoraNode {
                                 self.outer.handle_gossip_now(fullmsg, false);
                             }
                             
-                        } else if mtype == 118 /* v */ { // someone announcing they're about to be in the comittee
-                            if let Some(who) = Signature::recieve_signed_message(&mut m, &self.stkinfo) {
-                                if let Ok(m) = bincode::deserialize::<NodeId>(&m) {
-                                    if self.queue[self.headshard].contains(&(who as usize)) {
-                                        self.knownvalidators.insert(who,m);
-                                        self.outer.handle_gossip_now(fullmsg, true);
-                                    } else {
-                                        self.outer.handle_gossip_now(fullmsg, false);
-                                    }
-                                } else {
-                                    self.outer.handle_gossip_now(fullmsg, false);
-                                }
-                            } else {
-                                self.outer.handle_gossip_now(fullmsg, false);
-                            }
                         } else if mtype == 121 /* y */ { // someone sent a sync request
                             let mut i_cant_do_this = true;
                             if self.sync_returnaddr.is_none() {

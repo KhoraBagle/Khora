@@ -36,7 +36,7 @@ use rayon::prelude::*;
 use khora::validation::*;
 use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
-use khora::validation::{NUMBER_OF_VALIDATORS, QUEUE_LENGTH};
+use khora::validation::{NUMBER_OF_VALIDATORS, QUEUE_LENGTH, PERSON0};
 
 
 
@@ -89,8 +89,7 @@ fn main() -> Result<(), MainError> {
     let setup = !Path::new("myUsr").exists();
     if setup {
         // everyone agrees this person starts with 1 khora token
-        let person0 = CompressedRistretto([46, 235, 227, 188, 55, 53, 9, 126, 167, 207, 202, 101, 150, 150, 172, 207, 209, 208, 211, 52, 47, 206, 19, 115, 199, 189, 202, 10, 56, 220, 138, 55]);
-        let initial_history = vec![(person0,1u64)];
+        let initial_history = (PERSON0,1u64);
 
         std::thread::spawn(move || {
             let pswrd: Vec<u8>;
@@ -116,26 +115,28 @@ fn main() -> Result<(), MainError> {
             }
     
     
+            let mut allnetwork = HashMap::new();
+            allnetwork.insert(initial_history.0, (0u64,None));
             // creates the node with the specified conditions then saves it to be used from now on
             let node = KhoraNode {
-                view: vec![],
+                sendview: vec![],
+                allnetwork,
                 save_history: will_stk,
                 me,
                 mine: HashMap::new(),
                 key,
-                stkinfo: initial_history.clone(),
-                queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)%initial_history.len()).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
+                stkinfo: vec![initial_history.clone()],
+                queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
                 exitqueue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
-                comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)%initial_history.len()).collect::<Vec<usize>>()).collect::<Vec<_>>(),
+                comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|x| 0).collect::<Vec<usize>>()).collect::<Vec<_>>(),
                 lastname: Scalar::one().as_bytes().to_vec(),
                 bnum: 0u64,
                 lastbnum: 0u64,
                 height: 0u64,
-                sheight: initial_history.len() as u64,
+                sheight: 1u64,
                 alltagsever: vec![],
                 headshard: 0,
                 usurpingtime: Instant::now(),
-                knownnodes: HashMap::new(),
                 rmems: HashMap::new(),
                 rname: vec![],
                 gui_sender: usend.clone(),
@@ -213,7 +214,8 @@ fn main() -> Result<(), MainError> {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 /// the information that you save to a file when the app is off (not including gui information like saved friends)
 struct SavedNode {
-    view: Vec<SocketAddr>,
+    allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
+    sendview: Vec<SocketAddr>,
     save_history: bool, //just testing. in real code this is true; but i need to pretend to be different people on the same computer
     me: Account,
     mine: HashMap<u64, OTAccount>,
@@ -234,14 +236,14 @@ struct SavedNode {
     cumtime: f64,
     blocktime: f64,
     ringsize: u8,
-    knownnodes: HashMap<u64,SocketAddr>,
 }
 
 /// the node used to run all the networking
 struct KhoraNode {
     gui_sender: channel::Sender<Vec<u8>>,
     gui_reciever: mpsc::Receiver<Vec<u8>>,
-    view: Vec<SocketAddr>,
+    sendview: Vec<SocketAddr>,
+    allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     save_history: bool, // do i really want this? yes?
     me: Account,
     mine: HashMap<u64, OTAccount>,
@@ -258,7 +260,6 @@ struct KhoraNode {
     alltagsever: Vec<CompressedRistretto>,
     headshard: usize,
     usurpingtime: Instant,
-    knownnodes: HashMap<u64,SocketAddr>,
     rmems: HashMap<u64,OTAccount>,
     rname: Vec<u8>,
     moneyreset: Option<Vec<u8>>,
@@ -273,7 +274,8 @@ impl KhoraNode {
     fn save(&self) {
         if self.moneyreset.is_none() {
             let sn = SavedNode {
-                view: self.view.clone(),
+                allnetwork: self.allnetwork.clone(),
+                sendview: self.sendview.clone(),
                 save_history: self.save_history,
                 me: self.me,
                 mine: self.mine.clone(),
@@ -294,7 +296,6 @@ impl KhoraNode {
                 cumtime: self.cumtime,
                 blocktime: self.blocktime,
                 ringsize: self.ringsize,
-                knownnodes: self.knownnodes.clone(),
             }; // just redo initial conditions on the rest
             let mut sn = bincode::serialize(&sn).unwrap();
             let mut f = File::create("myUsr").unwrap();
@@ -313,9 +314,10 @@ impl KhoraNode {
         KhoraNode {
             gui_sender,
             gui_reciever,
-            view: sn.view.clone(),
             usurpingtime: Instant::now(),
+            sendview: sn.sendview.clone(),
             save_history: sn.save_history,
+            allnetwork: sn.allnetwork,
             me: sn.me,
             mine: sn.mine.clone(),
             key: sn.key,
@@ -330,7 +332,6 @@ impl KhoraNode {
             sheight: sn.sheight,
             alltagsever: sn.alltagsever.clone(),
             headshard: sn.headshard.clone(),
-            knownnodes: sn.knownnodes.clone(),
             rmems: HashMap::new(),
             rname: vec![],
             moneyreset: sn.moneyreset,
@@ -384,7 +385,7 @@ impl KhoraNode {
                 // calculate the reward for this block as a function of the current time and scan either the block or an empty block based on conditions
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
-                    lastlightning.scanstk(&self.me, &mut vec![], &mut self.sheight, &self.comittee, reward, &self.stkinfo);
+                    lastlightning.scanstk(&self.me, &mut None::<[u64; 2]>, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
                     let guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.height, &mut self.alltagsever);
                     self.gui_sender.send(vec![!guitruster as u8,1]).expect("there's a problem communicating to the gui!");
                     if guitruster {
@@ -393,7 +394,7 @@ impl KhoraNode {
                         println!("my money:\n---------------------------------\n{:?}",self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>());
                         self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui    
                     }
-                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
+                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
 
                     self.lastbnum = self.bnum;
                     let mut hasher = Sha3_512::new();
@@ -407,17 +408,6 @@ impl KhoraNode {
                 }
                 self.bnum += 1;
                 
-
-                
-                // which ip's still have money
-                self.knownnodes = self.knownnodes.iter().filter_map(|(&location,&node)| {
-                    if lastlightning.info.stkout.contains(&location) {
-                        None
-                    } else {
-                        let location = location - lastlightning.info.stkout.iter().map(|x| (*x < location) as u64).sum::<u64>();
-                        Some((location,node))
-                    }
-                }).collect::<HashMap<_,_>>();
 
 
                 // send info to the gui
@@ -474,7 +464,7 @@ impl KhoraNode {
     fn send_message(&mut self, message: Vec<u8>, recipients: usize) -> Vec<Vec<u8>> {
 
         let mut rng = &mut rand::thread_rng();
-        let v = self.view.choose_multiple(&mut rng, recipients).cloned().collect::<Vec<_>>();
+        let v = self.sendview.choose_multiple(&mut rng, recipients).cloned().collect::<Vec<_>>();
         
         let dead = Arc::new(Mutex::new(HashSet::<SocketAddr>::new()));
         let responces = v.par_iter().filter_map(|&socket| {
@@ -490,9 +480,9 @@ impl KhoraNode {
             return None
         }).collect();
         let dead = dead.lock().expect("can't lock the mutex that stores dead users!");
-        self.view.retain(|x| !dead.contains(x));
+        self.sendview.retain(|x| !dead.contains(x));
 
-        let mut gm = (self.view.len() as u64).to_le_bytes().to_vec();
+        let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
         gm.push(4);
         self.gui_sender.send(gm).expect("should be working");
 
@@ -532,7 +522,7 @@ impl Future for KhoraNode {
             if self.gui_timer.elapsed().as_secs() > 5 {
                 self.gui_timer = Instant::now();
 
-                let mut gm = (self.view.len() as u64).to_le_bytes().to_vec();
+                let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
                 gm.push(4);
                 self.gui_sender.send(gm).expect("should be working");
             }
@@ -1009,7 +999,7 @@ impl Future for KhoraNode {
                                 match stream.read_to_end(&mut data) {
                                     Ok(_) => {
                                         if let Ok(x) = bincode::deserialize(&data) {
-                                            self.view = x;
+                                            self.sendview = x;
                                         } else {
                                             println!("They didn't send a view!")
                                         }
@@ -1025,7 +1015,7 @@ impl Future for KhoraNode {
                         }
 
                     } else if istx == 64 /* @ */ {
-                        let mut gm = (self.view.len() as u64).to_le_bytes().to_vec();
+                        let mut gm = (self.allnetwork.iter().filter(|(_,(_,x))| x.is_some()).count() as u64).to_le_bytes().to_vec();
                         gm.push(4);
                         self.gui_sender.send(gm).expect("should be working");
                     } else if istx == 0 {

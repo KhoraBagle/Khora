@@ -752,6 +752,7 @@ impl Future for KhoraNode {
                         self.gui_sender.send(gm).expect("should be working");
                         let mut n_check = 0;
                         let mut send = vec![];
+                        let ob = self.bnum;
                         loop {
                             let mut mynum = self.bnum.to_le_bytes().to_vec();
                             mynum.push(121);
@@ -776,23 +777,25 @@ impl Future for KhoraNode {
                             }
                         }
 
-                        self.gui_sender.send(vec![self.blocktime as u8,128]).expect("something's wrong with the communication to the gui");
-
-                        let mut thisbnum = self.bnum.to_le_bytes().to_vec();
-                        thisbnum.push(2);
-                        self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
-
-                        let mut mymoney = self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
-                        mymoney.push(0);
-                        println!("my money:\n---------------------------------\n{:?}",self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>());
-                        self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui    
-
-                        send.into_iter().for_each(|x| {
-                            self.gui_sender.send(x).expect("something's wrong with the communication to the gui");
-                        });
-
-                        self.send_panic_or_stop();
-
+                        if ob != self.bnum {
+                            self.gui_sender.send(vec![self.blocktime as u8,128]).expect("something's wrong with the communication to the gui");
+    
+                            let mut thisbnum = self.bnum.to_le_bytes().to_vec();
+                            thisbnum.push(2);
+                            self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
+    
+                            let mut mymoney = self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
+                            mymoney.push(0);
+                            println!("my money:\n---------------------------------\n{:?}",self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>());
+                            self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui    
+    
+                            send.into_iter().for_each(|x| {
+                                self.gui_sender.send(x).expect("something's wrong with the communication to the gui");
+                            });
+    
+                            self.send_panic_or_stop();
+    
+                        }
 
                         // asdfasdffds
 

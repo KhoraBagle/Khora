@@ -20,6 +20,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::constants::PEDERSEN_H;
 use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
 
+
+pub static VERSION: &str = "v0.9";
+
+
 /// the number of validators in the comittee, 128
 pub const NUMBER_OF_VALIDATORS: usize = 3;
 /// the number of validators who need to sign for a block to be approved, 2/3

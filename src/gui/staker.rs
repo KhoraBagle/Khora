@@ -6,6 +6,7 @@ use crossbeam::channel;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
+use crate::validation::VERSION;
 
 /*
 cargo run --bin full_staker --release 9876 pig
@@ -14,7 +15,6 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8828";
 
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];

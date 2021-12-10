@@ -1,4 +1,4 @@
-use std::{convert::TryInto, fs, time::Instant};
+use std::{convert::TryInto, fs, time::{Instant, Duration}};
 
 use curve25519_dalek::scalar::Scalar;
 use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit}, epi};
@@ -6,6 +6,7 @@ use crossbeam::channel;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
+use crate::validation::VERSION;
 
 /*
 cargo run --bin full_staker --release 9876 pig
@@ -14,7 +15,6 @@ cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
 
-static VERSION: &str = "v0.8828";
 
 fn random_pswrd() -> String {
     let mut chars = vec![0u8;40];
@@ -114,6 +114,8 @@ pub struct KhoraUserGUI {
     #[cfg_attr(feature = "persistence", serde(skip))]
     timekeeper: Instant,
     #[cfg_attr(feature = "persistence", serde(skip))]
+    syncretry: Instant,
+    #[cfg_attr(feature = "persistence", serde(skip))]
     you_cant_do_that: bool,
 }
 impl Default for KhoraUserGUI {
@@ -149,7 +151,8 @@ impl Default for KhoraUserGUI {
             show_reset: false,
             you_cant_do_that: false,
             eta: 60,
-            timekeeper: Instant::now(),
+            timekeeper: Instant::now() - Duration::from_secs(1000),
+            syncretry: Instant::now() - Duration::from_secs(1000),
             setup: false,
             send_name: vec!["".to_string()],
             send_addr: vec!["".to_string()],
@@ -306,6 +309,7 @@ impl epi::App for KhoraUserGUI {
             options_menu,
             ringsize,
             logout_window,
+            syncretry,
         } = self;
 
  
@@ -442,7 +446,15 @@ impl epi::App for KhoraUserGUI {
                     if x > 0 {
                         ui.add(Label::new(format!("{}",x)).strong().text_color(egui::Color32::YELLOW));
                     } else {
-                        ui.add(Label::new(format!("Block late. Selecting new stakers in: {}",x + 3600)).strong().text_color(egui::Color32::RED));
+                        if *lonely == 0 {
+                            ui.add(Label::new(format!("You are not connected to the Khora network. Fill out the mesh network gate ip in the top box and click connect.")).strong().text_color(egui::Color32::RED));
+                        } else {
+                            ui.add(Label::new(format!("You are not up to date. Syncing now.")).strong().text_color(egui::Color32::RED));
+                            if syncretry.elapsed().as_secs() > 1 {
+                                sender.send(vec![121]).expect("something's wrong with communication from the gui");
+                                *syncretry = Instant::now();
+                            }
+                        }
                     }
                 });
                 ui.horizontal(|ui| {

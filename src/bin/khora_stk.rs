@@ -196,6 +196,7 @@ fn main() -> Result<(), MainError> {
                 outerlister: channel::unbounded().1,
                 allnetwork,
                 lasttags: vec![],
+                lastspot: None,
                 me,
                 mine: HashMap::new(),
                 smine: smine.clone(), // [location, amount]
@@ -359,6 +360,7 @@ struct SavedNode {
     is_validator: bool,
     ringsize: u8,
     lasttags: Vec<CompressedRistretto>,
+    lastspot: Option<u64>,
 }
 
 /// the node used to run all the networking
@@ -412,6 +414,7 @@ struct KhoraNode {
     gui_timer: Instant,
     ringsize: u8,
     lasttags: Vec<CompressedRistretto>,
+    lastspot: Option<u64>,
 }
 
 impl KhoraNode {
@@ -420,6 +423,7 @@ impl KhoraNode {
         if !self.moneyreset.is_some() && !self.oldstk.is_some() {
             let sn = SavedNode {
                 lasttags: self.lasttags.clone(),
+                lastspot: self.lastspot.clone(),
                 me: self.me,
                 mine: self.mine.clone(),
                 smine: self.smine.clone(), // [location, amount]
@@ -494,6 +498,7 @@ impl KhoraNode {
             gui_sender,
             gui_reciever,
             lasttags: sn.lasttags.clone(),
+            lastspot: sn.lastspot.clone(),
             allnetwork: sn.allnetwork.clone(),
             timekeeper: Instant::now() - Duration::from_secs(1),
             waitingforentrybool: true,
@@ -568,6 +573,21 @@ impl KhoraNode {
             if v  {
                 // saves your current information BEFORE reading the new block. It's possible a leader is trying to cause a fork which can only be determined 1 block later based on what the comittee thinks is real
                 self.save();
+
+                if let Some(k) = &self.keylocation {
+                    if lastlightning.info.stkout.contains(k) {
+                        self.gui_sender.send(vec![6]).expect("something's wrong with the communication to the gui");
+                    }
+                }
+                if let Some(k) = &mut self.lastspot {
+                    if lastlightning.info.stkout.contains(k) {
+                        self.gui_sender.send(vec![6]).expect("something's wrong with the communication to the gui");
+                    } else {
+                        *k -= lastlightning.info.stkout.iter().filter(|&&x| {
+                            x < *k
+                        }).count() as u64;
+                    }
+                }
 
                 // if you are one of the validators who leave this turn, it is your responcibility to send the block to the outside world
                 if let Some(keylocation) = self.keylocation {
@@ -695,7 +715,7 @@ impl KhoraNode {
                 thisbnum.push(2);
                 self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
 
-                self.gui_sender.send(vec![self.keylocation.iter().any(|keylocation| self.comittee[self.headshard].contains(&(*keylocation as usize))) as u8,3]).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
+                self.gui_sender.send(vec![self.keylocation.iter().all(|keylocation| self.comittee[self.headshard].contains(&(*keylocation as usize))) as u8,3]).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
                 println!("block {} name: {:?}",self.bnum, self.lastname);
 
                 // delete the set of overthrone leaders sometimes to give them another chance
@@ -1436,11 +1456,8 @@ impl Future for KhoraNode {
                         
                         let amnt = u64::from_le_bytes(m.drain(..8).collect::<Vec<_>>().try_into().unwrap());
                         // let amnt = Scalar::from(amnt);
-                        let mut stkamnt = u64::from_le_bytes(m.drain(..8).collect::<Vec<_>>().try_into().unwrap());
+                        let stkamnt = u64::from_le_bytes(m.drain(..8).collect::<Vec<_>>().try_into().unwrap());
                         // let mut stkamnt = Scalar::from(stkamnt);
-                        if stkamnt == amnt {
-                            stkamnt -= 1;
-                        }
                         let newacc = Account::new(&format!("{}",String::from_utf8_lossy(&m)));
 
                         // send unstaked money

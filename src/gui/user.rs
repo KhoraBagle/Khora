@@ -65,7 +65,6 @@ pub struct KhoraUserGUI {
 
     fee: String,
     unstaked: u64,
-    staked: u64,
     friends: Vec<String>,
     friend_names: Vec<String>,
     addr: String,
@@ -129,7 +128,6 @@ impl Default for KhoraUserGUI {
             reciever: r,
             sender: s,
             unstaked: 0u64,
-            staked: 0u64,
             friends: vec![],
             edit_names: vec![],
             friend_names: vec![],
@@ -281,7 +279,6 @@ impl epi::App for KhoraUserGUI {
             transaction_processed,
             sender,
             unstaked,
-            staked,
             friends,
             edit_names,
             friend_names,
@@ -668,17 +665,11 @@ impl epi::App for KhoraUserGUI {
                     ui.text_edit_singleline(panic_fee);
                 });
                 
-                if ui.add(Button::new("PANIC").text_color(egui::Color32::RED).sense(if *unstaked == 0 && *staked == 0 {Sense::hover()} else {Sense::click()})).clicked() {
+                if ui.add(Button::new("PANIC").text_color(egui::Color32::RED).sense(if *unstaked == 0 {Sense::hover()} else {Sense::click()})).clicked() {
                     let mut x = vec![];
                     let pf = retain_numeric(panic_fee.to_string()).parse::<u64>().unwrap();
 
                     let s = *unstaked;
-                    if s > pf {
-                        x.extend((s - pf).to_le_bytes());
-                    } else {
-                        x.extend(s.to_le_bytes());
-                    }
-                    let s = *staked;
                     if s > pf {
                         x.extend((s - pf).to_le_bytes());
                     } else {

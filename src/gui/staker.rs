@@ -94,6 +94,8 @@ pub struct KhoraStakerGUI {
     ringsize: u8,
     transaction_processed: bool,
     transaction_processing: bool,
+    transaction_processeds: bool,
+    transaction_processings: bool,
 
     #[cfg_attr(feature = "persistence", serde(skip))]
     lonely: u16,
@@ -176,6 +178,8 @@ impl Default for KhoraStakerGUI {
             logout_window: false,
             transaction_processing: false,
             transaction_processed: true,
+            transaction_processings: false,
+            transaction_processeds: true,
         }
     }
 }
@@ -308,6 +312,8 @@ impl epi::App for KhoraStakerGUI {
                 self.lonely = u16::from_le_bytes(i.try_into().unwrap());
             } else if modification == 5 {
                 self.transaction_processed = true;
+            } else if modification == 6 {
+                self.transaction_processeds = true;
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();
@@ -342,6 +348,8 @@ impl epi::App for KhoraStakerGUI {
             reciever: _,
             transaction_processing,
             transaction_processed,
+            transaction_processings,
+            transaction_processeds,
             sender,
             unstaked,
             staked,
@@ -783,6 +791,19 @@ impl epi::App for KhoraStakerGUI {
                 } 
             });
         }
+        if *transaction_processings {
+            egui::Window::new("Processing").show(ctx, |ui| {
+                if *transaction_processeds {
+                    ui.add(Label::new("The staking transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                    if ui.button("Close").clicked() {
+                        *transaction_processings = false;
+                        *transaction_processeds = false;
+                    }
+                } else {
+                    ui.add(Label::new("The staking transaction is being processed. If you make another transaction (including panicing), only 1 will go through").text_color(egui::Color32::RED));
+                } 
+            });
+        }
         if  pswd_guess0 == password0 || *setup { // add warning to not panic 2ce in a row
             egui::Window::new("Panic Button").open(show_reset).show(ctx, |ui| {
                 ui.label("The Panic button will transfer all of your Khora to a new non-staker account and delete your old account.\nThis transaction will use a ring size of 0.\nDo not turn off your client until you receive your Khora on your new account. \nAccount information will be reset to the information entered below. \nSave the below information in a safe place.");
@@ -837,6 +858,14 @@ impl epi::App for KhoraStakerGUI {
                     *secret_key = next_pswrd2.clone();
                     if *show_next_pswrd {
                         *pswd_guess0 = next_pswrd0.clone();
+                    }
+                    if *unstaked > 0 {
+                        *transaction_processing = true;
+                        *transaction_processed = false;
+                    }
+                    if *staked > 0 {
+                        *transaction_processings = true;
+                        *transaction_processeds = false;
                     }
                 }
             });

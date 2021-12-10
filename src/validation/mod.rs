@@ -34,6 +34,20 @@ pub const PUNISHMENT_FRACTION: u64 = 1000;
 pub const PERSON0: CompressedRistretto = CompressedRistretto([46, 235, 227, 188, 55, 53, 9, 126, 167, 207, 202, 101, 150, 150, 172, 207, 209, 208, 211, 52, 47, 206, 19, 115, 199, 189, 202, 10, 56, 220, 138, 55]);
 /// minimum stake
 pub const MINSTK: u64 = 1_000_000;
+/// total money ever produced
+pub const TOTAL_KHORA: f64 = 1.0e16;
+
+
+
+/// calculates the reward for the current block
+pub fn reward(cumtime: f64, blocktime: f64) -> f64 {
+    (1.0/(1.653439E-6*cumtime + 1.0) - 1.0/(1.653439E-6*(cumtime + blocktime) + 1.0))*TOTAL_KHORA
+}
+/// calculates the amount of time the current block takes to be created
+pub fn blocktime(cumtime: f64) -> f64 {
+    // 60f64/(6.337618E-8f64*cumtime+2f64).ln()
+    10.0
+}
 
 #[derive(Default, Clone, Serialize, Deserialize, Eq, Hash, Debug)]
 /// the information on the transactions made that is saved in lightning blocks

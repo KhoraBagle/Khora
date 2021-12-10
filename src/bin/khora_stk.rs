@@ -34,7 +34,10 @@ use khora::bloom::*;
 use khora::validation::*;
 use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
-use khora::validation::{NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0};
+use khora::validation::{
+    NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0,
+    reward, blocktime
+};
 
 use gip::{Provider, ProviderDefaultV4};
 use local_ip_address::local_ip;
@@ -48,17 +51,8 @@ const USURP_TIME: u64 = 3600;
 const DEFAULT_PORT: u16 = 8334;
 /// the outsider port
 const OUTSIDER_PORT: u16 = 8335;
-/// total money ever produced
-const TOTAL_KHORA: f64 = 1.0e16;
-/// calculates the amount of time the current block takes to be created
-fn blocktime(cumtime: f64) -> f64 {
-    // 60f64/(6.337618E-8f64*cumtime+2f64).ln()
-    10.0
-}
-/// calculates the reward for the current block
-fn reward(cumtime: f64, blocktime: f64) -> f64 {
-    (1.0/(1.653439E-6*cumtime + 1.0) - 1.0/(1.653439E-6*(cumtime + blocktime) + 1.0))*TOTAL_KHORA
-}
+/// number of blocks to send someone if they make a sync request
+const SYNC_BLOCKS_PER_STREAM: u32 = 50;
 
 fn main() -> Result<(), MainError> {
     let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build())?; // info or debug
@@ -100,6 +94,19 @@ fn main() -> Result<(), MainError> {
     let (usend, ui_reciever) = channel::unbounded();
     let (sendtcp, recvtcp) = channel::bounded::<TcpStream>(1);
 
+    thread::spawn(move || {
+        for stream in outerlistener.incoming() {
+            match stream {
+                Ok(stream) => {
+                    sendtcp.send(stream).unwrap();
+                }
+                Err(_) => {
+                    println!("Error in recieving TcpStream");
+                }
+            }
+
+        }
+    });
     // thread::spawn(move || { // this was just checking that you can send a tcpstream between threads
     //     let outerlistener = TcpListener::bind("0.0.0.0:9999").unwrap();
     //     for stream in outerlistener.incoming() {
@@ -255,35 +262,6 @@ fn main() -> Result<(), MainError> {
             println!("my money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
             node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
             node.save();
-            thread::spawn(move || {
-                for stream in outerlistener.incoming() {
-                    match stream {
-                        Ok(mut stream) => {
-                            sendtcp.send(stream).unwrap();
-                            // let mut m = vec![];
-                            // match stream.read_to_end(&mut m) { // CAN NOT BE READ TO END
-                            //     Ok(_) => {
-                            //         user.send(m).expect("Probelem sending from thread");
-                            //         loop {
-                            //             match responce.recv() {
-                            //                 Ok(x) => {stream.write(&x);},
-                            //                 Err(x) => {println!("# ERROR: {}",x);},
-                            //             }
-                            //         }
-                                    
-                            //     }
-                            //     Err(err) => {
-                            //         println!("# ERROR: {}",err);
-                            //     }
-                            // }
-                        }
-                        Err(_) => {
-                            println!("Error in recieving TcpStream");
-                        }
-                    }
-
-                }
-            });
 
             executor.spawn(service.map_err(|e| panic!("{}", e)));
             executor.spawn(node);
@@ -325,19 +303,6 @@ fn main() -> Result<(), MainError> {
         );
         let native_options = eframe::NativeOptions::default();
         std::thread::spawn(move || {
-            thread::spawn(move || {
-                for stream in outerlistener.incoming() {
-                    match stream {
-                        Ok(mut stream) => {
-                            sendtcp.send(stream).unwrap();
-                        }
-                        Err(_) => {
-                            println!("Error");
-                        }
-                    }
-
-                }
-            });
 
             executor.spawn(service.map_err(|e| panic!("{}", e)));
             executor.spawn(node);
@@ -1145,7 +1110,7 @@ impl Future for KhoraNode {
                     if let Ok(i) = stream.read(&mut m) { // stream must be read before responding bte
                         m = m[..i].to_vec();
                         if let Some(mtype) = m.pop() {
-                            println!("# MESSAGE TYPE: {:?}", mtype);
+                            println!("got a stream of type {}!",mtype);
                             if mtype == 0 /* transaction someone wants to make */ {
                                 // to avoid spam
                                 if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
@@ -1172,16 +1137,21 @@ impl Future for KhoraNode {
                             } else if mtype == 121 /* y */ { // someone sent a sync request
                                 if let Ok(m) = m.try_into() {
                                     let mut sync_theirnum = u64::from_le_bytes(m);
+                                    let mut send = vec![];
+                                    let mut s = 0;
                                     loop {
                                         if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
-                                            stream.write(&x);
+                                            send.push(x);
+                                            s += 1;
                                             break
                                         }
                                         sync_theirnum += 1;
-                                        if sync_theirnum == self.bnum {
+                                        if sync_theirnum == self.bnum || s == SYNC_BLOCKS_PER_STREAM {
                                             break
                                         }
                                     }
+
+                                    stream.write(&bincode::serialize(&send).unwrap());
                                 }
                             }
                         }
@@ -1196,7 +1166,7 @@ impl Future for KhoraNode {
                     let msg = fullmsg.message.clone();
                     let mut m = msg.payload.to_vec();
                     if let Some(mtype) = m.pop() {
-                        println!("# MESSAGE TYPE: {:?}", mtype);
+                        println!("got a gossip of type {}!", mtype);
 
 
                         if mtype == 0 /* transaction someone wants to make */ {
@@ -1246,6 +1216,15 @@ impl Future for KhoraNode {
                         } else if mtype == 97 /* a */ {
                             println!("Someone's trying to connect!!! :3\n(  this means you're recieving connect request >(^.^)>  )");
                             self.outer.plumtree_node.lazy_push_peers.insert(fullmsg.sender);
+                            self.outer.dm(bincode::serialize(&self.allnetwork).unwrap().into_iter().chain(vec![98u8]).collect::<Vec<u8>>(), &[fullmsg.sender], false);
+                        } else if mtype == 98 /* b */ {
+                            println!("Someone's recieving connection");
+                            if self.allnetwork.par_iter().all(|(_,(_,x))| x.is_none()) {
+                                if let Ok(x) = bincode::deserialize(&m) {
+                                    self.allnetwork = x;
+                                }
+                            }
+
                         } else if mtype == 108 /* l */ { // a lightning block
                             if self.lightning_yielder {
                                 if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&m) {

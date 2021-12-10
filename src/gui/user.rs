@@ -244,6 +244,8 @@ impl epi::App for KhoraUserGUI {
             let modification = i.pop().unwrap();
             if modification == 0 {
                 self.unstaked = u64::from_le_bytes(i.try_into().unwrap());
+            } else if modification == 1 {
+                self.dont_trust_amounts = i.pop() == Some(0);
             } else if modification == 2 {
                 self.block_number = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 4 {

@@ -308,7 +308,7 @@ impl PartialEq for NextBlock {
 }
 impl NextBlock {
     /// selects the transactions that are valid (as a member of the comittee in block generation)
-    pub fn valicreate(key: &Scalar, location: &u64, leader: &CompressedRistretto, txs: &Vec<PolynomialTransaction>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, bloom: &BloomFile,/* _history: &Vec<OTAccount>,*/ stkstate: &Vec<(CompressedRistretto,u64)>) -> NextBlock {
+    pub fn valicreate(key: &Scalar, location: &u64, leader: &CompressedRistretto, mut txs: Vec<PolynomialTransaction>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, bloom: &BloomFile,/* _history: &Vec<OTAccount>,*/ stkstate: &Vec<(CompressedRistretto,u64)>) -> NextBlock {
         let stks = txs.par_iter().filter_map(|x| 
             if x.inputs.last() == Some(&1) {if x.verifystk(&stkstate).is_ok() {Some(x.to_owned())} else {None}} else {None}
         ).collect::<Vec<PolynomialTransaction>>(); /* i would use drain_filter but its unstable */
@@ -318,9 +318,9 @@ impl NextBlock {
                 .contains(&x)
             )
         }).map(|x| x.1.to_owned()).collect::<Vec<_>>();
-        let txs = txs.into_par_iter().filter_map(|x| 
-            if x.inputs.last() == Some(&0) {Some(x.to_owned())} else {None}
-        ).collect::<Vec<PolynomialTransaction>>();
+        txs.retain(|x| x.inputs.last() == Some(&0));
+        
+        
         
         let mut txs =
             txs.par_iter().enumerate().filter_map(|(i,x)| {

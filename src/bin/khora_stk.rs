@@ -942,8 +942,8 @@ impl Future for KhoraNode {
                                             }
                                         ).collect::<Vec<PolynomialTransaction>>();
 
-                                        for keylocation in &self.keylocation {
-                                            let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, &m, &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo);
+                                        if let Some(keylocation) = &self.keylocation {
+                                            let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, m, &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo);
                                             println!("{:?}",m.txs.len());
                                             let mut m = bincode::serialize(&m).unwrap();
                                             m.push(2);
@@ -1054,7 +1054,7 @@ impl Future for KhoraNode {
                 if self.waitingforentrybool && (self.waitingforentrytime.elapsed().as_secs() > (0.66*self.blocktime) as u64) {
                     self.waitingforentrybool = false;
                     for keylocation in &self.keylocation {
-                        let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, &vec![], &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo);
+                        let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, vec![], &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo);
                         println!("trying to make an empty block...");
                         let mut m = bincode::serialize(&m).unwrap();
                         m.push(2);

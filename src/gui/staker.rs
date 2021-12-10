@@ -6,7 +6,7 @@ use crossbeam::channel;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
-use crate::validation::VERSION;
+use crate::validation::{VERSION, MINSTK};
 
 /*
 cargo run --bin full_staker --release 9876 pig
@@ -279,8 +279,6 @@ impl epi::App for KhoraStakerGUI {
                     self.sender.send(m).expect("something's wrong with communication from the gui");
                 }
 
-
-
                 let mut m = vec![];
                 let x = 10_000_000u64;
                 m.extend(str::to_ascii_lowercase(&"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakpkkjflfkbnihkjemkbdjhleddlncjmipffbpninfgkddopmkmofanmahmebeombknnljklfkolpkacljdjpfephfkdjhikcechegbionimhhejdckcnpmejnkmcacia").as_bytes().to_vec());
@@ -549,6 +547,8 @@ impl epi::App for KhoraStakerGUI {
                             if x > 0 {
                                 m.extend(addr.as_bytes().to_vec());
                                 m.extend((x as u64).to_le_bytes().to_vec());
+                            }
+                            if x >= 0 {
                                 m.push(*ringsize);
                                 m.push(33);
                                 m.push(33);
@@ -569,9 +569,13 @@ impl epi::App for KhoraStakerGUI {
                             m.extend(retain_numeric(unstake.to_string()).parse::<u64>().unwrap().to_le_bytes());
                             // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",staked,fee,unstake);
                             let x = *staked as i128 - retain_numeric(fee.to_string()).parse::<u64>().unwrap() as i128 - retain_numeric(unstake.to_string()).parse::<u64>().unwrap() as i128 ;
-                            if x > 0 {
+                            if x > MINSTK.into() {
                                 m.extend(stkaddr.as_bytes());
                                 m.extend((x as u64).to_le_bytes());
+                                m.push(63);
+                                m.push(33);
+                                sender.send(m).expect("something's wrong with communication from the gui");
+                            } else if x == 0 {
                                 m.push(63);
                                 m.push(33);
                                 sender.send(m).expect("something's wrong with communication from the gui");
@@ -700,11 +704,12 @@ impl epi::App for KhoraStakerGUI {
                                     }
                                 }
                                 if *stkspeand {
-                                    *you_cant_do_that = *staked as i128+ 1 < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
+                                    let x = tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
+                                    *you_cant_do_that = (*staked as i128) < MINSTK as i128 + x || *staked as i128 == x;
                                 } else {
-                                    *you_cant_do_that = *unstaked as i128+ 1 < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
+                                    *you_cant_do_that = (*unstaked as i128) < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
                                 }
-;                                if !*you_cant_do_that {
+;                               if !*you_cant_do_that {
                                     if *stkspeand {
                                         let x = *staked as i128 - tot - retain_numeric(fee.to_string()).parse::<i128>().unwrap();
                                         if x > 0 {

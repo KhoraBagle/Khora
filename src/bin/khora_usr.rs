@@ -104,6 +104,7 @@ fn main() -> Result<(), MainError> {
                 sendview: vec![],
                 allnetwork,
                 save_history: will_stk,
+                lasttags: vec![],
                 me,
                 mine: HashMap::new(),
                 key,
@@ -212,10 +213,11 @@ struct SavedNode {
     alltagsever: Vec<CompressedRistretto>,
     headshard: usize,
     rname: Vec<u8>,
-    moneyreset: Option<Vec<u8>>,
+    moneyreset: Option<(Vec<u8>,CompressedRistretto)>,
     cumtime: f64,
     blocktime: f64,
     ringsize: u8,
+    lasttags: Vec<CompressedRistretto>,
 }
 
 /// the node used to run all the networking
@@ -241,11 +243,12 @@ struct KhoraNode {
     headshard: usize,
     rmems: HashMap<u64,OTAccount>,
     rname: Vec<u8>,
-    moneyreset: Option<Vec<u8>>,
+    moneyreset: Option<(Vec<u8>,CompressedRistretto)>,
     cumtime: f64,
     blocktime: f64,
     gui_timer: Instant,
     ringsize: u8,
+    lasttags: Vec<CompressedRistretto>,
 }
 
 impl KhoraNode {
@@ -253,6 +256,7 @@ impl KhoraNode {
     fn save(&self) {
         if self.moneyreset.is_none() {
             let sn = SavedNode {
+                lasttags: self.lasttags.clone(),
                 sendview: self.sendview.clone(),
                 save_history: self.save_history,
                 me: self.me,
@@ -317,6 +321,7 @@ impl KhoraNode {
             blocktime: sn.blocktime,
             gui_timer: Instant::now(),
             ringsize: sn.ringsize,
+            lasttags: sn.lasttags.clone(),
         }
     }
 
@@ -389,12 +394,19 @@ impl KhoraNode {
                 // println!("block {} name: {:?}",self.bnum, self.lastname);
 
                 
-
-
+                self.lasttags.clone().into_iter().for_each(|x| {
+                    if lastlightning.info.tags.contains(&x) {
+                        self.lasttags = vec![];
+                        send_to_gui.push(vec![5]);
+                    }    
+                });
 
                 self.cumtime += self.blocktime;
                 self.blocktime = blocktime(self.cumtime);
 
+                if self.send_panic_or_stop(&lastlightning.info.tags) {
+                    send_to_gui.push(vec![]);
+                }
                 // println!("block reading process done!!!");
 
 
@@ -405,13 +417,16 @@ impl KhoraNode {
     }
 
     /// runs the operations needed for the panic button to work
-    fn send_panic_or_stop(&mut self) {
-        if self.moneyreset.is_some() {
-            if self.mine.len() < 1 {
-                self.send_message(self.moneyreset.clone().expect("just checked that this worked 2 lines ago"),TRANSACTION_SEND_TO);
-            } else {
+    fn send_panic_or_stop(&mut self, tags: &Vec<CompressedRistretto>) -> bool {
+        if let Some(m) = &self.moneyreset {
+            if tags.contains(&m.1) {
                 self.moneyreset = None;
+                false
+            } else {
+                true
             }
+        } else {
+            true
         }
     }
 
@@ -588,6 +603,7 @@ impl Future for KhoraNode {
                                                     let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
                                                     if got_the_ring && tx.verify().is_ok() {
                                                         let tx = tx.polyform(&self.rname);
+                                                        self.lasttags.push(tx.tags[0]);
                                                         // tx.verify().unwrap(); // as a user you won't be able to check this
                                                         let mut txbin = bincode::serialize(&tx).unwrap();
                                                         txbin.push(0);
@@ -623,9 +639,7 @@ impl Future for KhoraNode {
                                     println!("{:?}",rlring.iter().map(|x| x.com.amount).collect::<Vec<_>>());
                                     if tx.verify().is_ok() {
                                         let tx = tx.polyform(&self.rname);
-                                        if self.save_history {
-                                            tx.verify().unwrap(); // as a user you won't be able to check this
-                                        }
+                                        self.lasttags.push(tx.tags[0]);
                                         txbin = bincode::serialize(&tx).unwrap();
                                         println!("transaction made!");
                                     } else {
@@ -658,6 +672,7 @@ impl Future for KhoraNode {
                             let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
                             let tx = tx.polyform(&rname);
                             if tx.verify().is_ok() {
+                                self.lasttags.push(tx.tags[0]);
                                 txbin = bincode::serialize(&tx).unwrap();
                                 println!("transaction made!");
                             } else {
@@ -722,7 +737,7 @@ impl Future for KhoraNode {
                                         break
                                     }
                                 }
-                                self.moneyreset = Some(txbin);
+                                self.moneyreset = Some((txbin,tx.tags[0]));
                                 println!("transaction made!");
                             } else {
                                 println!("you can't make that transaction, user!");
@@ -790,11 +805,14 @@ impl Future for KhoraNode {
                             self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui    
     
                             send.into_iter().for_each(|x| {
-                                self.gui_sender.send(x).expect("something's wrong with the communication to the gui");
+                                if x.is_empty() {
+                                    if let Some((x,_)) = self.moneyreset.clone() {
+                                        self.send_message(x, TRANSACTION_SEND_TO);
+                                    }
+                                } else {
+                                    self.gui_sender.send(x).expect("something's wrong with the communication to the gui");
+                                }
                             });
-    
-                            self.send_panic_or_stop();
-    
                         }
 
                         // asdfasdffds

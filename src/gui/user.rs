@@ -88,6 +88,8 @@ pub struct KhoraUserGUI {
     ringsize: u8,
     lonely: u64,
     save_extra: bool,
+    transaction_processing: bool,
+    transaction_processed: bool,
 
     #[cfg_attr(feature = "persistence", serde(skip))]
     options_menu: bool,
@@ -164,6 +166,8 @@ impl Default for KhoraUserGUI {
             options_menu: false,
             ringsize: 5,
             logout_window: false,
+            transaction_processing: false,
+            transaction_processed: true,
         }
     }
 }
@@ -253,6 +257,8 @@ impl epi::App for KhoraUserGUI {
                 self.block_number = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 4 {
                 self.lonely = u64::from_le_bytes(i.try_into().unwrap());
+            } else if modification == 5 {
+                self.transaction_processed = true;
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();
@@ -271,6 +277,8 @@ impl epi::App for KhoraUserGUI {
         let Self {
             fee,
             reciever: _,
+            transaction_processing,
+            transaction_processed,
             sender,
             unstaked,
             staked,
@@ -590,6 +598,8 @@ impl epi::App for KhoraUserGUI {
                                     *send_name = vec!["".to_string()];
                                     *send_addr = vec!["".to_string()];
                                     *send_amnt = vec!["".to_string()];
+                                    *transaction_processing = true;
+                                    *transaction_processed = false;
                                 }
                             }
                         }
@@ -615,9 +625,24 @@ impl epi::App for KhoraUserGUI {
             egui::warn_if_debug_build(ui);
         });
 
-        if  pswd_guess0 == password0 || *setup { // add warning to not panic 2ce in a row
+
+
+        if *transaction_processing {
+            egui::Window::new("Processing").show(ctx, |ui| {
+                if *transaction_processed {
+                    ui.add(Label::new("The transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                    if ui.button("Close").clicked() {
+                        *transaction_processing = false;
+                        *transaction_processed = false;
+                    }
+                } else {
+                    ui.add(Label::new("The transaction is being processed.").text_color(egui::Color32::RED));
+                } 
+            });
+        }
+        if  pswd_guess0 == password0 || *setup {
             egui::Window::new("Panic Button").open(show_reset).show(ctx, |ui| {
-                ui.label("The Panic button will transfer all of your Khora to a new non-staker account and delete your old account.\nThis transaction will use a ring size of 0.\nDo not turn off your client until you receive your Khora on your new account. \nAccount information will be reset to the information entered below. \nSave the below information in a safe place.");
+                ui.label("The Panic button will transfer all of your Khora to a new non-staker account and delete your old account.\nThis transaction will use a ring size of 0.\nDo not turn off your client or hit the panic button until you receive your Khora on your new account. \nAccount information will be reset to the information entered below. \nSave the below information in a safe place.");
                 
                 ui.horizontal(|ui| {
                     ui.add(Checkbox::new(show_next_pswrd,"Show Password On Reset"));
@@ -670,6 +695,8 @@ impl epi::App for KhoraUserGUI {
                     if *show_next_pswrd {
                         *pswd_guess0 = next_pswrd0.clone();
                     }
+                    *transaction_processing = true;
+                    *transaction_processed = false;
                 }
             });
         }

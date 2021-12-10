@@ -195,6 +195,7 @@ fn main() -> Result<(), MainError> {
                 outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
                 outerlister: channel::unbounded().1,
                 allnetwork,
+                lasttags: vec![],
                 me,
                 mine: HashMap::new(),
                 smine: smine.clone(), // [location, amount]
@@ -357,6 +358,7 @@ struct SavedNode {
     lightning_yielder: bool,
     is_validator: bool,
     ringsize: u8,
+    lasttags: Vec<CompressedRistretto>,
 }
 
 /// the node used to run all the networking
@@ -409,6 +411,7 @@ struct KhoraNode {
     lightning_yielder: bool,
     gui_timer: Instant,
     ringsize: u8,
+    lasttags: Vec<CompressedRistretto>,
 }
 
 impl KhoraNode {
@@ -416,6 +419,7 @@ impl KhoraNode {
     fn save(&self) {
         if !self.moneyreset.is_some() && !self.oldstk.is_some() {
             let sn = SavedNode {
+                lasttags: self.lasttags.clone(),
                 me: self.me,
                 mine: self.mine.clone(),
                 smine: self.smine.clone(), // [location, amount]
@@ -489,6 +493,7 @@ impl KhoraNode {
             outerlister,
             gui_sender,
             gui_reciever,
+            lasttags: sn.lasttags.clone(),
             allnetwork: sn.allnetwork.clone(),
             timekeeper: Instant::now() - Duration::from_secs(1),
             waitingforentrybool: true,
@@ -727,6 +732,15 @@ impl KhoraNode {
                         self.inner.join(NodeId::new(SocketAddr::from((n.ip(),DEFAULT_PORT)),LocalNodeId::new(1)));
                     }
                 }
+
+
+                self.lasttags.clone().into_iter().for_each(|x| {
+                    if lastlightning.info.tags.contains(&x) {
+                        self.lasttags = vec![];
+                        self.gui_sender.send(vec![5]);
+                    }    
+                });
+
 
 
                 self.cumtime += self.blocktime;
@@ -1379,6 +1393,7 @@ impl Future for KhoraNode {
                             let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
                             let tx = tx.polyform(&rname);
                             if tx.verify().is_ok() {
+                                self.lasttags.push(tx.tags[0]);
                                 txbin = bincode::serialize(&tx).unwrap();
                                 println!("transaction made!");
                             } else {
@@ -1457,6 +1472,7 @@ impl Future for KhoraNode {
                                 let mut txbin = bincode::serialize(&tx).unwrap();
                                 self.txses.push(txbin.clone());
                                 txbin.push(0);
+                                self.lasttags.push(tx.tags[0]);
                                 self.outer.broadcast_now(txbin.clone());
                                 self.moneyreset = Some(txbin);
                                 println!("transaction made!");

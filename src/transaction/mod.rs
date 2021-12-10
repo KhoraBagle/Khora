@@ -202,7 +202,7 @@ impl PolynomialTransaction {
         if self.outputs.iter().all(|y| {
                 if let Ok(z) = stakereader_acc().read_ot(y) {
                     if let Some(a) = &z.com.amount {
-                        u64::from_le_bytes(a.as_bytes()[..8].try_into().unwrap()) > MINSTK
+                        u64::from_le_bytes(a.as_bytes()[..8].try_into().unwrap()) >= MINSTK
                     } else {
                         false
                     }

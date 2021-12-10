@@ -92,6 +92,8 @@ pub struct KhoraStakerGUI {
     vsk: Vec<u8>,
     tsk: Vec<u8>,
     ringsize: u8,
+    transaction_processed: bool,
+    transaction_processing: bool,
 
     #[cfg_attr(feature = "persistence", serde(skip))]
     lonely: u16,
@@ -172,6 +174,8 @@ impl Default for KhoraStakerGUI {
             options_menu: false,
             ringsize: 5,
             logout_window: false,
+            transaction_processing: false,
+            transaction_processed: true,
         }
     }
 }
@@ -302,6 +306,8 @@ impl epi::App for KhoraStakerGUI {
                 self.validating = i == vec![1];
             } else if modification == 4 {
                 self.lonely = u16::from_le_bytes(i.try_into().unwrap());
+            } else if modification == 5 {
+                self.transaction_processed = true;
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();
@@ -334,6 +340,8 @@ impl epi::App for KhoraStakerGUI {
         let Self {
             fee,
             reciever: _,
+            transaction_processing,
+            transaction_processed,
             sender,
             unstaked,
             staked,
@@ -762,6 +770,19 @@ impl epi::App for KhoraStakerGUI {
             egui::warn_if_debug_build(ui);
         });
 
+        if *transaction_processing {
+            egui::Window::new("Processing").show(ctx, |ui| {
+                if *transaction_processed {
+                    ui.add(Label::new("The non staking transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                    if ui.button("Close").clicked() {
+                        *transaction_processing = false;
+                        *transaction_processed = false;
+                    }
+                } else {
+                    ui.add(Label::new("The non staking transaction is being processed. If you make another transaction (including panicing), only 1 will go through").text_color(egui::Color32::RED));
+                } 
+            });
+        }
         if  pswd_guess0 == password0 || *setup { // add warning to not panic 2ce in a row
             egui::Window::new("Panic Button").open(show_reset).show(ctx, |ui| {
                 ui.label("The Panic button will transfer all of your Khora to a new non-staker account and delete your old account.\nThis transaction will use a ring size of 0.\nDo not turn off your client until you receive your Khora on your new account. \nAccount information will be reset to the information entered below. \nSave the below information in a safe place.");

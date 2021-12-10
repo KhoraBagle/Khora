@@ -266,12 +266,10 @@ impl epi::App for KhoraStakerGUI {
                 self.block_number = u64::from_le_bytes(i.try_into().unwrap());
 
 
-                // this is just to make sure blocks are allways coming
                 let unstake = 100_000_000u64;
                 let mut m = vec![];
                 m.extend(self.addr.as_bytes().to_vec());
                 m.extend(unstake.to_le_bytes());
-                // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",staked,fee,unstake);
                 let x = self.staked as i128 - retain_numeric(self.fee.to_string()).parse::<u64>().unwrap() as i128 - unstake as i128 ;
                 if x > 1 {
                     m.extend(self.stkaddr.as_bytes());
@@ -284,7 +282,7 @@ impl epi::App for KhoraStakerGUI {
 
 
                 let mut m = vec![];
-                let x = 10_000u64;
+                let x = 10_000_000u64;
                 m.extend(str::to_ascii_lowercase(&"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakpkkjflfkbnihkjemkbdjhleddlncjmipffbpninfgkddopmkmofanmahmebeombknnljklfkolpkacljdjpfephfkdjhikcechegbionimhhejdckcnpmejnkmcacia").as_bytes().to_vec());
                 m.extend(x.to_le_bytes().to_vec());
                 let tot = x;
@@ -299,6 +297,7 @@ impl epi::App for KhoraStakerGUI {
                     m.push(33);
                     self.sender.send(m).expect("something's wrong with communication from the gui");
                 }
+
 
 
             } else if modification == 3 {

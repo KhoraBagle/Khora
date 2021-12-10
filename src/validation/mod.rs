@@ -32,7 +32,8 @@ pub const REPLACERATE: usize = 2;
 pub const PUNISHMENT_FRACTION: u64 = 1000;
 /// user 0: the first person in the blockchain
 pub const PERSON0: CompressedRistretto = CompressedRistretto([46, 235, 227, 188, 55, 53, 9, 126, 167, 207, 202, 101, 150, 150, 172, 207, 209, 208, 211, 52, 47, 206, 19, 115, 199, 189, 202, 10, 56, 220, 138, 55]);
-
+/// minimum stake
+pub const MINSTK: u64 = 1_000_000;
 
 #[derive(Default, Clone, Serialize, Deserialize, Eq, Hash, Debug)]
 /// the information on the transactions made that is saved in lightning blocks
@@ -880,7 +881,7 @@ impl LightningSyncBlock {
                     }
                 }
             } else {
-                for (i,x) in self.info.stkin.iter().enumerate() {
+                for x in self.info.stkin.iter() {
                     if stkcr == x.0 {
                         mine[1] += x.1;
                         break

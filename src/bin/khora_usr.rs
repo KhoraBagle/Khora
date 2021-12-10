@@ -4,7 +4,7 @@ extern crate trackable;
 
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_COMPRESSED;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
-use futures::{Async, Future, Poll};
+use futures::{Async, Future, Poll, Stream};
 use khora::seal::BETA;
 use rand::prelude::SliceRandom;
 use sloggers::terminal::{Destination, TerminalLoggerBuilder};
@@ -14,6 +14,7 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::thread;
 use trackable::error::MainError;
 use crossbeam::channel;
 
@@ -210,7 +211,6 @@ fn main() -> Result<(), MainError> {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 /// the information that you save to a file when the app is off (not including gui information like saved friends)
 struct SavedNode {
-    allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     sendview: Vec<SocketAddr>,
     save_history: bool, //just testing. in real code this is true; but i need to pretend to be different people on the same computer
     me: Account,
@@ -270,7 +270,6 @@ impl KhoraNode {
     fn save(&self) {
         if self.moneyreset.is_none() {
             let sn = SavedNode {
-                allnetwork: self.allnetwork.clone(),
                 sendview: self.sendview.clone(),
                 save_history: self.save_history,
                 me: self.me,
@@ -307,13 +306,14 @@ impl KhoraNode {
 
         let sn = bincode::deserialize::<SavedNode>(&buf).unwrap();
 
+        let allnetwork = sn.stkinfo.iter().enumerate().map(|(i,x)| (x.0,(i as u64,None))).collect::<HashMap<_,_>>();
         KhoraNode {
             gui_sender,
             gui_reciever,
             usurpingtime: Instant::now(),
             sendview: sn.sendview.clone(),
             save_history: sn.save_history,
-            allnetwork: sn.allnetwork,
+            allnetwork,
             me: sn.me,
             mine: sn.mine.clone(),
             key: sn.key,
@@ -978,7 +978,6 @@ impl Future for KhoraNode {
                             let responces = self.send_message(mynum, SYNC_SEND_TO);
 
                             if responces.len() == 0 {
-                                println!("no responce");
                                 n_check += 1;
                             } else {
                                 n_check = 0;
@@ -998,7 +997,7 @@ impl Future for KhoraNode {
                     } else if istx == 42 /* * */ { // entry address
                         let socket = format!("{}:{}",String::from_utf8_lossy(&m),OUTSIDER_PORT);
                         println!("{}",socket);
-                        match TcpStream::connect_timeout(&socket.parse().unwrap(), Duration::from_secs(5)) {
+                        match TcpStream::connect(socket) {
                             Ok(mut stream) => {
                                 let msg = vec![101u8];
                                 stream.write(&msg).unwrap();
@@ -1009,7 +1008,6 @@ impl Future for KhoraNode {
                                     Ok(_) => {
                                         if let Ok(x) = bincode::deserialize(&data) {
                                             self.sendview = x;
-                                            println!("View: {:?}",self.sendview);
                                         } else {
                                             println!("They didn't send a view!")
                                         }
@@ -1025,7 +1023,7 @@ impl Future for KhoraNode {
                         }
 
                     } else if istx == 64 /* @ */ {
-                        let mut gm = (self.allnetwork.iter().filter(|(_,(_,x))| x.is_some()).count() as u64).to_le_bytes().to_vec();
+                        let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
                         gm.push(4);
                         self.gui_sender.send(gm).expect("should be working");
                     } else if istx == 0 {

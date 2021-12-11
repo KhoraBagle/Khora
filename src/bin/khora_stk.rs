@@ -2,7 +2,7 @@
 // #[allow(unreachable_code)]
 extern crate trackable;
 
-use curve25519_dalek::constants::RISTRETTO_BASEPOINT_COMPRESSED;
+use curve25519_dalek::constants::{RISTRETTO_BASEPOINT_COMPRESSED, RISTRETTO_BASEPOINT_POINT};
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
 use khora::seal::BETA;
@@ -1121,7 +1121,7 @@ impl Future for KhoraNode {
                                         t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
                                     };
                                     if ok {
-                                        print!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\ngot a tx, was at {}!",self.txses.len());
+                                        // print!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\ngot a tx, was at {}!",self.txses.len());
                                         m.push(0);
                                         self.outer.broadcast_now(m);
                                         stream.write(&[1u8]);
@@ -1142,8 +1142,11 @@ impl Future for KhoraNode {
                                 thread::spawn(move || {
                                     if let Ok(m) = m.try_into() {
                                         let mut sync_theirnum = u64::from_le_bytes(m);
+                                        println!("[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]][[[[][]]");
+                                        println!("syncing someone from {}",sync_theirnum);
                                         loop {
                                             if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
+                                                println!("{}",x.len());
                                                 if stream.write(&(x.len() as u64).to_le_bytes()).is_err() {
                                                     break
                                                 }
@@ -1212,7 +1215,7 @@ impl Future for KhoraNode {
                                     };
                                     if ok {
                                         self.txses.push(m);
-                                        print!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\ngot a tx, now at {}!",self.txses.len());
+                                        // print!("got a tx, now at {}!",self.txses.len());
                                         self.outer.handle_gossip_now(fullmsg, true);
                                     } else {
                                         self.outer.handle_gossip_now(fullmsg, false);
@@ -1309,22 +1312,28 @@ impl Future for KhoraNode {
                                     let h1 = m.drain(..32).collect::<Vec<_>>().iter().map(|x| (x-97)).collect::<Vec<_>>();
                                     let h2 = m.drain(..32).collect::<Vec<_>>().iter().map(|x| (x-97)*16).collect::<Vec<_>>();
                                     if let Ok(p) = h1.into_iter().zip(h2).map(|(x,y)|x+y).collect::<Vec<u8>>().try_into() {
-                                        pks.push(CompressedRistretto(p));
+                                        if let Some(p) = CompressedRistretto(p).decompress() {
+                                            pks.push(p);
+                                        } else {
+                                            pks.push(RISTRETTO_BASEPOINT_POINT);
+                                            validtx = false;
+                                            println!("an address is invalid");
+                                        }
                                     } else {
-                                        pks.push(RISTRETTO_BASEPOINT_COMPRESSED);
+                                        pks.push(RISTRETTO_BASEPOINT_POINT);
                                         validtx = false;
                                     }
                                 } else {
-                                    pks.push(RISTRETTO_BASEPOINT_COMPRESSED);
+                                    pks.push(RISTRETTO_BASEPOINT_POINT);
                                     validtx = false;
                                 }
                             }
                             if m.len() >= 8 {
                                 if let Ok(x) = m.drain(..8).collect::<Vec<_>>().try_into() {
                                     let x = u64::from_le_bytes(x);
-                                    println!("amounts {:?}",x);
+                                    // println!("amounts {:?}",x);
                                     let y = x/2u64.pow(BETA as u32) + 1;
-                                    println!("need to split this up into {} txses!",y);
+                                    // println!("need to split this up into {} txses!",y);
                                     let recv = Account::from_pks(&pks[0], &pks[1], &pks[2]);
                                     for _ in 0..y {
                                         let amnt = Scalar::from(x/y);
@@ -1351,20 +1360,20 @@ impl Future for KhoraNode {
 
                             let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
                             let ring = recieve_ring(&rname).expect("shouldn't fail");
-                            println!("ring: {:?}",ring);
-                            println!("mine: {:?}",acc.iter().map(|x|x.pk.compress()).collect::<Vec<_>>());
+                            // println!("ring: {:?}",ring);
+                            // println!("mine: {:?}",acc.iter().map(|x|x.pk.compress()).collect::<Vec<_>>());
                             // println!("ring: {:?}",ring.iter().map(|x|OTAccount::summon_ota(&History::get(&x)).pk.compress()).collect::<Vec<_>>());
                             let mut rlring = ring.into_iter().map(|x| {
                                 let x = OTAccount::summon_ota(&History::get(&x));
                                 if acc.iter().all(|a| a.pk != x.pk) {
-                                    println!("not mine!");
+                                    // println!("not mine!");
                                     x
                                 } else {
-                                    println!("mine!");
+                                    // println!("mine!");
                                     acc.iter().filter(|a| a.pk == x.pk).collect::<Vec<_>>()[0].to_owned()
                                 }
                             }).collect::<Vec<OTAccount>>();
-                            println!("ring len: {:?}",rlring.len());
+                            // println!("ring len: {:?}",rlring.len());
                             let me = self.me;
                             rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
                             let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
@@ -1372,7 +1381,6 @@ impl Future for KhoraNode {
                             if tx.verify().is_ok() {
                                 self.lasttags.push(tx.tags[0]);
                                 txbin = bincode::serialize(&tx).unwrap();
-                                println!("transaction made!");
                             } else {
                                 txbin = vec![];
                                 println!("you can't make that transaction!");
@@ -1382,15 +1390,12 @@ impl Future for KhoraNode {
                             let (loc, amnt): (Vec<u64>,Vec<u64>) = self.smine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
                             let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
                             let tx = Transaction::spend_ring(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                            println!("about to verify!");
                             tx.verify().unwrap();
-                            println!("finished to verify!");
                             let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
                             loc.push(1);
                             let tx = tx.polyform(&loc); // push 0
                             if tx.verifystk(&self.stkinfo).is_ok() {
                                 txbin = bincode::serialize(&tx).unwrap();
-                                println!("sending tx!");
                             } else {
                                 txbin = vec![];
                                 println!("you can't make that transaction!");
@@ -1421,11 +1426,11 @@ impl Future for KhoraNode {
                         if self.mine.len() > 0 {
                             let (loc, _acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(x.0,x.1.clone())).unzip();
 
-                            println!("remembered owned accounts");
+                            // println!("remembered owned accounts");
                             let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16), &self.height);
                             let ring = recieve_ring(&rname).expect("shouldn't fail");
 
-                            println!("made rings");
+                            // println!("made rings");
                             /* you don't use a ring for panics (the ring is just your own accounts) */ 
                             let mut rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
                             let me = self.me;
@@ -1449,7 +1454,7 @@ impl Future for KhoraNode {
                                 self.lasttags.push(tx.tags[0]);
                                 self.outer.broadcast_now(txbin.clone());
                                 self.moneyreset = Some(txbin);
-                                println!("transaction made!");
+                                // println!("transaction made!");
                             } else {
                                 println!("you can't make that transaction, user!");
                             }

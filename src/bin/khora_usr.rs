@@ -460,7 +460,7 @@ impl KhoraNode {
                 if ok == vec![1] {
                     println!("responce valid. syncing now...");
                     let mut blocksize = [0u8;8];
-                    std::thread::sleep(Duration::from_secs(1));
+                    // std::thread::sleep(Duration::from_secs(1));
                     while let Ok(x) = stream.read(&mut blocksize) {
                         let bsize = u64::from_le_bytes(blocksize) as usize;
                         if x < 8 {

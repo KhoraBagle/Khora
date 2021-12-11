@@ -2,7 +2,7 @@
 // #[allow(unreachable_code)]
 extern crate trackable;
 
-use curve25519_dalek::constants::RISTRETTO_BASEPOINT_COMPRESSED;
+use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll};
 use khora::seal::BETA;
@@ -448,20 +448,40 @@ impl KhoraNode {
         let mut send = vec![];
         let mut rng = &mut rand::thread_rng();
         self.sendview.shuffle(&mut rng);
+        println!("attempting sync...");
         if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
-            if stream.write(&[121]).unwrap_or_default() == 1 {
+            println!("connected...");
+            let mut m = self.bnum.to_le_bytes().to_vec();
+            m.push(121);
+            if stream.write(&m).is_ok() {
+                println!("request made...");
                 let mut ok = vec![0];
                 stream.read(&mut ok);
                 if ok == vec![1] {
+                    println!("responce valid. syncing now...");
                     let mut blocksize = [0u8;8];
-                    while stream.read(&mut blocksize).is_ok() {
+                    std::thread::sleep(Duration::from_secs(1));
+                    while let Ok(x) = stream.read(&mut blocksize) {
                         let bsize = u64::from_le_bytes(blocksize) as usize;
+                        if x < 8 {
+                            println!("they're not following the format: sent {} bytes",x);
+                            break
+                        }
                         let mut serialized_block = vec![0u8;bsize];
                         if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
                             break
                         };
                         if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
                             send = self.readlightning(lastblock, serialized_block);
+                        } else {
+                            println!("they send a fake block");
+                        }
+                        print!(".");
+                        if self.bnum%100 == 0 {
+                            println!("\nbnum: {}",self.bnum);
+                            let mut thisbnum = self.bnum.to_le_bytes().to_vec();
+                            thisbnum.push(2);
+                            self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui    
                         }
                     }
                 }
@@ -536,13 +556,19 @@ impl Future for KhoraNode {
                                     let h1 = m.drain(..32).collect::<Vec<_>>().iter().map(|x| (x-97)).collect::<Vec<_>>();
                                     let h2 = m.drain(..32).collect::<Vec<_>>().iter().map(|x| (x-97)*16).collect::<Vec<_>>();
                                     if let Ok(p) = h1.into_iter().zip(h2).map(|(x,y)|x+y).collect::<Vec<u8>>().try_into() {
-                                        pks.push(CompressedRistretto(p));
+                                        if let Some(p) = CompressedRistretto(p).decompress() {
+                                            pks.push(p);
+                                        } else {
+                                            println!("address types incorrectly");
+                                            pks.push(RISTRETTO_BASEPOINT_POINT);
+                                            validtx = false;
+                                        }
                                     } else {
-                                        pks.push(RISTRETTO_BASEPOINT_COMPRESSED);
+                                        pks.push(RISTRETTO_BASEPOINT_POINT);
                                         validtx = false;
                                     }
                                 } else {
-                                    pks.push(RISTRETTO_BASEPOINT_COMPRESSED);
+                                    pks.push(RISTRETTO_BASEPOINT_POINT);
                                     validtx = false;
                                 }
                             }
@@ -695,7 +721,7 @@ impl Future for KhoraNode {
                                 println!("responce 0 is: {:?}",responces);
                             }
                         } else {
-                            println!("transaction not made right now");
+                            println!("transaction not made");
                         }
                     } else if istx == u8::MAX /* panic button */ {
                         
@@ -789,6 +815,7 @@ impl Future for KhoraNode {
                                     self.gui_sender.send(x).expect("something's wrong with the communication to the gui");
                                 }
                             });
+                            
                         }
 
                     } else if istx == 42 /* * */ { // entry address

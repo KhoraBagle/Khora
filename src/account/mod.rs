@@ -135,15 +135,15 @@ impl Account {
     }
 
     /// makes a fake account with specified pks to send transactions to
-    pub fn from_pks(pk: &CompressedRistretto,apk: &CompressedRistretto,vpk: &CompressedRistretto) -> Self {
+    pub fn from_pks(pk: &RistrettoPoint,apk: &RistrettoPoint,vpk: &RistrettoPoint) -> Self {
         Account{
             sk: Scalar::zero(),
-            pk: pk.decompress().unwrap(),
+            pk: *pk,
             ask: Scalar::zero(),
-            apk: apk.decompress().unwrap(),
+            apk: *apk,
             vsk: Scalar::zero(),
-            vpk: vpk.decompress().unwrap(),
-        }        
+            vpk: *vpk,
+        }
     }
 
     /// derives a one time account from an account and amount

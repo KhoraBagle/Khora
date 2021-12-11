@@ -62,6 +62,7 @@ eframe = { version = "0.15.0", default-features = false, features = ["default_fo
 
 gip = "0.7.0"
 local-ip-address = "0.4.4"
+colored = "2.0.0"
 
 [features]
 default = ["persistence"]

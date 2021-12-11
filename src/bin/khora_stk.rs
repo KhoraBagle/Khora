@@ -2,7 +2,7 @@
 // #[allow(unreachable_code)]
 extern crate trackable;
 
-use curve25519_dalek::constants::{RISTRETTO_BASEPOINT_COMPRESSED, RISTRETTO_BASEPOINT_POINT};
+use curve25519_dalek::constants::{RISTRETTO_BASEPOINT_POINT};
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
 use khora::seal::BETA;
@@ -41,6 +41,7 @@ use khora::validation::{
 
 use gip::{Provider, ProviderDefaultV4};
 use local_ip_address::local_ip;
+use colored::Colorize;
 
 
 /// when to announce you're about to be in the comittee or how far in advance you can no longer serve as leader
@@ -536,14 +537,14 @@ impl KhoraNode {
                     if self.exitqueue[self.headshard].range(..REPLACERATE).map(|&x| self.comittee[self.headshard][x]).any(|x| keylocation == x as u64) {
                         if let Some(mut lastblock) = largeblock.clone() {
                             lastblock.push(3);
-                            println!("-----------------------------------------------\nsending out the new block {}!\n-----------------------------------------------",lastlightning.bnum);
+                            println!("{}",format!("sending out the new block {} to the outside world!",lastlightning.bnum).red());
                             self.outer.broadcast_now(lastblock); /* broadcast the block to the outside world */
                         }
                     }
                 }
                 self.headshard = lastlightning.shards[0] as usize;
 
-                println!("=========================================================\nyay!");
+                println!("=========================================================\ngot a block!");
 
                 self.overthrown.remove(&self.stkinfo[lastlightning.leader.pk as usize].0);
                 if self.stkinfo[lastlightning.leader.pk as usize].0 != self.leader {
@@ -552,7 +553,7 @@ impl KhoraNode {
 
                 // if you're synicng, you just infer the empty blocks that no one saves
                 for _ in self.bnum..lastlightning.bnum {
-                    println!("I missed a block!");
+                    // println!("I missed a block!");
                     let reward = reward(self.cumtime,self.blocktime);
                     self.cumtime += self.blocktime;
                     self.blocktime = blocktime(self.cumtime);
@@ -596,7 +597,7 @@ impl KhoraNode {
                     }
                     
 
-                    println!("saving block...");
+                    // println!("saving block...");
                     lastlightning.update_bloom(&mut self.bloom,&false);
                     if !self.lightning_yielder {
                         NextBlock::save(&largeblock.unwrap()); // important! if you select to recieve full blocks you CAN NOT recieve with lightning blocks (because if you do youd miss full blocks)
@@ -650,15 +651,15 @@ impl KhoraNode {
                 let mut mymoney = self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
                 mymoney.extend(self.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
                 mymoney.push(0);
-                println!("my money:\n---------------------------------\n{:?}",self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>());
-                println!("my stake:\n---------------------------------\n{:?}",self.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+                // println!("my money:\n---------------------------------\n{:?}",self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>());
+                // println!("my stake:\n---------------------------------\n{:?}",self.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
                 self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
                 let mut thisbnum = self.bnum.to_le_bytes().to_vec();
                 thisbnum.push(2);
                 self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
 
                 self.gui_sender.send(vec![self.keylocation.iter().all(|keylocation| self.comittee[self.headshard].contains(&(*keylocation as usize))) as u8,3]).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
-                println!("block {} name: {:?}",self.bnum, self.lastname);
+                // println!("block {} name: {:?}",self.bnum, self.lastname);
 
                 // delete the set of overthrone leaders sometimes to give them another chance
                 if self.bnum % 128 == 0 {
@@ -718,7 +719,7 @@ impl KhoraNode {
                 self.waitingforentrytime = Instant::now();
                 self.timekeeper = Instant::now();
                 self.usurpingtime = Instant::now();
-                println!("block reading process done!!!");
+                // println!("block reading process done!!!");
 
 
 
@@ -899,12 +900,13 @@ impl Future for KhoraNode {
                     self.timekeeper = Instant::now();
                     self.doneerly = Instant::now();
                     self.usurpingtime = Instant::now();
-                    println!("time thing happpened");
+                    println!("{}","ready to make block".red());
     
                     // if you are the newest member of the comittee you're responcible for choosing the tx that goes into the next block
                     if self.keylocation == Some(self.newest as u64) {
                         let m = bincode::serialize(&self.txses).unwrap();
-                        println!("_._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._._.\nsending {} txses!",self.txses.len());
+                        println!("{}",format!("sending {} tx",self.txses.len()).red().bold());
+
                         let mut m = Signature::sign_message_nonced(&self.key, &m, &self.newest,&self.bnum);
                         m.push(1u8);
                         self.inner.broadcast(m);
@@ -916,6 +918,8 @@ impl Future for KhoraNode {
                 self.timekeeper = self.usurpingtime;
                 self.usurpingtime = Instant::now();
                 self.headshard += 1;
+                println!("{}","SOMETHING WENT VERY WRONG WITH THE COMITTEE. SHARD IS BEING USURPED.".red().bold());
+
             }
 
 
@@ -955,8 +959,12 @@ impl Future for KhoraNode {
                     let msg = fullmsg.message.clone();
                     let mut m = msg.payload.to_vec();
                     if let Some(mtype) = m.pop() {
-                        if mtype == 2 {print!("#{:?}", mtype);}
-                        else {println!("# MESSAGE TYPE: {:?} FROM: {:?}", mtype,msg.id.node());}
+                        if mtype == 2 {
+                            print!("{}",".".red());
+                        }
+                        else {
+                            println!("{}",format!("recieved message type {:?} from {:?}", mtype,msg.id.node()).red());
+                        }
 
 
                         if mtype == 1 /* the transactions you're supposed to filter and make a block for */ {
@@ -977,6 +985,7 @@ impl Future for KhoraNode {
                                             let mut m = bincode::serialize(&m).unwrap();
                                             m.push(2);
                                             for _ in self.comittee[self.headshard].iter().filter(|&x|*x as u64 == *keylocation).collect::<Vec<_>>() {
+                                                println!("{}","broadcasting block signature".red());
                                                 self.inner.broadcast(m.clone());
                                             }
                                         }
@@ -993,6 +1002,7 @@ impl Future for KhoraNode {
                             }
                         } else if mtype == 2 /* the signatures you're supposed to process as the leader */ {
                             if let Ok(sig) = bincode::deserialize(&m) {
+                                println!("{}","recieved block signature".red());
                                 self.sigs.push(sig);
                                 self.inner.handle_gossip_now(fullmsg, true);
                             } else {
@@ -1001,6 +1011,7 @@ impl Future for KhoraNode {
                         } else if mtype == 3 /* the full block that was made */ {
                             if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&m) {
                                 if self.readblock(lastblock, m) {
+                                    println!("{}","recieved full block".red());
                                     self.inner.handle_gossip_now(fullmsg, true);
                                 } else {
                                     self.inner.handle_gossip_now(fullmsg, false);
@@ -1017,6 +1028,7 @@ impl Future for KhoraNode {
                 }
                 // if the leader didn't show up, overthrow them
                 if (self.waitingforleadertime.elapsed().as_secs() > (0.5*self.blocktime) as u64) && self.waitingforleaderbool {
+                    println!("{}","OVERTHROWING LEADER".red().bold());
                     self.waitingforleadertime = Instant::now();
                     /* change the leader, also add something about only changing the leader if block is free */
 
@@ -1054,8 +1066,9 @@ impl Future for KhoraNode {
         
                             self.sigs = vec![];
         
-                            println!("made a block with {} transactions!",lastblock.txs.len());
-    
+                            
+                            println!("{}",format!("made a block with {} transactions!",lastblock.txs.len()).red());
+
                             did_something = true;
 
                         } else {
@@ -1073,7 +1086,7 @@ impl Future for KhoraNode {
                                 Signature::verify(&x.leader, &mut s.clone(),&e)
                             });
 
-                            println!("failed to make block right now");
+                            println!("{}","FAILED TO MAKE A BLOCK RIGHT NOW".red().bold());
                         }
         
                     }
@@ -1084,11 +1097,10 @@ impl Future for KhoraNode {
                     self.waitingforentrybool = false;
                     for keylocation in &self.keylocation {
                         let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, vec![], &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo);
-                        println!("trying to make an empty block...");
+                        println!("{}","ATTEMPTING TO MAKE AN EMPTY BLOCK".red().bold());
                         let mut m = bincode::serialize(&m).unwrap();
                         m.push(2);
                         if self.comittee[self.headshard].contains(&(*keylocation as usize)) {
-                            println!("I'm sending a MESSAGE TYPE 4 to {:?}",self.inner.plumtree_node().all_push_peers());
                             self.inner.broadcast(m);
                         }
                     }
@@ -1113,7 +1125,7 @@ impl Future for KhoraNode {
                     if let Ok(i) = stream.read(&mut m) { // stream must be read before responding btw
                         m = m[..i].to_vec();
                         if let Some(mtype) = m.pop() {
-                            println!("got a stream of type {}!",mtype);
+                            println!("{}",format!("got a stream of type {}!",mtype).blue());
                             if mtype == 0 /* transaction someone wants to make */ {
                                 if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
                                     let ok = {
@@ -1121,29 +1133,31 @@ impl Future for KhoraNode {
                                         t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
                                     };
                                     if ok {
-                                        // print!("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\ngot a tx, was at {}!",self.txses.len());
+                                        println!("{}","a user sent a tx".blue());
                                         m.push(0);
                                         self.outer.broadcast_now(m);
                                         stream.write(&[1u8]);
                                     }
                                 }
                             } else if mtype == 101 /* e */ {
+                                println!("{}","someone wants a bunch of ips".blue());
                                 let x = self.allnetwork.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>();
                                 stream.write(&bincode::serialize(&x).unwrap());
                             } else if mtype == 114 /* r */ { // answer their ring question
                                 if let Ok(r) = recieve_ring(&m) {
+                                    println!("{}","someone wants a ring".blue());
                                     let y = r.iter().map(|y| History::get_raw(y).to_vec()).collect::<Vec<_>>();
                                     let x = bincode::serialize(&y).unwrap();
                                     stream.write(&x);
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
+                                println!("{}","someone wants lightning".blue());
                                 stream.write(&[1]);
                                 let bnum = self.bnum;
                                 thread::spawn(move || {
                                     if let Ok(m) = m.try_into() {
                                         let mut sync_theirnum = u64::from_le_bytes(m);
-                                        println!("[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]][[[[][]]");
-                                        println!("syncing someone from {}",sync_theirnum);
+                                        println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                         loop {
                                             if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
                                                 println!("{}",x.len());
@@ -1162,12 +1176,14 @@ impl Future for KhoraNode {
                                     }
                                 });
                             } else if mtype == 122 /* z */ { // someone sent a full sync request
+                                println!("{}","someone wants full blocks".blue());
                                 if !self.lightning_yielder {
                                     stream.write(&[1]);
                                     let bnum = self.bnum;
                                     thread::spawn(move || {
                                         if let Ok(m) = m.try_into() {
                                             let mut sync_theirnum = u64::from_le_bytes(m);
+                                            println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                             loop {
                                                 if let Ok(x) = NextBlock::read(&sync_theirnum) {
                                                     if stream.write(&(x.len() as u64).to_le_bytes()).is_err() {
@@ -1185,6 +1201,8 @@ impl Future for KhoraNode {
                                         }
                                     });
                                 }
+                            } else {
+                                println!("{}","the user sent spam".blue());
                             }
                         }
                     }
@@ -1198,7 +1216,7 @@ impl Future for KhoraNode {
                     let msg = fullmsg.message.clone();
                     let mut m = msg.payload.to_vec();
                     if let Some(mtype) = m.pop() {
-                        println!("got a gossip of type {}!", mtype);
+                        println!("{}",format!("got a gossip of type {}!", mtype).green());
 
 
                         if mtype == 0 /* transaction someone wants to make */ {
@@ -1214,8 +1232,8 @@ impl Future for KhoraNode {
                                         }
                                     };
                                     if ok {
+                                        println!("{}","a staker sent a tx".green());
                                         self.txses.push(m);
-                                        // print!("got a tx, now at {}!",self.txses.len());
                                         self.outer.handle_gossip_now(fullmsg, true);
                                     } else {
                                         self.outer.handle_gossip_now(fullmsg, false);
@@ -1228,17 +1246,18 @@ impl Future for KhoraNode {
                             if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&m) {
                                 let s = self.readblock(lastblock, m);
                                 self.outer.handle_gossip_now(fullmsg, s);
+                                println!("{}","you have recieved a full block".green());
                             } else {
                                 self.outer.handle_gossip_now(fullmsg, false);
                             }
                         } else if mtype == 97 /* a */ {
-                            println!("Someone's trying to connect!!! :3\n(  this means you're recieving connect request >(^.^)>  )");
+                            println!("{}","a staker is trying to connect".green());
                             self.outer.plumtree_node.lazy_push_peers.insert(fullmsg.sender);
                             self.outer.dm(bincode::serialize(&self.allnetwork).unwrap().into_iter().chain(vec![98u8]).collect::<Vec<u8>>(), &[fullmsg.sender], false);
                         } else if mtype == 98 /* b */ {
-                            println!("Someone's recieving connection");
                             if self.allnetwork.par_iter().all(|(_,(_,x))| x.is_none()) {
                                 if let Ok(x) = bincode::deserialize(&m) {
+                                    println!("{}","you have connected to the network".green());
                                     self.allnetwork = x;
                                 }
                             }
@@ -1246,6 +1265,7 @@ impl Future for KhoraNode {
                         } else if mtype == 108 /* l */ { // a lightning block
                             if self.lightning_yielder {
                                 if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&m) {
+                                    println!("{}","you have recieved a lightning block".green());
                                     self.readlightning(lastblock, m, None); // that whole thing with 3 and 8 makes it super unlikely to get more blocks (expecially for my small thing?)
                                 }
                             }
@@ -1254,6 +1274,7 @@ impl Future for KhoraNode {
                                 if let Ok(m) = bincode::deserialize::<IpAddr>(&m) {
                                     if let Some(x) = self.allnetwork.get_mut(&who) {
                                         x.1 = Some(SocketAddr::new(m, OUTSIDER_PORT));
+                                        println!("{}","a staker has announced their ip".green());
                                     }
                                     self.outer.handle_gossip_now(fullmsg, true);
                                 } else {
@@ -1264,6 +1285,7 @@ impl Future for KhoraNode {
                             }
                             
                         } else /* spam */ {
+                            println!("{}","the staker sent spam".green());
                             // self.outer.kill(&fullmsg.sender);
                             self.outer.handle_gossip_now(fullmsg, false);
                         }

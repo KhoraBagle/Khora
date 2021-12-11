@@ -476,13 +476,15 @@ impl KhoraNode {
                         } else {
                             println!("they send a fake block");
                         }
-                        print!(".");
-                        if self.bnum%100 == 0 {
-                            println!("\nbnum: {}",self.bnum);
-                            let mut thisbnum = self.bnum.to_le_bytes().to_vec();
-                            thisbnum.push(2);
-                            self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui    
-                        }
+
+                        let mut thisbnum = self.bnum.to_le_bytes().to_vec();
+                        thisbnum.push(2);
+                        self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui");
+
+                        let mut mymoney = self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
+                        mymoney.push(0);
+                        println!("my money:\n---------------------------------\n{:?}",self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>());
+                        self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
                     }
                 }
             }
@@ -621,8 +623,8 @@ impl Future for KhoraNode {
                                     let mut rnamesend = self.rname.clone();
                                     rnamesend.push(114);
                                     let responces = self.send_message(rnamesend,RING_SEND_TO);
-                                    if responces.into_iter().filter(|m| {
-                                        if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(m) {
+                                    responces.into_iter().for_each(|m| {
+                                        if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(&m) {
                                             let locs = recieve_ring(&self.rname).unwrap();
                                             let rmems = r.iter().zip(locs).map(|(x,y)| (y,History::read_raw(x))).collect::<Vec<_>>();
                                             let mut ringchanged = false;
@@ -645,19 +647,13 @@ impl Future for KhoraNode {
                                                     let mut txbin = bincode::serialize(&tx).unwrap();
                                                     txbin.push(0);
                                                     self.send_message(txbin,TRANSACTION_SEND_TO);
-                                                    println!("transaction ring filled and tx sent!");
-                                                    return true
+                                                    println!("==========================\nTRANDACTION SENT\n==========================");
                                                 } else {
-                                                    println!("you can't make that transaction, user!");
+                                                    println!("you didnt get the rings :/!");
                                                 }
                                             }
                                         }
-                                        return false
-                                    }).count() != 0 {
-                                        println!("you filled your ring!");
-                                    } else {
-                                        println!("you failed to fill your ring")
-                                    }
+                                    });
                                     txbin = vec![];
                                     
                                 } else {
@@ -720,8 +716,6 @@ impl Future for KhoraNode {
                             if !responces.is_empty() {
                                 println!("responce 0 is: {:?}",responces);
                             }
-                        } else {
-                            println!("transaction not made");
                         }
                     } else if istx == u8::MAX /* panic button */ {
                         
@@ -796,15 +790,6 @@ impl Future for KhoraNode {
                         let send = self.attempt_sync();
                         if ob != self.bnum {
                             self.gui_sender.send(vec![self.blocktime as u8,128]).expect("something's wrong with the communication to the gui");
-    
-                            let mut thisbnum = self.bnum.to_le_bytes().to_vec();
-                            thisbnum.push(2);
-                            self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
-    
-                            let mut mymoney = self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
-                            mymoney.push(0);
-                            println!("my money:\n---------------------------------\n{:?}",self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>());
-                            self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui    
     
                             send.into_iter().for_each(|x| {
                                 if x.is_empty() {

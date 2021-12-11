@@ -90,7 +90,7 @@ fn main() -> Result<(), MainError> {
     println!("{:?}",frontnode.id()); // this should be the validator survice
 
 
-    let (ui_sender, mut urecv) = channel::unbounded();
+    let (ui_sender, urecv) = channel::unbounded();
     let (usend, ui_reciever) = channel::unbounded();
     let (sendtcp, recvtcp) = channel::bounded::<TcpStream>(1);
 
@@ -1169,24 +1169,25 @@ impl Future for KhoraNode {
                                     stream.write(&x);
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
-                                if let Ok(m) = m.try_into() {
-                                    let mut sync_theirnum = u64::from_le_bytes(m);
-                                    let mut send = vec![];
-                                    let mut s = 0;
-                                    loop {
-                                        if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
-                                            send.push(x);
-                                            s += 1;
-                                            break
-                                        }
-                                        sync_theirnum += 1;
-                                        if sync_theirnum == self.bnum || s == SYNC_BLOCKS_PER_STREAM {
-                                            break
-                                        }
+                                let bnum = self.bnum;
+                                thread::spawn(move || {
+                                    if let Ok(m) = m.try_into() {
+                                        let mut sync_theirnum = u64::from_le_bytes(m);
+                                        let mut s = 0;
+                                        loop {
+                                            if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
+                                                stream.write(&(x.len() as u64).to_le_bytes());
+                                                stream.write(&x);
+                                                s += 1;
+                                                break
+                                            }
+                                            sync_theirnum += 1;
+                                            if sync_theirnum == bnum {
+                                                break
+                                            }
+                                        } 
                                     }
-
-                                    stream.write(&bincode::serialize(&send).unwrap());
-                                }
+                                });
                             }
                         }
                     }

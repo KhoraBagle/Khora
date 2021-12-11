@@ -45,11 +45,7 @@ const OUTSIDER_PORT: u16 = 8335;
 /// the number of nodes to send each message to
 const TRANSACTION_SEND_TO: usize = 1;
 /// the number of nodes to send each message to
-const SYNC_SEND_TO: usize = 1;
-/// the number of nodes to send each message to
 const RING_SEND_TO: usize = 3;
-/// the number of times you attempt to check for new blocks after the person who syncs you stopps
-const N_CHECK_SYNC: usize = 1;
 
 fn main() -> Result<(), MainError> {    
     // this is the number of shards they keep track of
@@ -439,7 +435,7 @@ impl KhoraNode {
         let dead = Arc::new(Mutex::new(HashSet::<SocketAddr>::new()));
         let responces = v.par_iter().filter_map(|&socket| {
             if let Ok(mut stream) =  TcpStream::connect(socket) {
-                stream.write(&message).unwrap();
+                stream.write(&message);
                 let mut responce = Vec::<u8>::new(); // using 6 byte buffer
                 if let Ok(_) = stream.read_to_end(&mut responce) {
                     return Some(responce)
@@ -457,6 +453,33 @@ impl KhoraNode {
         self.gui_sender.send(gm).expect("should be working");
 
         responces
+    }
+
+    /// returns the responces of each person you sent it to and deletes those who are dead from the view
+    fn attempt_sync(&mut self) -> Vec<Vec<u8>> {
+
+        let mut send = vec![];
+        let mut rng = &mut rand::thread_rng();
+        if let Some(socket) = self.sendview.choose(&mut rng) {
+            if let Ok(mut stream) =  TcpStream::connect(socket) {
+                let mut blocksize = [0u8;8];
+                while stream.read(&mut blocksize).is_ok() {
+                    let bsize = u64::from_le_bytes(blocksize) as usize;
+                    let mut serialized_block = vec![0u8;bsize];
+                    if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
+                        break
+                    };
+                    if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
+                        send = self.readlightning(lastblock, serialized_block);
+                    }
+                }
+            } else {
+                println!("your friend is probably busy");
+            }
+        } else {
+            println!("you don't have any friends");
+        }
+        send
     }
 
 }
@@ -753,34 +776,8 @@ impl Future for KhoraNode {
                         let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
                         gm.push(4);
                         self.gui_sender.send(gm).expect("should be working");
-                        let mut n_check = 0;
-                        let mut send = vec![];
                         let ob = self.bnum;
-                        loop {
-                            let mut mynum = self.bnum.to_le_bytes().to_vec();
-                            mynum.push(121);
-                            let responces = self.send_message(mynum, SYNC_SEND_TO);
-
-                            if responces.len() == 0 {
-                                n_check += 1;
-                            } else {
-                                n_check = 0;
-                                responces.iter().for_each(|x| {
-                                    if let Ok(x) = bincode::deserialize::<Vec<Vec<u8>>>(&x) {
-                                        for x in x {
-                                            if let Ok(l ) = bincode::deserialize(&x) {
-                                                send = self.readlightning(l,x.to_vec());
-                                            }
-                                        }
-                                    }
-                                });
-                            }
-                            if n_check > N_CHECK_SYNC {
-                                break
-                            }
-                            thread::sleep(Duration::from_secs(1));
-                        }
-
+                        let send = self.attempt_sync();
                         if ob != self.bnum {
                             self.gui_sender.send(vec![self.blocktime as u8,128]).expect("something's wrong with the communication to the gui");
     
@@ -803,8 +800,6 @@ impl Future for KhoraNode {
                                 }
                             });
                         }
-
-                        // asdfasdffds
 
                     } else if istx == 42 /* * */ { // entry address
                         let socket = format!("{}:{}",String::from_utf8_lossy(&m),OUTSIDER_PORT);

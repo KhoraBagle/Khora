@@ -115,9 +115,9 @@ pub struct KhoraUserGUI {
     #[cfg_attr(feature = "persistence", serde(skip))]
     timekeeper: Instant,
     #[cfg_attr(feature = "persistence", serde(skip))]
-    syncretry: Instant,
-    #[cfg_attr(feature = "persistence", serde(skip))]
     you_cant_do_that: bool,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    syncretry: bool,
 }
 impl Default for KhoraUserGUI {
     fn default() -> Self {
@@ -152,7 +152,7 @@ impl Default for KhoraUserGUI {
             you_cant_do_that: false,
             eta: 60,
             timekeeper: Instant::now() - Duration::from_secs(1000),
-            syncretry: Instant::now() - Duration::from_secs(1000),
+            syncretry: true,
             setup: false,
             send_name: vec!["".to_string()],
             send_addr: vec!["".to_string()],
@@ -450,14 +450,15 @@ impl epi::App for KhoraUserGUI {
                     let x = *eta as i32 - timekeeper.elapsed().as_secs() as i32 + 1i32;
                     if x > 0 {
                         ui.add(Label::new(format!("{}",x)).strong().text_color(egui::Color32::YELLOW));
+                        *syncretry = true;
                     } else {
                         if *lonely == 0 {
                             ui.add(Label::new(format!("You are not connected to the Khora network. Fill out the mesh network gate ip in the top box and click connect.")).strong().text_color(egui::Color32::RED));
                         } else {
                             ui.add(Label::new(format!("You are not up to date. Syncing now.")).strong().text_color(egui::Color32::RED));
-                            if syncretry.elapsed().as_secs() > 1 {
+                            if *syncretry {
                                 sender.send(vec![121]).expect("something's wrong with communication from the gui");
-                                *syncretry = Instant::now();
+                                *syncretry = false;
                             }
                         }
                     }

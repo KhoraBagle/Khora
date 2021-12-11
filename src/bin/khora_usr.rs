@@ -4,17 +4,14 @@ extern crate trackable;
 
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_COMPRESSED;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
-use futures::{Async, Future, Poll, Stream};
+use futures::{Async, Future, Poll};
 use khora::seal::BETA;
 use rand::prelude::SliceRandom;
-use sloggers::terminal::{Destination, TerminalLoggerBuilder};
-use sloggers::Build;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use trackable::error::MainError;
 use crossbeam::channel;
 
@@ -95,9 +92,9 @@ fn main() -> Result<(), MainError> {
                 mine: HashMap::new(),
                 key,
                 stkinfo: vec![initial_history.clone()],
-                queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
+                queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|_| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
                 exitqueue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
-                comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|x| 0).collect::<Vec<usize>>()).collect::<Vec<_>>(),
+                comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|_| 0).collect::<Vec<usize>>()).collect::<Vec<_>>(),
                 lastname: Scalar::one().as_bytes().to_vec(),
                 bnum: 0u64,
                 lastbnum: 0u64,
@@ -423,7 +420,7 @@ impl KhoraNode {
         let v = self.sendview.choose_multiple(&mut rng, recipients).cloned().collect::<Vec<_>>();
         
         let dead = Arc::new(Mutex::new(HashSet::<SocketAddr>::new()));
-        let responces = v.par_iter().filter_map(|&socket| {
+        let responces = v.iter().filter_map(|socket| {
             if let Ok(mut stream) =  TcpStream::connect(socket) {
                 stream.write(&message);
                 let mut responce = Vec::<u8>::new(); // using 6 byte buffer
@@ -432,7 +429,7 @@ impl KhoraNode {
                 }
             }
             let mut dead = dead.lock().expect("can't lock the mutex that stores dead users!");
-            dead.insert(socket);
+            dead.insert(*socket);
             return None
         }).collect();
         let dead = dead.lock().expect("can't lock the mutex that stores dead users!");
@@ -450,24 +447,21 @@ impl KhoraNode {
 
         let mut send = vec![];
         let mut rng = &mut rand::thread_rng();
-        if let Some(socket) = self.sendview.choose(&mut rng) {
-            if let Ok(mut stream) =  TcpStream::connect(socket) {
-                let mut blocksize = [0u8;8];
-                while stream.read(&mut blocksize).is_ok() {
-                    let bsize = u64::from_le_bytes(blocksize) as usize;
-                    let mut serialized_block = vec![0u8;bsize];
-                    if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
-                        break
-                    };
-                    if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
-                        send = self.readlightning(lastblock, serialized_block);
-                    }
+        self.sendview.shuffle(&mut rng);
+        if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
+            let mut blocksize = [0u8;8];
+            while stream.read(&mut blocksize).is_ok() {
+                let bsize = u64::from_le_bytes(blocksize) as usize;
+                let mut serialized_block = vec![0u8;bsize];
+                if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
+                    break
+                };
+                if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
+                    send = self.readlightning(lastblock, serialized_block);
                 }
-            } else {
-                println!("your friend is probably busy");
             }
         } else {
-            println!("you don't have any friends");
+            println!("your friend is probably busy or you have none");
         }
         send
     }
@@ -690,7 +684,7 @@ impl Future for KhoraNode {
                             txbin.push(0);
                             
                             println!("transaction broadcasted");
-                            let responces = self.send_message(txbin.clone(), TRANSACTION_SEND_TO);
+                            let responces = self.send_message(txbin, TRANSACTION_SEND_TO);
                             if !responces.is_empty() {
                                 println!("responce 0 is: {:?}",responces);
                             }

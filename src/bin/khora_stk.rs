@@ -51,8 +51,6 @@ const USURP_TIME: u64 = 3600;
 const DEFAULT_PORT: u16 = 8334;
 /// the outsider port
 const OUTSIDER_PORT: u16 = 8335;
-/// number of blocks to send someone if they make a sync request
-const SYNC_BLOCKS_PER_STREAM: u32 = 100;
 
 fn main() -> Result<(), MainError> {
     let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build())?; // info or debug
@@ -62,7 +60,7 @@ fn main() -> Result<(), MainError> {
 
     
     // let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
-    let local_socket: SocketAddr = format!("{}:{}",local_ip().unwrap(),DEFAULT_PORT).parse().unwrap();;
+    let local_socket: SocketAddr = format!("{}:{}",local_ip().unwrap(),DEFAULT_PORT).parse().unwrap();
     let mut p = ProviderDefaultV4::new();
     let global_addr = match p.get_addr() {
         Ok(x) => x.v4addr.unwrap(),
@@ -107,43 +105,7 @@ fn main() -> Result<(), MainError> {
 
         }
     });
-    // thread::spawn(move || { // this was just checking that you can send a tcpstream between threads
-    //     let outerlistener = TcpListener::bind("0.0.0.0:9999").unwrap();
-    //     for stream in outerlistener.incoming() {
-    //         let mut stream = stream.unwrap();
-    //         println!("got stream {:?}",stream);
-    //         loop {
-
-    //             let mut m = vec![0;100];
-    //             match stream.read(&mut m) {
-    //                 Ok(x) => {
-    //                     println!("{}:\n{:?}",x,String::from_utf8_lossy(&m));
-    //                     break
-    //                 }
-    //                 Err(err) => {
-    //                     println!("# ERROR: {}",err);
-    //                 }
-    //             }
-    //         }
-    //     }
-    // });
-    // thread::spawn(move || {
-    //     let x = TcpStream::connect("0.0.0.0:9999").unwrap();
-    //     s.send(x).unwrap();
-    //     println!("sent tcpstream");
-    //     thread::sleep(Duration::from_secs(1));
-    //     let x = TcpStream::connect("0.0.0.0:9999").unwrap();
-    //     s.send(x).unwrap();
-    //     println!("sent tcpstream");
-    // });
-    // thread::sleep(Duration::from_secs(1));
-    // let mut x = r.try_recv().unwrap();
-    // x.write(b"hi").unwrap();
-    // thread::sleep(Duration::from_secs(1));
-    // let mut x = r.try_recv().unwrap();
-    // x.write(b"ho").unwrap();
-    // thread::sleep(Duration::from_secs(100));
-
+    
     // the myNode file only exists if you already have an account made
     let setup = !Path::new("myNode").exists();
     if setup {
@@ -195,9 +157,9 @@ fn main() -> Result<(), MainError> {
                 overthrown: HashSet::new(),
                 votes: vec![0;NUMBER_OF_VALIDATORS],
                 stkinfo: vec![initial_history.clone()],
-                queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
+                queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|_| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
                 exitqueue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
-                comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|x| 0).collect::<Vec<usize>>()).collect::<Vec<_>>(),
+                comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|_| 0).collect::<Vec<usize>>()).collect::<Vec<_>>(),
                 lastname: Scalar::one().as_bytes().to_vec(),
                 bloom,
                 bnum: 0u64,

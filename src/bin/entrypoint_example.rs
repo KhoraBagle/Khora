@@ -26,6 +26,53 @@ const DEFAULT_PORT: u16 = 8334;
 // systemd-resolve --status | grep Current
 
 fn main() {
+
+
+    // thread::spawn(move || { // this was just checking that you can send a tcpstream between threads
+    //     let outerlistener = TcpListener::bind("0.0.0.0:9999").unwrap();
+    //     for stream in outerlistener.incoming() {
+    //         let mut stream = stream.unwrap();
+    //         println!("got stream {:?}",stream);
+    //         loop {
+
+    //             let mut m = vec![0;100];
+    //             match stream.read(&mut m) {
+    //                 Ok(x) => {
+    //                     println!("{}:\n{:?}",x,String::from_utf8_lossy(&m));
+    //                     break
+    //                 }
+    //                 Err(err) => {
+    //                     println!("# ERROR: {}",err);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // });
+    // thread::spawn(move || {
+    //     let x = TcpStream::connect("0.0.0.0:9999").unwrap();
+    //     s.send(x).unwrap();
+    //     println!("sent tcpstream");
+    //     thread::sleep(Duration::from_secs(1));
+    //     let x = TcpStream::connect("0.0.0.0:9999").unwrap();
+    //     s.send(x).unwrap();
+    //     println!("sent tcpstream");
+    // });
+    // thread::sleep(Duration::from_secs(1));
+    // let mut x = r.try_recv().unwrap();
+    // x.write(b"hi").unwrap();
+    // thread::sleep(Duration::from_secs(1));
+    // let mut x = r.try_recv().unwrap();
+    // x.write(b"ho").unwrap();
+    // thread::sleep(Duration::from_secs(100));
+
+
+
+
+
+
+
+
+
     // let local_socket = local_ip().unwrap();
     // let listener = TcpListener::bind(format!("{}:{}",local_socket,DEFAULT_PORT)).unwrap();
 

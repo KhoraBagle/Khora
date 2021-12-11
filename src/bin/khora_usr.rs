@@ -7,11 +7,11 @@ use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll};
 use khora::seal::BETA;
 use rand::prelude::SliceRandom;
+use std::{cmp, thread};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use trackable::error::MainError;
 use crossbeam::channel;
 
@@ -32,6 +32,7 @@ use khora::validation::{
     NUMBER_OF_VALIDATORS, QUEUE_LENGTH, PERSON0,
     reward, blocktime
 };
+use colored::Colorize;
 
 
 
@@ -66,7 +67,7 @@ fn main() -> Result<(), MainError> {
         // everyone agrees this person starts with 1 khora token
         let initial_history = (PERSON0,1u64);
 
-        std::thread::spawn(move || {
+        thread::spawn(move || {
             let pswrd = urecv.recv().unwrap();
             
             let will_stk = urecv.recv().unwrap()[0] == 0;
@@ -160,7 +161,7 @@ fn main() -> Result<(), MainError> {
             false,
         );
         let native_options = eframe::NativeOptions::default();
-        std::thread::spawn(move || {
+        thread::spawn(move || {
             executor.spawn(node);
             track_any_err!(executor.run()).unwrap();
         });
@@ -417,28 +418,31 @@ impl KhoraNode {
     fn send_message(&mut self, message: Vec<u8>, recipients: usize) -> Vec<Vec<u8>> {
 
         let mut rng = &mut rand::thread_rng();
-        let v = self.sendview.choose_multiple(&mut rng, recipients).cloned().collect::<Vec<_>>();
-        
-        let dead = Arc::new(Mutex::new(HashSet::<SocketAddr>::new()));
-        let responces = v.iter().filter_map(|socket| {
+        self.sendview.shuffle(&mut rng);
+        let mut dead = HashSet::<SocketAddr>::new();
+        let responces = self.sendview[..cmp::min(recipients,self.sendview.len())].iter().filter_map(|socket| {
             if let Ok(mut stream) =  TcpStream::connect(socket) {
-                stream.write(&message);
-                let mut responce = Vec::<u8>::new(); // using 6 byte buffer
-                if let Ok(_) = stream.read_to_end(&mut responce) {
-                    return Some(responce)
+                println!("connected...");
+                if stream.write(&message).is_ok() {
+                    println!("request made...");
+                    let mut responce = Vec::<u8>::new(); // using 6 byte buffer
+                    if let Ok(_) = stream.read_to_end(&mut responce) {
+                        println!("{}","RESPONCE HERD".green());
+                        return Some(responce)
+                    }
                 }
             }
-            let mut dead = dead.lock().expect("can't lock the mutex that stores dead users!");
             dead.insert(*socket);
             return None
         }).collect();
-        let dead = dead.lock().expect("can't lock the mutex that stores dead users!");
         self.sendview.retain(|x| !dead.contains(x));
 
         let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
         gm.push(4);
         self.gui_sender.send(gm).expect("should be working");
 
+
+        println!("{}","RESPONCES DONE".red().bold());
         responces
     }
 
@@ -460,7 +464,6 @@ impl KhoraNode {
                 if ok == vec![1] {
                     println!("responce valid. syncing now...");
                     let mut blocksize = [0u8;8];
-                    // std::thread::sleep(Duration::from_secs(1));
                     while let Ok(x) = stream.read(&mut blocksize) {
                         let bsize = u64::from_le_bytes(blocksize) as usize;
                         if x < 8 {
@@ -629,9 +632,10 @@ impl Future for KhoraNode {
                                             let rmems = r.iter().zip(locs).map(|(x,y)| (y,History::read_raw(x))).collect::<Vec<_>>();
                                             let mut ringchanged = false;
                                             for mem in rmems {
-                                                if self.mine.iter().filter(|x| *x.0 == mem.0).count() == 0 {
+                                                if !self.mine.iter().any(|x| *x.0 == mem.0) {
                                                     self.rmems.insert(mem.0,mem.1);
                                                     ringchanged = true;
+                                                    print!("{}","!".red());
                                                 }
                                             }
                                             if ringchanged {
@@ -647,15 +651,14 @@ impl Future for KhoraNode {
                                                     let mut txbin = bincode::serialize(&tx).unwrap();
                                                     txbin.push(0);
                                                     self.send_message(txbin,TRANSACTION_SEND_TO);
-                                                    println!("==========================\nTRANDACTION SENT\n==========================");
+                                                    println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
                                                 } else {
-                                                    println!("you didnt get the rings :/!");
+                                                    println!("{}","you didnt get the rings :(".red());
                                                 }
                                             }
                                         }
                                     });
                                     txbin = vec![];
-                                    
                                 } else {
                                     let mut rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
                                     let me = self.me;
@@ -668,7 +671,7 @@ impl Future for KhoraNode {
                                         let tx = tx.polyform(&self.rname);
                                         self.lasttags.push(tx.tags[0]);
                                         txbin = bincode::serialize(&tx).unwrap();
-                                        println!("transaction made!");
+                                        println!("{}","transaction made!".green());
                                     } else {
                                         txbin = vec![];
                                         println!("you can't make that transaction, user!");
@@ -686,10 +689,10 @@ impl Future for KhoraNode {
                             let mut rlring = ring.into_iter().map(|x| {
                                 let x = OTAccount::summon_ota(&History::get(&x));
                                 if acc.iter().all(|a| a.pk != x.pk) {
-                                    println!("not mine!");
+                                    // println!("not mine!");
                                     x
                                 } else {
-                                    println!("mine!");
+                                    // println!("mine!");
                                     acc.iter().filter(|a| a.pk == x.pk).collect::<Vec<_>>()[0].to_owned()
                                 }
                             }).collect::<Vec<OTAccount>>();
@@ -701,7 +704,7 @@ impl Future for KhoraNode {
                             if tx.verify().is_ok() {
                                 self.lasttags.push(tx.tags[0]);
                                 txbin = bincode::serialize(&tx).unwrap();
-                                println!("transaction made!");
+                                println!("{}","transaction made!".green());
                             } else {
                                 txbin = vec![];
                                 println!("you can't make that transaction!");

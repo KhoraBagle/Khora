@@ -363,7 +363,7 @@ impl NextBlock {
             sigfinale = sigs.par_iter().filter(|x| if let (Ok(z),Ok(y)) = (bincode::serialize(&x.txs),bincode::serialize(&b.txs)) {z==y} else {false}).map(|x| x.to_owned()).collect::<Vec<NextBlock>>();
             if validator_pool.par_iter().filter(|x| !sigfinale.par_iter().all(|y| x.to_owned() != &y.leader.pk)).count() >= SIGNING_CUTOFF {
                 sigfinale.push(b);
-                println!("they agree on tx in block validation");
+                // println!("they agree on tx in block validation");
                 let sigfinale = sigfinale.par_iter().enumerate().filter_map(|(i,x)| if sigs[..i].par_iter().all(|y| x.leader.pk != y.leader.pk) {Some(x.to_owned())} else {None}).collect::<Vec<NextBlock>>();
                 let m = vec![leader.clone(),bincode::serialize(&vec![pool]).unwrap(),Syncedtx::to_sign(&sigfinale[0].txs),bnum.to_le_bytes().to_vec(), last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
                 let mut s = Sha3_512::new();

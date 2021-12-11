@@ -537,7 +537,7 @@ impl KhoraNode {
                     if self.exitqueue[self.headshard].range(..REPLACERATE).map(|&x| self.comittee[self.headshard][x]).any(|x| keylocation == x as u64) {
                         if let Some(mut lastblock) = largeblock.clone() {
                             lastblock.push(3);
-                            println!("{}",format!("sending out the new block {} to the outside world!",lastlightning.bnum).red());
+                            println!("{}",format!("sending block {} to the outside world!",lastlightning.bnum).green());
                             self.outer.broadcast_now(lastblock); /* broadcast the block to the outside world */
                         }
                     }
@@ -905,7 +905,7 @@ impl Future for KhoraNode {
                     // if you are the newest member of the comittee you're responcible for choosing the tx that goes into the next block
                     if self.keylocation == Some(self.newest as u64) {
                         let m = bincode::serialize(&self.txses).unwrap();
-                        println!("{}",format!("sending {} tx",self.txses.len()).red().bold());
+                        println!("{}",format!("sending {} tx as newest",self.txses.len()).red().bold());
 
                         let mut m = Signature::sign_message_nonced(&self.key, &m, &self.newest,&self.bnum);
                         m.push(1u8);
@@ -981,7 +981,6 @@ impl Future for KhoraNode {
 
                                         if let Some(keylocation) = &self.keylocation {
                                             let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, m, &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo);
-                                            println!("{:?}",m.txs.len());
                                             let mut m = bincode::serialize(&m).unwrap();
                                             m.push(2);
                                             for _ in self.comittee[self.headshard].iter().filter(|&x|*x as u64 == *keylocation).collect::<Vec<_>>() {
@@ -1088,7 +1087,6 @@ impl Future for KhoraNode {
 
                             println!("{}","FAILED TO MAKE A BLOCK RIGHT NOW".red().bold());
                         }
-        
                     }
                 }
 

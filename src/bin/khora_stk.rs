@@ -90,7 +90,7 @@ fn main() -> Result<(), MainError> {
     println!("{:?}",frontnode.id()); // this should be the validator survice
 
 
-    let (ui_sender, urecv) = channel::unbounded();
+    let (ui_sender, urecv) = channel::unbounded::<Vec<u8>>();
     let (usend, ui_reciever) = channel::unbounded();
     let (sendtcp, recvtcp) = channel::bounded::<TcpStream>(1);
 
@@ -151,20 +151,9 @@ fn main() -> Result<(), MainError> {
         let initial_history = (PERSON0,1u64);
 
         std::thread::spawn(move || {
-            let pswrd: Vec<u8>;
-            let lightning_yielder: bool;
-            loop {
-                if let Ok(m) = urecv.try_recv() {
-                    pswrd = m;
-                    break
-                }
-            }
-            loop {
-                if let Ok(m) = urecv.try_recv() {
-                    lightning_yielder = m[0] == 1;
-                    break
-                }
-            }
+            let pswrd = urecv.recv().unwrap();
+            let lightning_yielder = urecv.recv().unwrap()[0] == 1;
+
             println!("{:?}",pswrd);
             let me = Account::new(&pswrd);
             let validator = me.stake_acc().receive_ot(&me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap(); //make a new account
@@ -1173,12 +1162,10 @@ impl Future for KhoraNode {
                                 thread::spawn(move || {
                                     if let Ok(m) = m.try_into() {
                                         let mut sync_theirnum = u64::from_le_bytes(m);
-                                        let mut s = 0;
                                         loop {
                                             if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
                                                 stream.write(&(x.len() as u64).to_le_bytes());
                                                 stream.write(&x);
-                                                s += 1;
                                                 break
                                             }
                                             sync_theirnum += 1;

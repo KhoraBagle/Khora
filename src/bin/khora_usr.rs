@@ -57,7 +57,7 @@ fn main() -> Result<(), MainError> {
     // println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
     let executor = track_any_err!(ThreadPoolExecutor::new())?;
 
-    let (ui_sender, urecv) = channel::unbounded();
+    let (ui_sender, urecv) = channel::unbounded::<Vec<u8>>();
     let (usend, ui_reciever) = channel::unbounded();
 
 
@@ -70,21 +70,11 @@ fn main() -> Result<(), MainError> {
         let initial_history = (PERSON0,1u64);
 
         std::thread::spawn(move || {
-            let pswrd: Vec<u8>;
-            let will_stk: bool;
-            loop {
-                if let Ok(m) = urecv.try_recv() {
-                    pswrd = m;
-                    break
-                }
-            }
-            loop {
-                if let Ok(m) = urecv.try_recv() {
-                    will_stk = m[0] == 0;
-                    break
-                }
-            }
-            println!("{:?}",pswrd);
+            let pswrd = urecv.recv().unwrap();
+            
+            let will_stk = urecv.recv().unwrap()[0] == 0;
+            println!("password:\n{:?}",pswrd);
+
             let me = Account::new(&pswrd);
             let validator = me.stake_acc().receive_ot(&me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap(); //make a new account
             let key = validator.sk.unwrap();

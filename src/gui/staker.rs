@@ -249,11 +249,8 @@ impl epi::App for KhoraStakerGUI {
         if !self.setup {
             epi::set_value(storage, "Khora", self);
             self.sender.send(vec![0]).unwrap();
-            loop {
-                if self.reciever.try_recv() == Ok(vec![253]) {
-                    // println!("Saved!");
-                    break
-                }
+            if self.reciever.recv() == Ok(vec![253]) {
+                println!("Saved!");
             }
         }
     }
@@ -641,16 +638,8 @@ impl epi::App for KhoraStakerGUI {
                     if ui.add(Button::new("Login").sense(if !bad_log_info {Sense::hover()} else {Sense::click()})).clicked() {
                         *password0 = pswd_guess0.clone();
                         *next_pswrd1 = username.clone();
-                        loop {
-                            if sender.send(get_pswrd(&*password0,&*username,&*secret_key)).is_ok() {
-                                break
-                            }
-                        }
-                        loop {
-                            if sender.send(vec![*lightning_yielder as u8]).is_ok() {
-                                break
-                            }
-                        }
+                        sender.send(get_pswrd(&*password0,&*username,&*secret_key));
+                        sender.send(vec![*lightning_yielder as u8]);
                     }
                 });
                 ui.horizontal(|ui| {

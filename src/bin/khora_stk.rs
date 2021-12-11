@@ -1118,7 +1118,7 @@ impl Future for KhoraNode {
             // if self.is_node {
 
                 // jhgfjhfgj
-                if let Ok(mut stream) = self.outerlister.try_recv() {
+                while let Ok(mut stream) = self.outerlister.try_recv() {
                     let mut m = vec![0;100_000]; // maybe choose an upper bound in an actually thoughtful way?
                     if let Ok(i) = stream.read(&mut m) { // stream must be read before responding btw
                         m = m[..i].to_vec();

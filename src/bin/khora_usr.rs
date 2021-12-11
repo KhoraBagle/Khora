@@ -579,54 +579,46 @@ impl Future for KhoraNode {
                                 let ring = recieve_ring(&self.rname).expect("shouldn't fail");
                                 if self.ringsize != 0 {
                                     println!("ring:----------------------------------\n{:?}",ring);
-                                    let mut good = false;
-                                    loop {
-                                        let mut rnamesend = self.rname.clone();
-                                        rnamesend.push(114);
-                                        let responces = self.send_message(rnamesend,RING_SEND_TO);
-                                        if responces.into_iter().filter(|m| {
-                                            if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(m) {
-                                                let locs = recieve_ring(&self.rname).unwrap();
-                                                let rmems = r.iter().zip(locs).map(|(x,y)| (y,History::read_raw(x))).collect::<Vec<_>>();
-                                                let mut ringchanged = false;
-                                                for mem in rmems {
-                                                    if self.mine.iter().filter(|x| *x.0 == mem.0).count() == 0 {
-                                                        self.rmems.insert(mem.0,mem.1);
-                                                        ringchanged = true;
-                                                    }
-                                                }
-                                                if ringchanged {
-                                                    let ring = recieve_ring(&self.rname).unwrap();
-                                                    let mut got_the_ring = true;
-                                                    let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
-                                                    rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
-                                                    let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                                                    if got_the_ring && tx.verify().is_ok() {
-                                                        let tx = tx.polyform(&self.rname);
-                                                        self.lasttags.push(tx.tags[0]);
-                                                        // tx.verify().unwrap(); // as a user you won't be able to check this
-                                                        let mut txbin = bincode::serialize(&tx).unwrap();
-                                                        txbin.push(0);
-                                                        self.send_message(txbin,TRANSACTION_SEND_TO);
-                                                        println!("transaction ring filled and tx sent!");
-                                                        return true
-                                                    } else {
-                                                        println!("you can't make that transaction, user!");
-                                                    }
+                                    let mut rnamesend = self.rname.clone();
+                                    rnamesend.push(114);
+                                    let responces = self.send_message(rnamesend,RING_SEND_TO);
+                                    if responces.into_iter().filter(|m| {
+                                        if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(m) {
+                                            let locs = recieve_ring(&self.rname).unwrap();
+                                            let rmems = r.iter().zip(locs).map(|(x,y)| (y,History::read_raw(x))).collect::<Vec<_>>();
+                                            let mut ringchanged = false;
+                                            for mem in rmems {
+                                                if self.mine.iter().filter(|x| *x.0 == mem.0).count() == 0 {
+                                                    self.rmems.insert(mem.0,mem.1);
+                                                    ringchanged = true;
                                                 }
                                             }
-                                            return false
-                                        }).count() != 0 {
-                                            good = true;
-                                            break
-                                        } else {
-                                            println!("you need better members")
+                                            if ringchanged {
+                                                let ring = recieve_ring(&self.rname).unwrap();
+                                                let mut got_the_ring = true;
+                                                let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
+                                                rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
+                                                let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                                                if got_the_ring && tx.verify().is_ok() {
+                                                    let tx = tx.polyform(&self.rname);
+                                                    self.lasttags.push(tx.tags[0]);
+                                                    // tx.verify().unwrap(); // as a user you won't be able to check this
+                                                    let mut txbin = bincode::serialize(&tx).unwrap();
+                                                    txbin.push(0);
+                                                    self.send_message(txbin,TRANSACTION_SEND_TO);
+                                                    println!("transaction ring filled and tx sent!");
+                                                    return true
+                                                } else {
+                                                    println!("you can't make that transaction, user!");
+                                                }
+                                            }
                                         }
+                                        return false
+                                    }).count() != 0 {
+                                        println!("you filled your ring!");
+                                    } else {
+                                        println!("you failed to fill your ring")
                                     }
-                                    if !good {
-                                        println!("FAILED TO SEND TRANSACTION");
-                                    }
-
                                     txbin = vec![];
                                     
                                 } else {
@@ -683,14 +675,12 @@ impl Future for KhoraNode {
                         // if that tx is valid and ready as far as you know
                         if validtx && !txbin.is_empty() {
                             txbin.push(0);
-                            loop {
-                                let responces = self.send_message(txbin.clone(), TRANSACTION_SEND_TO);
-                                if !responces.is_empty() {
-                                    println!("responce 0 is: {:?}",responces);
-                                    break
-                                }
-                            }
+                            
                             println!("transaction broadcasted");
+                            let responces = self.send_message(txbin.clone(), TRANSACTION_SEND_TO);
+                            if !responces.is_empty() {
+                                println!("responce 0 is: {:?}",responces);
+                            }
                         } else {
                             println!("transaction not made right now");
                         }
@@ -730,12 +720,10 @@ impl Future for KhoraNode {
                                 }
                                 let mut txbin = bincode::serialize(&tx).unwrap();
                                 txbin.push(0);
-                                loop {
-                                    let responces = self.send_message(txbin.clone(), TRANSACTION_SEND_TO);
-                                    if !responces.is_empty() {
-                                        println!("responce 0 is: {:?}",responces);
-                                        break
-                                    }
+                                
+                                let responces = self.send_message(txbin.clone(), TRANSACTION_SEND_TO);
+                                if !responces.is_empty() {
+                                    println!("responce 0 is: {:?}",responces);
                                 }
                                 self.moneyreset = Some((txbin,tx.tags[0]));
                                 println!("transaction made!");
@@ -790,6 +778,7 @@ impl Future for KhoraNode {
                             if n_check > N_CHECK_SYNC {
                                 break
                             }
+                            thread::sleep(Duration::from_secs(1));
                         }
 
                         if ob != self.bnum {

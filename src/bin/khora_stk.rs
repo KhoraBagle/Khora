@@ -52,7 +52,7 @@ const DEFAULT_PORT: u16 = 8334;
 /// the outsider port
 const OUTSIDER_PORT: u16 = 8335;
 /// number of blocks to send someone if they make a sync request
-const SYNC_BLOCKS_PER_STREAM: u32 = 50;
+const SYNC_BLOCKS_PER_STREAM: u32 = 100;
 
 fn main() -> Result<(), MainError> {
     let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build())?; // info or debug

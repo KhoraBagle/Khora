@@ -183,9 +183,6 @@ fn main() -> Result<(), MainError> {
                 gui_sender: usend.clone(),
                 gui_reciever: channel::unbounded().1,
                 moneyreset: None,
-                sync_returnaddr: None,
-                sync_theirnum: 0u64,
-                sync_lightning: false,
                 oldstk: None,
                 cumtime: 0f64,
                 blocktime: blocktime(0.0),
@@ -355,9 +352,6 @@ struct KhoraNode {
     is_node: bool,
     newest: u64,
     moneyreset: Option<Vec<u8>>,
-    sync_returnaddr: Option<NodeId>,
-    sync_theirnum: u64,
-    sync_lightning: bool,
     oldstk: Option<(Account, Option<[u64;2]>, u64)>,
     cumtime: f64,
     blocktime: f64,
@@ -484,9 +478,6 @@ impl KhoraNode {
             doneerly: Instant::now(),
             newest: 0u64,
             moneyreset: sn.moneyreset,
-            sync_returnaddr: None,
-            sync_theirnum: 0u64,
-            sync_lightning: false,
             oldstk: sn.oldstk,
             cumtime: sn.cumtime,
             blocktime: sn.blocktime,
@@ -823,6 +814,59 @@ impl KhoraNode {
             }
         }
     }
+
+
+
+    /// returns the responces of each person you sent it to and deletes those who are dead from the view
+    fn attempt_sync(&mut self) {
+
+        let mut rng = &mut rand::thread_rng();
+        let mut sendview = self.allnetwork.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>();
+        
+        sendview.shuffle(&mut rng);
+        for node in sendview {
+            if let Ok(mut stream) =  TcpStream::connect(node) {
+                if stream.write(&[122 - (self.lightning_yielder as u8)]).unwrap_or_default() == 1 {
+                    let mut ok = vec![0];
+                    stream.read(&mut ok);
+                    if ok == vec![1] {
+                        let mut blocksize = [0u8;8];
+                        while stream.read(&mut blocksize).is_ok() {
+                            let bsize = u64::from_le_bytes(blocksize) as usize;
+                            let mut serialized_block = vec![0u8;bsize];
+                            if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
+                                break
+                            };
+                            if self.lightning_yielder {
+                                if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
+                                    if !self.readlightning(lastblock, serialized_block, None) {
+                                        break
+                                    }
+                                } else {
+                                    break
+                                }
+                            } else {
+                                if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&serialized_block) {
+                                    if !self.readblock(lastblock, serialized_block) {
+                                        break
+                                    }
+                                } else {
+                                    break
+                                }
+                            }
+                        }
+                        break
+                    }
+                }
+            } else {
+                println!("your friend is probably busy or you have none");
+            }
+        }
+        
+    }
+
+
+
 }
 impl Future for KhoraNode {
     type Item = ();
@@ -1062,42 +1106,15 @@ impl Future for KhoraNode {
                 \*/
             // if you're not in the comittee
             // if self.is_node {
-                // if you're syncing someone sync a few more blocks every loop time
-                if let Some(addr) = self.sync_returnaddr {
-                    while self.sync_theirnum <= self.bnum {
-                        println!("checking for file location for {}...",self.sync_theirnum);
-                        if self.sync_lightning {
-                            if let Ok(mut x) = LightningSyncBlock::read(&self.sync_theirnum) {
-                                x.push(3);
-                                self.outer.dm(x,&vec![addr],false);
-                                self.sync_theirnum += 1;
-                                break;
-                            } else {
-                                self.sync_theirnum += 1;
-                            }
-                        } else {
-                            if let Ok(mut x) = NextBlock::read(&self.sync_theirnum) {
-                                x.push(3);
-                                self.outer.dm(x,&vec![addr],false);
-                                self.sync_theirnum += 1;
-                                break;
-                            } else {
-                                self.sync_theirnum += 1;
-                            }
-                        }
-                    }
-                }
-
 
                 // jhgfjhfgj
                 if let Ok(mut stream) = self.outerlister.try_recv() {
                     let mut m = vec![0;100_000]; // maybe choose an upper bound in an actually thoughtful way?
-                    if let Ok(i) = stream.read(&mut m) { // stream must be read before responding bte
+                    if let Ok(i) = stream.read(&mut m) { // stream must be read before responding btw
                         m = m[..i].to_vec();
                         if let Some(mtype) = m.pop() {
                             println!("got a stream of type {}!",mtype);
                             if mtype == 0 /* transaction someone wants to make */ {
-                                // to avoid spam
                                 if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
                                     let ok = {
                                         let bloom = self.bloom.borrow();
@@ -1120,15 +1137,19 @@ impl Future for KhoraNode {
                                     stream.write(&x);
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
+                                stream.write(&[1]);
                                 let bnum = self.bnum;
                                 thread::spawn(move || {
                                     if let Ok(m) = m.try_into() {
                                         let mut sync_theirnum = u64::from_le_bytes(m);
                                         loop {
                                             if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
-                                                stream.write(&(x.len() as u64).to_le_bytes());
-                                                stream.write(&x);
-                                                break
+                                                if stream.write(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                    break
+                                                }
+                                                if stream.write(&x).is_err() {
+                                                    break
+                                                }
                                             }
                                             sync_theirnum += 1;
                                             if sync_theirnum == bnum {
@@ -1137,6 +1158,30 @@ impl Future for KhoraNode {
                                         } 
                                     }
                                 });
+                            } else if mtype == 122 /* z */ { // someone sent a full sync request
+                                if !self.lightning_yielder {
+                                    stream.write(&[1]);
+                                    let bnum = self.bnum;
+                                    thread::spawn(move || {
+                                        if let Ok(m) = m.try_into() {
+                                            let mut sync_theirnum = u64::from_le_bytes(m);
+                                            loop {
+                                                if let Ok(x) = NextBlock::read(&sync_theirnum) {
+                                                    if stream.write(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                        break
+                                                    }
+                                                    if stream.write(&x).is_err() {
+                                                        break
+                                                    }
+                                                }
+                                                sync_theirnum += 1;
+                                                if sync_theirnum == bnum {
+                                                    break
+                                                }
+                                            } 
+                                        }
+                                    });
+                                }
                             }
                         }
                     }
@@ -1183,20 +1228,6 @@ impl Future for KhoraNode {
                             } else {
                                 self.outer.handle_gossip_now(fullmsg, false);
                             }
-                        } else if mtype == 60 /* < */ { // redo sync request
-                            let mut mynum = self.bnum.to_le_bytes().to_vec();
-                            if self.lightning_yielder { // lightning users don't ask for full blocks
-                                mynum.push(108); //l
-                            } else {
-                                mynum.push(102); //f
-                            }
-                            mynum.push(121);
-                            if let Some(&&friend) = self.allnetwork.iter().filter_map(|(_,(_,x))| x.as_ref()).collect::<Vec<_>>().choose(&mut rand::thread_rng()) {
-                                println!("asking for help from {:?}",friend);
-                                self.outer.dm(mynum, &[NodeId::new(friend,LocalNodeId::new(0))], false);
-                            } else {
-                                println!("you don't know anyone on the network by their name");
-                            }
                         } else if mtype == 97 /* a */ {
                             println!("Someone's trying to connect!!! :3\n(  this means you're recieving connect request >(^.^)>  )");
                             self.outer.plumtree_node.lazy_push_peers.insert(fullmsg.sender);
@@ -1229,30 +1260,6 @@ impl Future for KhoraNode {
                                 self.outer.handle_gossip_now(fullmsg, false);
                             }
                             
-                        } else if mtype == 121 /* y */ { // someone sent a sync request
-                            let mut i_cant_do_this = true;
-                            if self.sync_returnaddr.is_none() {
-                                if let Some(theyfast) = m.pop() {
-                                    if let Ok(m) = m.try_into() {
-                                        if theyfast == 108 {
-                                            self.sync_lightning = true;
-                                            self.sync_returnaddr = Some(msg.id.node());
-                                            self.sync_theirnum = u64::from_le_bytes(m);
-                                            i_cant_do_this = false;
-                                        } else {
-                                            if !self.lightning_yielder {
-                                                self.sync_lightning = false;
-                                                self.sync_returnaddr = Some(msg.id.node());
-                                                self.sync_theirnum = u64::from_le_bytes(m);
-                                                i_cant_do_this = false;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            if msg.id.node() != *self.outer.plumtree_node().id() && i_cant_do_this {
-                                self.outer.dm(vec![60], &[msg.id.node()], false);
-                            }
                         } else /* spam */ {
                             // self.outer.kill(&fullmsg.sender);
                             self.outer.handle_gossip_now(fullmsg, false);
@@ -1501,20 +1508,7 @@ impl Future for KhoraNode {
 
 
                     } else if istx == 121 /* y */ { // you clicked sync
-                        let mut mynum = self.bnum.to_le_bytes().to_vec();
-                        if self.lightning_yielder { // lightning users don't ask for full blocks
-                            mynum.push(108); //l
-                        } else {
-                            mynum.push(102); //f
-                        }
-                        mynum.push(121);
-
-                        if let Some(&&friend) = self.allnetwork.iter().filter_map(|(_,(_,x))| x.as_ref()).collect::<Vec<_>>().choose(&mut rand::thread_rng()) {
-                            println!("asking for help from {:?}",friend);
-                            self.outer.dm(mynum, &[NodeId::new(friend,LocalNodeId::new(0))], false);
-                        } else {
-                            println!("you don't know anyone on the network by their name");
-                        }
+                        self.attempt_sync();
                     } else if istx == 42 /* * */ { // entry address
                         let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
                         println!("{}",m);

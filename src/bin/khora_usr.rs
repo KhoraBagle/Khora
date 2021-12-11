@@ -449,15 +449,21 @@ impl KhoraNode {
         let mut rng = &mut rand::thread_rng();
         self.sendview.shuffle(&mut rng);
         if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
-            let mut blocksize = [0u8;8];
-            while stream.read(&mut blocksize).is_ok() {
-                let bsize = u64::from_le_bytes(blocksize) as usize;
-                let mut serialized_block = vec![0u8;bsize];
-                if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
-                    break
-                };
-                if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
-                    send = self.readlightning(lastblock, serialized_block);
+            if stream.write(&[121]).unwrap_or_default() == 1 {
+                let mut ok = vec![0];
+                stream.read(&mut ok);
+                if ok == vec![1] {
+                    let mut blocksize = [0u8;8];
+                    while stream.read(&mut blocksize).is_ok() {
+                        let bsize = u64::from_le_bytes(blocksize) as usize;
+                        let mut serialized_block = vec![0u8;bsize];
+                        if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
+                            break
+                        };
+                        if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
+                            send = self.readlightning(lastblock, serialized_block);
+                        }
+                    }
                 }
             }
         } else {

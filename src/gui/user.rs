@@ -6,7 +6,7 @@ use crossbeam::channel;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
-use crate::validation::VERSION;
+use crate::validation::{VERSION, BLOOM_NAME};
 
 /*
 cargo run --bin full_staker --release 9876 pig
@@ -693,6 +693,7 @@ impl epi::App for KhoraUserGUI {
             if ui.button("Quit Account- Will require resync with blockchain").clicked() {
                 fs::remove_file("myUsr");
                 fs::remove_file("history");
+                fs::remove_file(BLOOM_NAME);
                 *setup = true;
                 frame.quit();
             }

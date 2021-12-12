@@ -779,22 +779,18 @@ impl Future for KhoraNode {
                         let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
                         gm.push(4);
                         self.gui_sender.send(gm).expect("should be working");
-                        let ob = self.bnum;
                         let send = self.attempt_sync();
-                        if ob != self.bnum {
-                            self.gui_sender.send(vec![self.blocktime as u8,128]).expect("something's wrong with the communication to the gui");
-    
-                            send.into_iter().for_each(|x| {
-                                if x.is_empty() {
-                                    if let Some((x,_)) = self.moneyreset.clone() {
-                                        self.send_message(x, TRANSACTION_SEND_TO);
-                                    }
-                                } else {
-                                    self.gui_sender.send(x).expect("something's wrong with the communication to the gui");
+                        self.gui_sender.send(vec![self.blocktime as u8,128]).expect("something's wrong with the communication to the gui");
+
+                        send.into_iter().for_each(|x| {
+                            if x.is_empty() {
+                                if let Some((x,_)) = self.moneyreset.clone() {
+                                    self.send_message(x, TRANSACTION_SEND_TO);
                                 }
-                            });
-                            
-                        }
+                            } else {
+                                self.gui_sender.send(x).expect("something's wrong with the communication to the gui");
+                            }
+                        });
 
                     } else if istx == 42 /* * */ { // entry address
                         let socket = format!("{}:{}",String::from_utf8_lossy(&m),OUTSIDER_PORT);

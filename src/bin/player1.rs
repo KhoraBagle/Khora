@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read};
+use std::{fs::File, io::Read, time::Instant};
 
 use curve25519_dalek::scalar::Scalar;
 use khora::{account::Account, validation::NextBlock};
@@ -31,9 +31,28 @@ fn main() {
     let leader = Account::new(&person0).stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
     println!("{:?}",leader);
 
-    let person0 = get_pswrd(&"4321".to_string(),&"7654321".to_string(),&"54321".to_string());
-    let leader = Account::new(&person0).name();
+    let person1 = get_pswrd(&"4321".to_string(),&"7654321".to_string(),&"54321".to_string());
+    let leader = Account::new(&person1).name();
     println!("{:?}",leader);
 
+
+
+
+
+    let person0 = Account::new(&person0);
+    let person1 = Account::new(&person1);
+
+    let x = (0..1000u64).map(|x| person0.derive_ot(&Scalar::from(x))).collect::<Vec<_>>();
+
+
+    let now = Instant::now();
+
+    let z = x.iter().filter(|z| {
+        person1.read_ot(z).is_ok()
+    }).collect::<Vec<_>>();
+    
+
+    println!("{}",now.elapsed().as_millis());
+    println!("{}",z.len());
 
 }

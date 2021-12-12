@@ -480,6 +480,7 @@ impl KhoraNode {
                     let mut counter = 0;
                     while let Ok(x) = stream.read(&mut blocksize) {
                         println!(".");
+                        counter += 1;
                         let tt = Instant::now();
                         let bsize = u64::from_le_bytes(blocksize) as usize;
                         if x < 8 {

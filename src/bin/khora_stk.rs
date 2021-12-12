@@ -494,14 +494,14 @@ impl KhoraNode {
     }
 
     /// reads a full block (by converting it to lightning then reading that)
-    fn readblock(&mut self, lastblock: NextBlock, m: Vec<u8>) -> bool {
+    fn readblock(&mut self, lastblock: NextBlock, m: Vec<u8>, save: bool) -> bool {
         let lastlightning = lastblock.tolightning();
         let l = bincode::serialize(&lastlightning).unwrap();
-        self.readlightning(lastlightning,l,Some(m.clone()))
+        self.readlightning(lastlightning,l,Some(m.clone()), save)
     }
 
     /// reads a lightning block and saves information when appropriate
-    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, largeblock: Option<Vec<u8>>) -> bool {
+    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, largeblock: Option<Vec<u8>>, save: bool) -> bool {
         if lastlightning.bnum >= self.bnum {
             let com = self.comittee.par_iter().map(|x| x.par_iter().map(|y| *y as u64).collect::<Vec<_>>()).collect::<Vec<_>>();
             if lastlightning.shards.len() == 0 {
@@ -519,8 +519,10 @@ impl KhoraNode {
                 v = false;
             }
             if v  {
-                // saves your current information BEFORE reading the new block. It's possible a leader is trying to cause a fork which can only be determined 1 block later based on what the comittee thinks is real
-                self.save();
+                if save {
+                    // saves your current information BEFORE reading the new block. It's possible a leader is trying to cause a fork which can only be determined 1 block later based on what the comittee thinks is real
+                    self.save();
+                }
 
                 if let Some(k) = &self.keylocation {
                     if lastlightning.info.stkout.contains(k) {
@@ -833,11 +835,14 @@ impl KhoraNode {
         for node in sendview {
             if let Ok(mut stream) =  TcpStream::connect(node) {
                 if stream.write(&[122 - (self.lightning_yielder as u8)]).unwrap_or_default() == 1 {
-                    let mut ok = vec![0];
+                    let mut ok = [0;8];
                     stream.read(&mut ok);
-                    if ok == vec![1] {
+                    if ok != [0;8] {
+                        let syncnum = u64::from_le_bytes(ok);
                         let mut blocksize = [0u8;8];
+                        let mut counter = 0;
                         while stream.read(&mut blocksize).is_ok() {
+                            counter += 1;
                             let bsize = u64::from_le_bytes(blocksize) as usize;
                             let mut serialized_block = vec![0u8;bsize];
                             if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
@@ -845,7 +850,7 @@ impl KhoraNode {
                             };
                             if self.lightning_yielder {
                                 if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
-                                    if !self.readlightning(lastblock, serialized_block, None) {
+                                    if !self.readlightning(lastblock, serialized_block, None, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
                                         break
                                     }
                                 } else {
@@ -853,7 +858,7 @@ impl KhoraNode {
                                 }
                             } else {
                                 if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&serialized_block) {
-                                    if !self.readblock(lastblock, serialized_block) {
+                                    if !self.readblock(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
                                         break
                                     }
                                 } else {
@@ -1014,7 +1019,7 @@ impl Future for KhoraNode {
                             }
                         } else if mtype == 3 /* the full block that was made */ {
                             if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&m) {
-                                if self.readblock(lastblock, m) {
+                                if self.readblock(lastblock, m, true) {
                                     println!("{}","recieved full block".red());
                                     self.inner.handle_gossip_now(fullmsg, true);
                                 } else {
@@ -1156,7 +1161,7 @@ impl Future for KhoraNode {
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
                                 println!("{}","someone wants lightning".blue());
-                                stream.write(&[1]);
+                                stream.write(&(self.bnum as u64).to_le_bytes());
                                 let bnum = self.bnum;
                                 thread::spawn(move || {
                                     if let Ok(m) = m.try_into() {
@@ -1182,7 +1187,7 @@ impl Future for KhoraNode {
                             } else if mtype == 122 /* z */ { // someone sent a full sync request
                                 println!("{}","someone wants full blocks".blue());
                                 if !self.lightning_yielder {
-                                    stream.write(&[1]);
+                                    stream.write(&(self.bnum as u64).to_le_bytes());
                                     let bnum = self.bnum;
                                     thread::spawn(move || {
                                         if let Ok(m) = m.try_into() {
@@ -1248,7 +1253,7 @@ impl Future for KhoraNode {
                             }
                         } else if mtype == 3 /* recieved a full block */ {
                             if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&m) {
-                                let s = self.readblock(lastblock, m);
+                                let s = self.readblock(lastblock, m, true);
                                 self.outer.handle_gossip_now(fullmsg, s);
                                 println!("{}","you have recieved a full block".green());
                             } else {
@@ -1265,14 +1270,13 @@ impl Future for KhoraNode {
                                     self.allnetwork = x;
                                 }
                             }
-
-                        } else if mtype == 108 /* l */ { // a lightning block
-                            if self.lightning_yielder {
-                                if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&m) {
-                                    println!("{}","you have recieved a lightning block".green());
-                                    self.readlightning(lastblock, m, None); // that whole thing with 3 and 8 makes it super unlikely to get more blocks (expecially for my small thing?)
-                                }
-                            }
+                        // } else if mtype == 108 /* l */ { // a lightning block
+                        //     if self.lightning_yielder {
+                        //         if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&m) {
+                        //             println!("{}","you have recieved a lightning block".green());
+                        //             self.readlightning(lastblock, m, None); // that whole thing with 3 and 8 makes it super unlikely to get more blocks (expecially for my small thing?)
+                        //         }
+                        //     }
                         } else if mtype == 110 /* n */ {
                             if let Some(who) = Signature::recieve_signed_message2(&mut m) {
                                 if let Ok(m) = bincode::deserialize::<IpAddr>(&m) {
@@ -1287,7 +1291,6 @@ impl Future for KhoraNode {
                             } else {
                                 self.outer.handle_gossip_now(fullmsg, false);
                             }
-                            
                         } else /* spam */ {
                             println!("{}","the staker sent spam".bright_yellow().bold());
                             // self.outer.kill(&fullmsg.sender);

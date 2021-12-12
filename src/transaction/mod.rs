@@ -86,7 +86,7 @@ impl Transaction {
         // println!("in amount: {:?}",inamnt);
 
         let ring = inring.to_owned();
-        let fee_amount = inamnt.into_iter().sum::<Scalar>() - recipients.iter().map(|(_,y)| y.to_owned()).sum::<Scalar>();
+        let fee_amount = inamnt.into_iter().sum::<Scalar>() - recipients.iter().map(|(_,&y)| y).sum::<Scalar>();
         let mut outputs = recipients.into_iter().map(|(rcpt,amout)|
             if rcpt.vpk == RISTRETTO_BASEPOINT_POINT {rcpt.derive_stk_ot(amout)}
             else {rcpt.derive_ot(amout)}

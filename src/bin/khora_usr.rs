@@ -488,11 +488,16 @@ impl KhoraNode {
                         while let Ok(x) = stream.read(&mut member) {
                             if x == 64 {
                                 if let Some(x) = self.rmems.get(&ring[memloc]) {
-                                    if x.tag.is_some() {
+                                    if x.tag.is_none() {
+                                        print!("{}","!".red());
                                         self.rmems.insert(ring[memloc],History::read_raw(&member));
                                     }
+                                } else {
+                                    self.rmems.insert(ring[memloc],History::read_raw(&member));
                                 }
                                 memloc += 1;
+                            } else {
+                                break
                             }
                         }
                     }
@@ -625,6 +630,10 @@ impl Future for KhoraNode {
                 println!("got message from gui!\n{}",String::from_utf8_lossy(&m));
                 if let Some(istx) = m.pop() {
                     if istx == 33 /* ! */ { // a transaction
+                        let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
+                        mymoney.push(0);
+                        self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
+
                         self.ringsize = m.pop().unwrap();
                         let mut outs = vec![];
                         let mut validtx = true;
@@ -681,9 +690,9 @@ impl Future for KhoraNode {
                             let (loc, acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(*x.0,x.1.clone())).unzip();
         
 
-                            let mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>();
+                            let m = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>() - outs.iter().map(|x| x.1).sum::<Scalar>();
                             let x = outs.len() - 1;
-                            outs[x].1 = mymoney - outs[outs.len() - 1].1;
+                            outs[x].1 = m;
 
 
                             println!("loc: {:?}",loc);
@@ -727,39 +736,43 @@ impl Future for KhoraNode {
 
 
                         for mine in self.mine.clone().iter().collect::<Vec<_>>().chunks(ACCOUNT_COMBINE) {
-                            let (loc, acc): (Vec<u64>,Vec<OTAccount>) = mine.iter().map(|x|(*x.0,x.1.clone())).unzip();
-
-                            let mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>();
-                            let outs = vec![(self.me,mymoney-fee)];
-
-                            self.rmems = HashMap::new();
-                            for (i,j) in loc.iter().zip(acc) {
-                                println!("i: {}, j.pk: {:?}",i,j.pk.compress());
-                                self.rmems.insert(*i,j);
-                            }
-                            
-                            self.rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
-                            let ring = recieve_ring(&self.rname).expect("shouldn't fail");
+                            if mine.len() > 1 {
+                                let (loc, acc): (Vec<u64>,Vec<OTAccount>) = mine.iter().map(|x|(*x.0,x.1.clone())).unzip();
     
+                                let mymoney = acc.iter().map(|x| x.com.amount.unwrap()).sum::<Scalar>();
+                                let outs = vec![(self.me,mymoney-fee)];
     
-                            self.fill_ring();
-                            println!("ring:----------------------------------\n{:?}",ring);
-                            let mut rnamesend = self.rname.clone();
-                            rnamesend.push(114);
-                            let mut got_the_ring = true;
-                            let rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
-                            let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                            if got_the_ring && tx.verify().is_ok() {
-                                let tx = tx.polyform(&self.rname);
-                                let mut txbin = bincode::serialize(&tx).unwrap();
-                                txbin.push(0);
-                                self.lasttags.push(tx);
-                                self.send_message(txbin,TRANSACTION_SEND_TO);
-                                println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
-                            } else {
-                                println!("{}","YOU DIDNT GET THE RING".red().bold());
+                                self.rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
+        
+        
+                                self.rmems = HashMap::new();
+                                for (i,j) in loc.iter().zip(acc) {
+                                    println!("i: {}, j.pk: {:?}",i,j.pk.compress());
+                                    self.rmems.insert(*i,j);
+                                }
+                                
+                                self.fill_ring();
+    
+                                let ring = recieve_ring(&self.rname);
+                                println!("ring:----------------------------------\n{:?}",ring);
+                                let mut rnamesend = self.rname.clone();
+                                rnamesend.push(114);
+                                let mut got_the_ring = true;
+                                let rlring = ring.expect("shouldn't fail").iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
+                                let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                                if got_the_ring && tx.verify().is_ok() {
+                                    let tx = tx.polyform(&self.rname);
+                                    let mut txbin = bincode::serialize(&tx).unwrap();
+                                    txbin.push(0);
+                                    self.lasttags.push(tx);
+                                    self.send_message(txbin,TRANSACTION_SEND_TO);
+                                    println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
+                                } else {
+                                    println!("{}",if !got_the_ring {"YOU DIDNT GET THE RING".red().bold()} else {"TRANSACTION INVALID".red().bold()});
+                                }
                             }
                         }
+                        println!("{}","done with that".green());
 
 
                     } else if istx == u8::MAX /* panic button */ {
@@ -785,11 +798,16 @@ impl Future for KhoraNode {
                             
 
                             let mut outs = vec![];
-                            let y = amnt/2u64.pow(BETA as u32) + 1;
+                            let y = amnt/2u64.pow(BETA as u32);
+                            let mut tot = 0u64;
                             for _ in 0..y {
+                                tot += amnt/y;
                                 let amnt = Scalar::from(amnt/y);
                                 outs.push((&newacc,amnt));
                             }
+                            let amnt = Scalar::from(tot - amnt - fee); // prob that this is less than 0 is crazy small for reasonable fee
+                            outs.push((&newacc,amnt));
+
                             let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (x.0,&x.1)).collect());
 
                             println!("{:?}",rlring.iter().map(|x| x.com.amount).collect::<Vec<_>>());

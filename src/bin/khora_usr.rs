@@ -384,7 +384,6 @@ impl KhoraNode {
                             self.mine.remove(&i);
                         }
                         self.lasttags = vec![];
-                        send_to_gui.push(vec![5]);
                     }    
                 });
 
@@ -489,13 +488,15 @@ impl KhoraNode {
 
                         let mut mymoney = self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
                         mymoney.push(0);
-                        println!("my money:\n---------------------------------\n{:?}",self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>());
                         self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
                     }
                 }
             }
         } else {
             println!("your friend is probably busy or you have none");
+        }
+        if self.lasttags.is_empty() {
+            self.gui_sender.send(vec![5]).expect("something's wrong with the communication to the gui");
         }
         send
     }

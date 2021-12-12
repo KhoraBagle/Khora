@@ -832,6 +832,7 @@ impl LightningSyncBlock {
                 println!("someone sent you money that you can't speand");
             } else {
                 alltagsever.insert(m.tag.borrow().unwrap().as_bytes());
+                reversemine.insert(m.tag.unwrap(),n);
                 mine.insert(n,m);
                 imtrue = false;
             }

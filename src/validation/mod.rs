@@ -3,6 +3,7 @@ use curve25519_dalek::scalar::Scalar;
 use crate::account::*;
 use rayon::prelude::*;
 use crate::transaction::*;
+use std::borrow::Borrow;
 use std::convert::TryInto;
 use std::iter::FromIterator;
 use std::net::SocketAddr;
@@ -21,7 +22,7 @@ use crate::constants::PEDERSEN_H;
 use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
 
 
-pub static VERSION: &str = "v0.92";
+pub static VERSION: &str = "v0.93";
 
 
 /// the number of validators in the comittee, 128
@@ -40,6 +41,18 @@ pub const PERSON0: CompressedRistretto = CompressedRistretto([46, 235, 227, 188,
 pub const MINSTK: u64 = 1_000_000;
 /// total money ever produced
 pub const TOTAL_KHORA: f64 = 1.0e16;
+/// bloom file for stakers
+pub const STAKER_BLOOM_NAME: &'static str = "all_tags";
+/// bloom file for stakers size
+pub const STAKER_BLOOM_SIZE: usize =  1_000_000_000*4;
+/// bloom file for stakers hashes
+pub const STAKER_BLOOM_HASHES: u8 = 13;
+/// bloom file for stakers
+pub const BLOOM_NAME: &'static str = "my_tags";
+/// bloom file for stakers size
+pub const BLOOM_SIZE: usize =  1_000_000;
+/// bloom file for stakers hashes
+pub const BLOOM_HASHES: u8 = 18;
 
 
 
@@ -811,18 +824,26 @@ impl LightningSyncBlock {
     }
 
     /// scans the block for money sent to you. additionally updates your understanding of the height. returns weather you recieved money
-    pub fn scan(&self, me: &Account, mine: &mut HashMap<u64,OTAccount>, height: &mut u64, alltagsever: &mut Vec<CompressedRistretto>) -> bool {
+    pub fn scan(&self, me: &Account, mine: &mut HashMap<u64,OTAccount>, reversemine: &mut HashMap<CompressedRistretto,u64>, height: &mut u64, alltagsever: &mut BloomFile) -> bool {
         let mut imtrue = true;
         let newmine = self.info.txout.iter().enumerate().filter_map(|(i,x)| if let Ok(y) = me.receive_ot(x) {imtrue = false; Some((i as u64+*height,y))} else {None}).collect::<Vec<(u64,OTAccount)>>();
-        let newtags = newmine.iter().map(|x|x.1.tag.unwrap()).collect::<Vec<CompressedRistretto>>();
-        if !newtags.par_iter().all(|x| alltagsever.par_iter().all(|y|y!=x)) {
-            println!("you got burnt (someone sent you faerie gold!)"); // i want this in a seperate function
+        for (n,m) in newmine {
+            if alltagsever.contains(m.tag.borrow().unwrap().as_bytes()) {
+                println!("someone sent you money that you can't speand");
+            } else {
+                alltagsever.insert(m.tag.borrow().unwrap().as_bytes());
+                mine.insert(n,m);
+                imtrue = false;
+            }
         }
-        alltagsever.extend(&newtags);
-
-        *mine = mine.into_iter().filter_map(|(j,a)| if self.info.tags.par_iter().all(|x| x != &a.tag.unwrap()) {imtrue = false; Some((*j,a.clone()))} else {None} ).collect::<HashMap<u64,OTAccount>>();
+        for tag in self.info.tags.iter() {
+            if let Some(loc) = reversemine.get(tag) {
+                mine.remove(loc);
+                reversemine.remove(tag);
+                imtrue = false;
+            }
+        }
         *height += self.info.txout.len() as u64;
-        mine.extend(newmine);
 
         imtrue
     }

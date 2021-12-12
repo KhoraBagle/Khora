@@ -5,6 +5,7 @@ extern crate trackable;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll};
+use khora::bloom::BloomFile;
 use khora::seal::BETA;
 use rand::prelude::SliceRandom;
 use std::{cmp, thread};
@@ -30,6 +31,7 @@ use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
 use khora::validation::{
     NUMBER_OF_VALIDATORS, QUEUE_LENGTH, PERSON0,
+    BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES,
     reward, blocktime
 };
 use colored::Colorize;
@@ -91,6 +93,7 @@ fn main() -> Result<(), MainError> {
                 lasttags: vec![],
                 me,
                 mine: HashMap::new(),
+                reversemine: HashMap::new(),
                 key,
                 stkinfo: vec![initial_history.clone()],
                 queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|_| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
@@ -101,7 +104,7 @@ fn main() -> Result<(), MainError> {
                 lastbnum: 0u64,
                 height: 0u64,
                 sheight: 1u64,
-                alltagsever: vec![],
+                alltagsever: BloomFile::from_randomness(BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES, true),
                 headshard: 0,
                 rmems: HashMap::new(),
                 rname: vec![],
@@ -184,6 +187,7 @@ struct SavedNode {
     save_history: bool, //just testing. in real code this is true; but i need to pretend to be different people on the same computer
     me: Account,
     mine: HashMap<u64, OTAccount>,
+    reversemine: HashMap<CompressedRistretto, u64>,
     key: Scalar,
     stkinfo: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
@@ -194,7 +198,7 @@ struct SavedNode {
     lastbnum: u64,
     height: u64,
     sheight: u64,
-    alltagsever: Vec<CompressedRistretto>,
+    alltagsever: [u128;2],
     headshard: usize,
     rname: Vec<u8>,
     moneyreset: Option<(Vec<u8>,CompressedRistretto)>,
@@ -213,6 +217,7 @@ struct KhoraNode {
     save_history: bool, // do i really want this? yes?
     me: Account,
     mine: HashMap<u64, OTAccount>,
+    reversemine: HashMap<CompressedRistretto, u64>,
     key: Scalar,
     stkinfo: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
@@ -223,7 +228,7 @@ struct KhoraNode {
     lastbnum: u64,
     height: u64,
     sheight: u64,
-    alltagsever: Vec<CompressedRistretto>,
+    alltagsever: BloomFile,
     headshard: usize,
     rmems: HashMap<u64,OTAccount>,
     rname: Vec<u8>,
@@ -245,6 +250,7 @@ impl KhoraNode {
                 save_history: self.save_history,
                 me: self.me,
                 mine: self.mine.clone(),
+                reversemine: self.reversemine.clone(),
                 key: self.key,
                 stkinfo: self.stkinfo.clone(),
                 queue: self.queue.clone(),
@@ -255,7 +261,7 @@ impl KhoraNode {
                 lastbnum: self.lastbnum,
                 height: self.height,
                 sheight: self.sheight,
-                alltagsever: self.alltagsever.clone(),
+                alltagsever: self.alltagsever.get_keys(),
                 headshard: self.headshard.clone(),
                 rname: self.rname.clone(),
                 moneyreset: self.moneyreset.clone(),
@@ -286,6 +292,7 @@ impl KhoraNode {
             allnetwork,
             me: sn.me,
             mine: sn.mine.clone(),
+            reversemine: sn.reversemine.clone(),
             key: sn.key,
             stkinfo: sn.stkinfo.clone(),
             queue: sn.queue.clone(),
@@ -296,7 +303,7 @@ impl KhoraNode {
             lastbnum: sn.lastbnum,
             height: sn.height,
             sheight: sn.sheight,
-            alltagsever: sn.alltagsever.clone(),
+            alltagsever: BloomFile::from_keys(sn.alltagsever[0],sn.alltagsever[1], BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES, false),
             headshard: sn.headshard.clone(),
             rmems: HashMap::new(),
             rname: vec![],
@@ -354,7 +361,7 @@ impl KhoraNode {
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
                     lastlightning.scanstk(&self.me, &mut None::<[u64; 2]>, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
-                    let guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.height, &mut self.alltagsever);
+                    let guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);
                     
                     send_to_gui.push(vec![!guitruster as u8,1]);
                     
@@ -380,9 +387,6 @@ impl KhoraNode {
                 
                 self.lasttags.clone().into_iter().for_each(|x| {
                     if lastlightning.info.tags.contains(&x.tags[0]) {
-                        for i in recieve_ring(&x.inputs).expect("you made this it should work") {
-                            self.mine.remove(&i);
-                        }
                         self.lasttags = vec![];
                     }    
                 });
@@ -467,11 +471,13 @@ impl KhoraNode {
                     println!("responce valid. syncing now...");
                     let mut blocksize = [0u8;8];
                     while let Ok(x) = stream.read(&mut blocksize) {
+                        println!(".");
                         let bsize = u64::from_le_bytes(blocksize) as usize;
                         if x < 8 {
                             println!("they're not following the format: sent {} bytes",x);
                             break
                         }
+                        println!("block: {} -- {} bytes",self.bnum,bsize);
                         let mut serialized_block = vec![0u8;bsize];
                         if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
                             break
@@ -489,6 +495,8 @@ impl KhoraNode {
                         let mut mymoney = self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
                         mymoney.push(0);
                         self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
+                        
+                        println!(".");
                     }
                 }
             }
@@ -606,7 +614,6 @@ impl Future for KhoraNode {
                             }
                         }
 
-                        let mut txbin: Vec<u8>;
 
                         let (loc, acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(x.0,x.1.clone())).unzip();
 
@@ -762,6 +769,7 @@ impl Future for KhoraNode {
 
 
                         self.mine = HashMap::new();
+                        self.reversemine = HashMap::new();
                         self.me = newacc;
                         self.key = self.me.stake_acc().receive_ot(&self.me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap().sk.unwrap();
 

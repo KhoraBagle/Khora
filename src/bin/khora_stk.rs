@@ -2,7 +2,7 @@
 // #[allow(unreachable_code)]
 extern crate trackable;
 
-use curve25519_dalek::constants::{RISTRETTO_BASEPOINT_POINT};
+use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
 use khora::seal::BETA;
@@ -36,6 +36,8 @@ use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
 use khora::validation::{
     NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0,
+    STAKER_BLOOM_NAME, STAKER_BLOOM_SIZE, STAKER_BLOOM_HASHES,
+    BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES,
     reward, blocktime
 };
 
@@ -126,8 +128,6 @@ fn main() -> Result<(), MainError> {
             }
             LightningSyncBlock::initialize_saving();
             History::initialize();
-            BloomFile::initialize_bloom_file();
-            let bloom = BloomFile::from_randomness();
     
             let mut allnetwork = HashMap::new();
             allnetwork.insert(initial_history.0, (0u64,None));
@@ -151,6 +151,7 @@ fn main() -> Result<(), MainError> {
                 lastspot: None,
                 me,
                 mine: HashMap::new(),
+                reversemine: HashMap::new(),
                 smine: smine.clone(), // [location, amount]
                 key,
                 keylocation,
@@ -162,12 +163,12 @@ fn main() -> Result<(), MainError> {
                 exitqueue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
                 comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|_| 0).collect::<Vec<usize>>()).collect::<Vec<_>>(),
                 lastname: Scalar::one().as_bytes().to_vec(),
-                bloom,
+                bloom: BloomFile::from_randomness(STAKER_BLOOM_NAME, STAKER_BLOOM_SIZE, STAKER_BLOOM_HASHES, true),
                 bnum: 0u64,
                 lastbnum: 0u64,
                 height: 0u64,
                 sheight: 1u64,
-                alltagsever: vec![],
+                alltagsever: BloomFile::from_randomness(BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES, true),
                 txses: vec![],
                 sigs: vec![],
                 timekeeper: Instant::now() + Duration::from_secs(1),
@@ -278,6 +279,7 @@ fn main() -> Result<(), MainError> {
 struct SavedNode {
     me: Account,
     mine: HashMap<u64, OTAccount>,
+    reversemine: HashMap<CompressedRistretto, u64>,
     smine: Option<[u64; 2]>, // [location, amount]
     allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     key: Scalar,
@@ -295,7 +297,7 @@ struct SavedNode {
     lastbnum: u64,
     height: u64,
     sheight: u64,
-    alltagsever: Vec<CompressedRistretto>,
+    alltagsever: [u128;2],
     headshard: usize,
     outer_view: HashSet<NodeId>,
     outer_eager: HashSet<NodeId>,
@@ -322,6 +324,7 @@ struct KhoraNode {
     allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     me: Account,
     mine: HashMap<u64, OTAccount>,
+    reversemine: HashMap<CompressedRistretto, u64>,
     smine: Option<[u64; 2]>, // [location, amount]
     key: Scalar,
     keylocation: Option<u64>,
@@ -338,7 +341,7 @@ struct KhoraNode {
     lastbnum: u64,
     height: u64,
     sheight: u64,
-    alltagsever: Vec<CompressedRistretto>,
+    alltagsever: BloomFile,
     txses: Vec<Vec<u8>>,
     sigs: Vec<NextBlock>,
     timekeeper: Instant,
@@ -372,6 +375,7 @@ impl KhoraNode {
                 lastspot: self.lastspot.clone(),
                 me: self.me,
                 mine: self.mine.clone(),
+                reversemine: self.reversemine.clone(),
                 smine: self.smine.clone(), // [location, amount]
                 allnetwork: self.allnetwork.clone(),
                 key: self.key,
@@ -389,7 +393,7 @@ impl KhoraNode {
                 lastbnum: self.lastbnum,
                 height: self.height,
                 sheight: self.sheight,
-                alltagsever: self.alltagsever.clone(),
+                alltagsever: self.alltagsever.get_keys(),
                 headshard: self.headshard.clone(),
                 outer_view: self.outer.plumtree_node().lazy_push_peers().clone(),
                 outer_eager: self.outer.plumtree_node().eager_push_peers().clone(),
@@ -456,6 +460,7 @@ impl KhoraNode {
             sigs: vec![],
             me: sn.me,
             mine: sn.mine.clone(),
+            reversemine: sn.reversemine.clone(),
             smine: sn.smine.clone(), // [location, amount]
             key: sn.key,
             keylocation: sn.keylocation.clone(),
@@ -467,12 +472,12 @@ impl KhoraNode {
             exitqueue: sn.exitqueue.clone(),
             comittee: sn.comittee.clone(),
             lastname: sn.lastname.clone(),
-            bloom: BloomFile::from_keys(sn.bloom[0],sn.bloom[1]),
+            bloom: BloomFile::from_keys(sn.bloom[0],sn.bloom[1], STAKER_BLOOM_NAME, STAKER_BLOOM_SIZE, STAKER_BLOOM_HASHES, false),
             bnum: sn.bnum,
             lastbnum: sn.lastbnum,
             height: sn.height,
             sheight: sn.sheight,
-            alltagsever: sn.alltagsever.clone(),
+            alltagsever: BloomFile::from_keys(sn.alltagsever[0],sn.alltagsever[1], BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES, false),
             headshard: sn.headshard.clone(),
             is_validator: sn.is_validator,
             is_node: true,
@@ -586,7 +591,7 @@ impl KhoraNode {
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
                     let (mut guitruster, new) = lastlightning.scanstk(&self.me, &mut self.smine, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
-                    guitruster = !(lastlightning.scan(&self.me, &mut self.mine, &mut self.height, &mut self.alltagsever) || guitruster);
+                    guitruster = !(lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever) || guitruster);
                     self.gui_sender.send(vec![guitruster as u8,1]).expect("there's a problem communicating to the gui!");
 
                     if new {

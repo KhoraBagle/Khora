@@ -6,7 +6,7 @@ use crossbeam::channel;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
-use crate::validation::{VERSION, BLOOM_NAME};
+use crate::validation::{VERSION, BLOOM_NAME, ACCOUNT_COMBINE};
 
 /*
 cargo run --bin full_staker --release 9876 pig
@@ -436,7 +436,11 @@ impl epi::App for KhoraUserGUI {
                     }
                     ui.add(Label::new("Wallet Address").underline()).on_hover_text(&*addr);
                 });
-                ui.add(Checkbox::new(save_extra,"I want to be a staker!"));
+                if ui.button(format!("Divide my accounts by {}",ACCOUNT_COMBINE)).clicked() {
+                    let mut m = retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec();
+                    m.push(2);
+                    sender.send(m);
+                }
             }
             ui.label("\n");
 
@@ -574,11 +578,8 @@ impl epi::App for KhoraUserGUI {
                                 *you_cant_do_that = *unstaked < tot + retain_numeric(fee.to_string()).parse::<u64>().unwrap();
                                 
 ;                                if !*you_cant_do_that {
-                                    let x = *unstaked - tot - retain_numeric(fee.to_string()).parse::<u64>().unwrap();
-                                    if x > 0 {
-                                        m.extend(str::to_ascii_lowercase(&addr).as_bytes());
-                                        m.extend(x.to_le_bytes());
-                                    }
+                                    m.extend(str::to_ascii_lowercase(&addr).as_bytes());
+                                    m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
                                     m.push(*ringsize);
                                     m.push(33);
                                     sender.send(m).expect("something's wrong with communication from the gui");
@@ -656,28 +657,28 @@ impl epi::App for KhoraUserGUI {
                 });
                 
                 if ui.add(Button::new("PANIC").text_color(egui::Color32::RED).sense(if *unstaked == 0 {Sense::hover()} else {Sense::click()})).clicked() {
-                    let mut x = vec![];
                     let pf = retain_numeric(panic_fee.to_string()).parse::<u64>().unwrap();
 
-                    let s = *unstaked;
-                    if s > pf {
-                        x.extend((s - pf).to_le_bytes());
+                    
+                    if *unstaked > pf {
+                        let mut x = vec![];
+                        x.extend(pf.to_le_bytes());
+                        x.extend(get_pswrd(&*next_pswrd0,&*next_pswrd1,&*next_pswrd2));
+                        x.push(u8::MAX);
+                        if !*setup {
+                            sender.send(x).expect("something's wrong with communication from the gui");
+                        }
+                        *password0 = next_pswrd0.clone();
+                        *username = next_pswrd1.clone();
+                        *secret_key = next_pswrd2.clone();
+                        if *show_next_pswrd {
+                            *pswd_guess0 = next_pswrd0.clone();
+                        }
+                        *transaction_processing = true;
+                        *transaction_processed = false;
                     } else {
-                        x.extend(s.to_le_bytes());
+                        *you_cant_do_that = true;
                     }
-                    x.extend(get_pswrd(&*next_pswrd0,&*next_pswrd1,&*next_pswrd2));
-                    x.push(u8::MAX);
-                    if !*setup {
-                        sender.send(x).expect("something's wrong with communication from the gui");
-                    }
-                    *password0 = next_pswrd0.clone();
-                    *username = next_pswrd1.clone();
-                    *secret_key = next_pswrd2.clone();
-                    if *show_next_pswrd {
-                        *pswd_guess0 = next_pswrd0.clone();
-                    }
-                    *transaction_processing = true;
-                    *transaction_processed = false;
                 }
             });
         }

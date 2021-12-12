@@ -22,7 +22,7 @@ use crate::constants::PEDERSEN_H;
 use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
 
 
-pub static VERSION: &str = "v0.93";
+pub static VERSION: &str = "v0.94";
 
 
 /// the number of validators in the comittee, 128
@@ -53,6 +53,8 @@ pub const BLOOM_NAME: &'static str = "my_tags";
 pub const BLOOM_SIZE: usize =  1_000_000;
 /// bloom file for stakers hashes
 pub const BLOOM_HASHES: u8 = 18;
+/// if you have to many tx, you should combind them
+pub const ACCOUNT_COMBINE: usize = 10;
 
 
 

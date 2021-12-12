@@ -21,7 +21,7 @@ use crate::constants::PEDERSEN_H;
 use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
 
 
-pub static VERSION: &str = "v0.91";
+pub static VERSION: &str = "v0.92";
 
 
 /// the number of validators in the comittee, 128

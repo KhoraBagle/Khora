@@ -444,7 +444,7 @@ impl epi::App for KhoraUserGUI {
                 ui.label(format!("Current Block: {}",block_number));
                 ui.horizontal(|ui| {
                     ui.label("Next block in: ");
-                    let x = *eta as i32 - timekeeper.elapsed().as_secs() as i32 + 5i32;
+                    let x = *eta as i32 - timekeeper.elapsed().as_secs() as i32 + 1i32;
                     if x > 0 {
                         ui.add(Label::new(format!("{}",x)).strong().text_color(egui::Color32::YELLOW));
                         *syncretry = true;

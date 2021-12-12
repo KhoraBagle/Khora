@@ -454,7 +454,7 @@ impl KhoraNode {
         self.gui_sender.send(gm).expect("should be working");
 
 
-        println!("{}","RESPONCES DONE".red().bold());
+        println!("{}","FINISHED LISTENING".red());
         responces
     }
 
@@ -487,7 +487,7 @@ impl KhoraNode {
                             println!("they're not following the format: sent {} bytes",x);
                             break
                         }
-                        println!("block: {} -- {} bytes",self.bnum,bsize);
+                        println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
                         let mut serialized_block = vec![0u8;bsize];
                         if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
                             break
@@ -655,18 +655,22 @@ impl Future for KhoraNode {
                                     let responces = self.send_message(rnamesend,RING_SEND_TO);
                                     responces.into_iter().for_each(|m| {
                                         if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(&m) {
-                                            let locs = recieve_ring(&self.rname).unwrap();
-                                            let rmems = r.iter().zip(locs).map(|(x,y)| (y,History::read_raw(x))).collect::<Vec<_>>();
+                                            println!("{}","deserialized".green());
+                                            let rmems = r.iter().zip(&ring).map(|(x,y)| (*y,History::read_raw(x))).collect::<Vec<_>>();
+                                            print!(".");
                                             let mut ringchanged = false;
                                             for mem in rmems {
                                                 if !self.mine.iter().any(|x| *x.0 == mem.0) {
                                                     self.rmems.insert(mem.0,mem.1);
                                                     ringchanged = true;
                                                     print!("{}","!".red());
+                                                } else {
+                                                    print!(".");
                                                 }
                                             }
+                                            print!(".");
                                             if ringchanged {
-                                                let ring = recieve_ring(&self.rname).unwrap();
+                                                // let ring = recieve_ring(&self.rname).unwrap();
                                                 let mut got_the_ring = true;
                                                 let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
                                                 // rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
@@ -683,6 +687,8 @@ impl Future for KhoraNode {
                                                     println!("{}","you didnt get the rings :(".red());
                                                 }
                                             }
+                                        } else {
+                                            println!("{}","couldn't deserialize".red());
                                         }
                                     });
                                 } else {
@@ -749,7 +755,7 @@ impl Future for KhoraNode {
 
                             println!("made rings");
                             /* you don't use a ring for panics (the ring is just your own accounts) */ 
-                            let mut rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
+                            let rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
                             let me = self.me;
                             // rlring.iter_mut().for_each(|x| if let Ok(y)=me.receive_ot(&x) {*x = y;});
                             

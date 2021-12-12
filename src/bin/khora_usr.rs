@@ -201,7 +201,7 @@ struct SavedNode {
     cumtime: f64,
     blocktime: f64,
     ringsize: u8,
-    lasttags: Vec<CompressedRistretto>,
+    lasttags: Vec<PolynomialTransaction>,
 }
 
 /// the node used to run all the networking
@@ -232,7 +232,7 @@ struct KhoraNode {
     blocktime: f64,
     gui_timer: Instant,
     ringsize: u8,
-    lasttags: Vec<CompressedRistretto>,
+    lasttags: Vec<PolynomialTransaction>,
 }
 
 impl KhoraNode {
@@ -379,7 +379,10 @@ impl KhoraNode {
 
                 
                 self.lasttags.clone().into_iter().for_each(|x| {
-                    if lastlightning.info.tags.contains(&x) {
+                    if lastlightning.info.tags.contains(&x.tags[0]) {
+                        for i in recieve_ring(&x.inputs).expect("you made this it should work") {
+                            self.mine.remove(&i);
+                        }
                         self.lasttags = vec![];
                         send_to_gui.push(vec![5]);
                     }    
@@ -646,10 +649,10 @@ impl Future for KhoraNode {
                                                 let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
                                                 if got_the_ring && tx.verify().is_ok() {
                                                     let tx = tx.polyform(&self.rname);
-                                                    self.lasttags.push(tx.tags[0]);
                                                     // tx.verify().unwrap(); // as a user you won't be able to check this
                                                     let mut txbin = bincode::serialize(&tx).unwrap();
                                                     txbin.push(0);
+                                                    self.lasttags.push(tx);
                                                     self.send_message(txbin,TRANSACTION_SEND_TO);
                                                     println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
                                                 } else {
@@ -658,7 +661,6 @@ impl Future for KhoraNode {
                                             }
                                         }
                                     });
-                                    txbin = vec![];
                                 } else {
                                     let mut rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
                                     let me = self.me;
@@ -669,16 +671,15 @@ impl Future for KhoraNode {
                                     println!("{:?}",rlring.iter().map(|x| x.com.amount).collect::<Vec<_>>());
                                     if tx.verify().is_ok() {
                                         let tx = tx.polyform(&self.rname);
-                                        self.lasttags.push(tx.tags[0]);
-                                        txbin = bincode::serialize(&tx).unwrap();
+                                        let mut txbin = bincode::serialize(&tx).unwrap();
+                                        txbin.push(0);
+                                        self.lasttags.push(tx);
+                                        self.send_message(txbin,TRANSACTION_SEND_TO);
                                         println!("{}","transaction made!".green());
                                     } else {
-                                        txbin = vec![];
                                         println!("you can't make that transaction, user!");
                                     }
                                 }
-                            } else {
-                                txbin = vec![];
                             }
                         } else {
                             let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
@@ -702,22 +703,11 @@ impl Future for KhoraNode {
                             let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
                             let tx = tx.polyform(&rname);
                             if tx.verify().is_ok() {
-                                self.lasttags.push(tx.tags[0]);
-                                txbin = bincode::serialize(&tx).unwrap();
+                                let mut txbin = bincode::serialize(&tx).unwrap();
+                                txbin.push(0);
+                                self.lasttags.push(tx);
+                                self.send_message(txbin,TRANSACTION_SEND_TO);
                                 println!("{}","transaction made!".green());
-                            } else {
-                                txbin = vec![];
-                                println!("you can't make that transaction!");
-                            }
-                        }
-                        // if that tx is valid and ready as far as you know
-                        if validtx && !txbin.is_empty() {
-                            txbin.push(0);
-                            
-                            println!("transaction broadcasted");
-                            let responces = self.send_message(txbin, TRANSACTION_SEND_TO);
-                            if !responces.is_empty() {
-                                println!("responce 0 is: {:?}",responces);
                             }
                         }
                     } else if istx == u8::MAX /* panic button */ {

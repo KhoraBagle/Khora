@@ -1131,7 +1131,7 @@ impl Future for KhoraNode {
                                         t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
                                     };
                                     if ok {
-                                        println!("{}","a user sent a tx".blue());
+                                        println!("{}","a user sent a tx".bright_yellow());
                                         m.push(0);
                                         self.outer.broadcast_now(m);
                                         stream.write(&[1u8]);

@@ -1025,6 +1025,7 @@ impl Future for KhoraNode {
                             }
                         } else /* spam that you choose not to propegate */ {
                             // self.inner.kill(&fullmsg.sender);
+                            println!("{}","a validator sent spam".bright_yellow().bold());
                             self.inner.handle_gossip_now(fullmsg, false);
                         }
                     }
@@ -1205,7 +1206,7 @@ impl Future for KhoraNode {
                                     });
                                 }
                             } else {
-                                println!("{}","the user sent spam".blue());
+                                println!("{}","the user sent spam".bright_yellow().bold());
                             }
                         }
                     }
@@ -1288,7 +1289,7 @@ impl Future for KhoraNode {
                             }
                             
                         } else /* spam */ {
-                            println!("{}","the staker sent spam".green());
+                            println!("{}","the staker sent spam".bright_yellow().bold());
                             // self.outer.kill(&fullmsg.sender);
                             self.outer.handle_gossip_now(fullmsg, false);
                         }

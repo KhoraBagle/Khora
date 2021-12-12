@@ -333,8 +333,9 @@ impl KhoraNode {
             }
             if v  {
                 // saves your current information BEFORE reading the new block. It's possible a leader is trying to cause a fork which can only be determined 1 block later based on what the comittee thinks is real
+                let t = Instant::now();
                 self.save();
-
+                println!("{}",format!("{}",t.elapsed().as_millis()).bright_yellow().bold());
                 self.headshard = lastlightning.shards[0] as usize;
 
                 // println!("=========================================================\nyay!");

@@ -149,7 +149,7 @@ fn main() -> Result<(), MainError> {
         eframe::run_native(Box::new(app), native_options);
     } else {
         let node = KhoraNode::load(usend, urecv);
-        let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
+        let mut mymoney = node.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
         mymoney.push(0);
         node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
         node.save();
@@ -317,7 +317,7 @@ impl KhoraNode {
     }
 
     /// reads a lightning block and saves information when appropriate and returns if you accepted the block
-    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>) -> Vec<Vec<u8>> {
+    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, save: bool) -> Vec<Vec<u8>> {
         let mut send_to_gui = vec![];
         if lastlightning.bnum >= self.bnum {
             let com = self.comittee.par_iter().map(|x| x.par_iter().map(|y| *y as u64).collect::<Vec<_>>()).collect::<Vec<_>>();
@@ -332,10 +332,14 @@ impl KhoraNode {
                 v = false;
             }
             if v  {
-                // saves your current information BEFORE reading the new block. It's possible a leader is trying to cause a fork which can only be determined 1 block later based on what the comittee thinks is real
-                let t = Instant::now();
-                self.save();
-                println!("{}",format!("{}",t.elapsed().as_millis()).bright_yellow().bold());
+                
+                // let t = Instant::now();
+                if save {
+                    // saves your current information BEFORE reading the new block. It's possible a leader is trying to cause a fork which can only be determined 1 block later based on what the comittee thinks is real
+                    self.save();
+                }
+                // println!("{}",format!("{}",t.elapsed().as_millis()).red());
+                // let t = Instant::now();
                 self.headshard = lastlightning.shards[0] as usize;
 
                 // println!("=========================================================\nyay!");
@@ -400,6 +404,7 @@ impl KhoraNode {
                 }
                 // println!("block reading process done!!!");
 
+                // println!("{}",format!("{}",t.elapsed().as_millis()).red());
 
 
             }
@@ -466,13 +471,16 @@ impl KhoraNode {
             m.push(121);
             if stream.write(&m).is_ok() {
                 println!("request made...");
-                let mut ok = vec![0];
+                let mut ok = [0;8];
                 stream.read(&mut ok);
-                if ok == vec![1] {
+                if ok != [0;8] {
+                    let syncnum = u64::from_le_bytes(ok);
                     println!("responce valid. syncing now...");
                     let mut blocksize = [0u8;8];
+                    let mut counter = 0;
                     while let Ok(x) = stream.read(&mut blocksize) {
                         println!(".");
+                        let tt = Instant::now();
                         let bsize = u64::from_le_bytes(blocksize) as usize;
                         if x < 8 {
                             println!("they're not following the format: sent {} bytes",x);
@@ -484,7 +492,10 @@ impl KhoraNode {
                             break
                         };
                         if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
-                            send = self.readlightning(lastblock, serialized_block);
+                            
+                            // let t = Instant::now();
+                            send = self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
+                            // println!("{}",format!("{}",t.elapsed().as_millis()).bright_yellow().bold());
                         } else {
                             println!("they send a fake block");
                         }
@@ -493,10 +504,13 @@ impl KhoraNode {
                         thisbnum.push(2);
                         self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui");
 
-                        let mut mymoney = self.mine.iter().map(|x| self.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
+                        let t = Instant::now();
+                        let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
                         mymoney.push(0);
                         self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
-                        
+                        println!("{}",format!("{}",t.elapsed().as_millis()).green().bold());
+
+                        println!("{}",format!("{}",tt.elapsed().as_millis()).green().bold());
                         println!(".");
                     }
                 }
@@ -654,7 +668,7 @@ impl Future for KhoraNode {
                                                 let ring = recieve_ring(&self.rname).unwrap();
                                                 let mut got_the_ring = true;
                                                 let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
-                                                rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
+                                                // rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
                                                 let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
                                                 if got_the_ring && tx.verify().is_ok() {
                                                     let tx = tx.polyform(&self.rname);
@@ -673,7 +687,7 @@ impl Future for KhoraNode {
                                 } else {
                                     let mut rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
                                     let me = self.me;
-                                    rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
+                                    // rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
                                     
                                     let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (&x.0,&x.1)).collect());
 
@@ -708,7 +722,7 @@ impl Future for KhoraNode {
                             }).collect::<Vec<OTAccount>>();
                             println!("ring len: {:?}",rlring.len());
                             let me = self.me;
-                            rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
+                            // rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
                             let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
                             let tx = tx.polyform(&rname);
                             if tx.verify().is_ok() {
@@ -736,7 +750,7 @@ impl Future for KhoraNode {
                             /* you don't use a ring for panics (the ring is just your own accounts) */ 
                             let mut rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
                             let me = self.me;
-                            rlring.iter_mut().for_each(|x| if let Ok(y)=me.receive_ot(&x) {*x = y;});
+                            // rlring.iter_mut().for_each(|x| if let Ok(y)=me.receive_ot(&x) {*x = y;});
                             
                             let mut outs = vec![];
                             let y = amnt/2u64.pow(BETA as u32) + 1;

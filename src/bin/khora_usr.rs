@@ -44,8 +44,6 @@ use colored::Colorize;
 const OUTSIDER_PORT: u16 = 8335;
 /// the number of nodes to send each message to
 const TRANSACTION_SEND_TO: usize = 1;
-/// the number of nodes to send each message to
-const RING_SEND_TO: usize = 3;
 
 fn main() -> Result<(), MainError> {    
     // this is the number of shards they keep track of
@@ -459,6 +457,55 @@ impl KhoraNode {
     }
 
     /// returns the responces of each person you sent it to and deletes those who are dead from the view
+    fn fill_ring(&mut self) {
+
+        let mut rname = self.rname.clone();
+        rname.push(114);
+
+        let ring = recieve_ring(&self.rname).expect("shouldn't fail");
+
+
+
+        if self.ringsize > 0 {
+            if self.save_history {
+                for member in ring {
+                    if let Some(x) = self.rmems.get(&member) {
+                        if x.tag.is_some() {
+                            self.rmems.insert(member,OTAccount::summon_ota(&History::get(&member)));
+                        }
+                    }
+                }
+            } else {
+                let mut rng = &mut rand::thread_rng();
+                self.sendview.shuffle(&mut rng);
+                let mut memloc = 0usize;
+                if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
+                    println!("connected...");
+                    if stream.write(&rname).is_ok() {
+                        println!("request made...");
+                        let mut member = [0u8;64]; // using 6 byte buffer
+                        while let Ok(x) = stream.read(&mut member) {
+                            if x == 64 {
+                                if let Some(x) = self.rmems.get(&ring[memloc]) {
+                                    if x.tag.is_some() {
+                                        self.rmems.insert(ring[memloc],History::read_raw(&member));
+                                    }
+                                }
+                                memloc += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            for (i,j) in self.mine.iter() {
+                self.rmems.insert(*i,j.clone());
+            }
+
+        }
+    }
+
+    /// returns the responces of each person you sent it to and deletes those who are dead from the view
     fn attempt_sync(&mut self) -> Vec<Vec<u8>> {
 
         let mut send = vec![];
@@ -631,114 +678,41 @@ impl Future for KhoraNode {
                         }
 
 
-                        let (loc, acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(x.0,x.1.clone())).unzip();
-
                         // if you need help with ring generation
-                        if !self.save_history {
-                            if self.mine.len() > 0 {                                
-                                let (loc, acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(*x.0,x.1.clone())).unzip();
-            
-                                println!("loc: {:?}",loc);
-                                println!("height: {}",self.height);
-                                self.rmems = HashMap::new();
-                                for (i,j) in loc.iter().zip(acc) {
-                                    println!("i: {}, j.pk: {:?}",i,j.pk.compress());
-                                    self.rmems.insert(*i,j);
-                                }
-                                
-                                self.rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
-                                let ring = recieve_ring(&self.rname).expect("shouldn't fail");
-                                if self.ringsize != 0 {
-                                    println!("ring:----------------------------------\n{:?}",ring);
-                                    let mut rnamesend = self.rname.clone();
-                                    rnamesend.push(114);
-                                    let responces = self.send_message(rnamesend,RING_SEND_TO);
-                                    responces.into_iter().for_each(|m| {
-                                        if let Ok(r) = bincode::deserialize::<Vec<Vec<u8>>>(&m) {
-                                            println!("{}","deserialized".green());
-                                            let rmems = r.iter().zip(&ring).map(|(x,y)| (*y,History::read_raw(x))).collect::<Vec<_>>();
-                                            print!(".");
-                                            let mut ringchanged = false;
-                                            for mem in rmems {
-                                                if !self.mine.iter().any(|x| *x.0 == mem.0) {
-                                                    self.rmems.insert(mem.0,mem.1);
-                                                    ringchanged = true;
-                                                    print!("{}","!".red());
-                                                } else {
-                                                    print!(".");
-                                                }
-                                            }
-                                            print!(".");
-                                            if ringchanged {
-                                                // let ring = recieve_ring(&self.rname).unwrap();
-                                                let mut got_the_ring = true;
-                                                let mut rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
-                                                // rlring.iter_mut().for_each(|x|if let Ok(y)=self.me.receive_ot(&x) {*x = y;});
-                                                let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                                                if got_the_ring && tx.verify().is_ok() {
-                                                    let tx = tx.polyform(&self.rname);
-                                                    // tx.verify().unwrap(); // as a user you won't be able to check this
-                                                    let mut txbin = bincode::serialize(&tx).unwrap();
-                                                    txbin.push(0);
-                                                    self.lasttags.push(tx);
-                                                    self.send_message(txbin,TRANSACTION_SEND_TO);
-                                                    println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
-                                                } else {
-                                                    println!("{}","you didnt get the rings :(".red());
-                                                }
-                                            }
-                                        } else {
-                                            println!("{}","couldn't deserialize".red());
-                                        }
-                                    });
-                                } else {
-                                    let mut rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
-                                    let me = self.me;
-                                    // rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
-                                    
-                                    let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (&x.0,&x.1)).collect());
-
-                                    println!("{:?}",rlring.iter().map(|x| x.com.amount).collect::<Vec<_>>());
-                                    if tx.verify().is_ok() {
-                                        let tx = tx.polyform(&self.rname);
-                                        let mut txbin = bincode::serialize(&tx).unwrap();
-                                        txbin.push(0);
-                                        self.lasttags.push(tx);
-                                        self.send_message(txbin,TRANSACTION_SEND_TO);
-                                        println!("{}","transaction made!".green());
-                                    } else {
-                                        println!("you can't make that transaction, user!");
-                                    }
-                                }
+                        if self.mine.len() > 0 {                                
+                            let (loc, acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(*x.0,x.1.clone())).unzip();
+        
+                            println!("loc: {:?}",loc);
+                            println!("height: {}",self.height);
+                            self.rmems = HashMap::new();
+                            for (i,j) in loc.iter().zip(acc) {
+                                println!("i: {}, j.pk: {:?}",i,j.pk.compress());
+                                self.rmems.insert(*i,j);
                             }
-                        } else {
-                            let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
-                            let ring = recieve_ring(&rname).expect("shouldn't fail");
-                            println!("ring: {:?}",ring);
-                            println!("mine: {:?}",acc.iter().map(|x|x.pk.compress()).collect::<Vec<_>>());
-                            // println!("ring: {:?}",ring.iter().map(|x|OTAccount::summon_ota(&History::get(&x)).pk.compress()).collect::<Vec<_>>());
-                            let mut rlring = ring.into_iter().map(|x| {
-                                let x = OTAccount::summon_ota(&History::get(&x));
-                                if acc.iter().all(|a| a.pk != x.pk) {
-                                    // println!("not mine!");
-                                    x
-                                } else {
-                                    // println!("mine!");
-                                    acc.iter().filter(|a| a.pk == x.pk).collect::<Vec<_>>()[0].to_owned()
-                                }
-                            }).collect::<Vec<OTAccount>>();
-                            println!("ring len: {:?}",rlring.len());
-                            let me = self.me;
-                            // rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
-                            let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                            let tx = tx.polyform(&rname);
-                            if tx.verify().is_ok() {
+                            
+                            self.rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
+                            let ring = recieve_ring(&self.rname).expect("shouldn't fail");
+
+
+                            self.fill_ring();
+                            println!("ring:----------------------------------\n{:?}",ring);
+                            let mut rnamesend = self.rname.clone();
+                            rnamesend.push(114);
+                            let mut got_the_ring = true;
+                            let rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
+                            let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                            if got_the_ring && tx.verify().is_ok() {
+                                let tx = tx.polyform(&self.rname);
                                 let mut txbin = bincode::serialize(&tx).unwrap();
                                 txbin.push(0);
                                 self.lasttags.push(tx);
                                 self.send_message(txbin,TRANSACTION_SEND_TO);
-                                println!("{}","transaction made!".green());
+                                println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
+                            } else {
+                                println!("{}","YOU DIDNT GET THE RING".red().bold());
                             }
+
+
                         }
                     } else if istx == u8::MAX /* panic button */ {
                         
@@ -756,8 +730,8 @@ impl Future for KhoraNode {
                             println!("made rings");
                             /* you don't use a ring for panics (the ring is just your own accounts) */ 
                             let rlring = ring.iter().map(|&x| self.mine.iter().filter(|(&y,_)| y == x).collect::<Vec<_>>()[0].1.clone()).collect::<Vec<OTAccount>>();
-                            let me = self.me;
-                            // rlring.iter_mut().for_each(|x| if let Ok(y)=me.receive_ot(&x) {*x = y;});
+                            
+                            
                             
                             let mut outs = vec![];
                             let y = amnt/2u64.pow(BETA as u32) + 1;

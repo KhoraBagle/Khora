@@ -1091,7 +1091,7 @@ impl History {
     }
 
     /// Generate a OTAccount from the raw bytes
-    pub fn read_raw(bytes: &Vec<u8>) -> OTAccount { // assumes the bytes start at the beginning
+    pub fn read_raw(bytes: &[u8; 64]) -> OTAccount { // assumes the bytes start at the beginning
         OTAccount::summon_ota(&[CompressedRistretto::from_slice(&bytes[..32]),CompressedRistretto::from_slice(&bytes[32..64])]) // OTAccount::summon_ota() from there
     }
 

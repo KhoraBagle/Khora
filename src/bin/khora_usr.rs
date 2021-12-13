@@ -31,7 +31,6 @@ use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
 use khora::validation::{
     NUMBER_OF_VALIDATORS, QUEUE_LENGTH, PERSON0,
-    BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES,
     ACCOUNT_COMBINE,
     reward, blocktime,
 };
@@ -103,7 +102,7 @@ fn main() -> Result<(), MainError> {
                 lastbnum: 0u64,
                 height: 0u64,
                 sheight: 1u64,
-                alltagsever: BloomFile::from_randomness(BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES, true),
+                alltagsever: HashSet::new(),
                 headshard: 0,
                 rmems: HashMap::new(),
                 rname: vec![],
@@ -197,7 +196,7 @@ struct SavedNode {
     lastbnum: u64,
     height: u64,
     sheight: u64,
-    alltagsever: [u128;2],
+    alltagsever: HashSet<CompressedRistretto>,
     headshard: usize,
     rname: Vec<u8>,
     moneyreset: Option<(Vec<u8>,CompressedRistretto)>,
@@ -227,7 +226,7 @@ struct KhoraNode {
     lastbnum: u64,
     height: u64,
     sheight: u64,
-    alltagsever: BloomFile,
+    alltagsever: HashSet<CompressedRistretto>,
     headshard: usize,
     rmems: HashMap<u64,OTAccount>,
     rname: Vec<u8>,
@@ -260,7 +259,7 @@ impl KhoraNode {
                 lastbnum: self.lastbnum,
                 height: self.height,
                 sheight: self.sheight,
-                alltagsever: self.alltagsever.get_keys(),
+                alltagsever: self.alltagsever.clone(),
                 headshard: self.headshard.clone(),
                 rname: self.rname.clone(),
                 moneyreset: self.moneyreset.clone(),
@@ -302,7 +301,7 @@ impl KhoraNode {
             lastbnum: sn.lastbnum,
             height: sn.height,
             sheight: sn.sheight,
-            alltagsever: BloomFile::from_keys(sn.alltagsever[0],sn.alltagsever[1], BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES, false),
+            alltagsever:sn.alltagsever.clone(),
             headshard: sn.headshard.clone(),
             rmems: HashMap::new(),
             rname: vec![],
@@ -338,7 +337,6 @@ impl KhoraNode {
                     self.save();
                 }
                 // println!("{}",format!("{}",t.elapsed().as_millis()).red());
-                // let t = Instant::now();
                 self.headshard = lastlightning.shards[0] as usize;
 
                 // println!("=========================================================\nyay!");
@@ -364,12 +362,18 @@ impl KhoraNode {
                 // calculate the reward for this block as a function of the current time and scan either the block or an empty block based on conditions
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
+                    let t = Instant::now();
                     lastlightning.scanstk(&self.me, &mut None::<[u64; 2]>, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
+                    println!("{}",format!("scan stake: {}",t.elapsed().as_millis()).yellow());
+                    let t = Instant::now();
                     let guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);
+                    println!("{}",format!("scan: {}",t.elapsed().as_millis()).yellow());
                     
                     send_to_gui.push(vec![!guitruster as u8,1]);
                     
+                    let t = Instant::now();
                     lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
+                    println!("{}",format!("no one: {}",t.elapsed().as_millis()).yellow());
 
                     self.lastbnum = self.bnum;
                     let mut hasher = Sha3_512::new();
@@ -378,6 +382,7 @@ impl KhoraNode {
                 } else {
                     NextBlock::pay_all_empty(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
                 }
+
                 for i in 0..self.comittee.len() {
                     select_stakers(&self.lastname,&self.bnum, &(i as u128), &mut self.queue[i], &mut self.exitqueue[i], &mut self.comittee[i], &self.stkinfo);
                 }
@@ -385,6 +390,7 @@ impl KhoraNode {
                 
 
 
+                // let t = Instant::now();
                 // send info to the gui
                 // println!("block {} name: {:?}",self.bnum, self.lastname);
 
@@ -403,7 +409,7 @@ impl KhoraNode {
                 }
                 // println!("block reading process done!!!");
 
-                // println!("{}",format!("{}",t.elapsed().as_millis()).red());
+                // println!("{}",format!("{}",t.elapsed().as_millis()).bright_yellow());
 
 
             }
@@ -549,7 +555,7 @@ impl KhoraNode {
                             
                             // let t = Instant::now();
                             send = self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
-                            // println!("{}",format!("{}",t.elapsed().as_millis()).bright_yellow().bold());
+                            // println!("{}",format!("block reading time: {}ms",t.elapsed().as_millis()).bright_yellow().bold());
                         } else {
                             println!("they send a fake block");
                         }
@@ -562,7 +568,7 @@ impl KhoraNode {
                         mymoney.push(0);
                         self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
 
-                        // println!("{}",format!("{}",tt.elapsed().as_millis()).green().bold());
+                        // println!("{}",format!("total time: {}ms",tt.elapsed().as_millis()).green().bold());
                         // println!(".");
                     }
                 }

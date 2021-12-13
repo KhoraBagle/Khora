@@ -47,12 +47,6 @@ pub const STAKER_BLOOM_NAME: &'static str = "all_tags";
 pub const STAKER_BLOOM_SIZE: usize =  1_000_000_000*4;
 /// bloom file for stakers hashes
 pub const STAKER_BLOOM_HASHES: u8 = 13;
-/// bloom file for stakers
-pub const BLOOM_NAME: &'static str = "my_tags";
-/// bloom file for stakers size
-pub const BLOOM_SIZE: usize =  1_000_000;
-/// bloom file for stakers hashes
-pub const BLOOM_HASHES: u8 = 18;
 /// if you have to many tx, you should combind them
 pub const ACCOUNT_COMBINE: usize = 10;
 
@@ -826,17 +820,21 @@ impl LightningSyncBlock {
     }
 
     /// scans the block for money sent to you. additionally updates your understanding of the height. returns weather you recieved money
-    pub fn scan(&self, me: &Account, mine: &mut HashMap<u64,OTAccount>, reversemine: &mut HashMap<CompressedRistretto,u64>, height: &mut u64, alltagsever: &mut BloomFile) -> bool {
+    pub fn scan(&self, me: &Account, mine: &mut HashMap<u64,OTAccount>, reversemine: &mut HashMap<CompressedRistretto,u64>, height: &mut u64, alltagsever: &mut HashSet<CompressedRistretto>) -> bool {
         let mut imtrue = true;
         let newmine = self.info.txout.iter().enumerate().filter_map(|(i,x)| if let Ok(y) = me.receive_ot(x) {imtrue = false; Some((i as u64+*height,y))} else {None}).collect::<Vec<(u64,OTAccount)>>();
         for (n,m) in newmine {
-            if alltagsever.contains(m.tag.borrow().unwrap().as_bytes()) {
+            if alltagsever.contains(&m.tag.unwrap()) {
                 println!("someone sent you money that you can't speand");
             } else {
-                alltagsever.insert(m.tag.borrow().unwrap().as_bytes());
+                let t = std::time::Instant::now();
+                alltagsever.insert(m.tag.unwrap());
+                println!("insert tag: {}",t.elapsed().as_millis());
+                let t = std::time::Instant::now();
                 reversemine.insert(m.tag.unwrap(),n);
                 mine.insert(n,m);
                 imtrue = false;
+                println!("recieve money: {}",t.elapsed().as_millis());
             }
         }
         for tag in self.info.tags.iter() {
@@ -846,6 +844,7 @@ impl LightningSyncBlock {
                 imtrue = false;
             }
         }
+
         *height += self.info.txout.len() as u64;
 
         imtrue
@@ -854,7 +853,8 @@ impl LightningSyncBlock {
     /// scans the block for any transactions sent to you or any rewards and punishments you recieved. it additionally updates the height of stakers. returns if your money changed then if your index changed
     pub fn scanstk(&self, me: &Account, mine: &mut Option<[u64;2]>, height: &mut u64, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &Vec<(CompressedRistretto,u64)>) -> (bool,bool) {
 
-        
+        // let t = std::time::Instant::now();
+
 
         let mut benone = false;
         let changed = mine.clone();
@@ -941,6 +941,7 @@ impl LightningSyncBlock {
         if benone {
             *mine = None;
         }
+        // println!("{}",t.elapsed().as_millis());
 
         (changed == *mine, nonetosome && mine.is_some())
 

@@ -37,7 +37,6 @@ use serde::{Serialize, Deserialize};
 use khora::validation::{
     NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0,
     STAKER_BLOOM_NAME, STAKER_BLOOM_SIZE, STAKER_BLOOM_HASHES,
-    BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES,
     reward, blocktime
 };
 
@@ -168,7 +167,7 @@ fn main() -> Result<(), MainError> {
                 lastbnum: 0u64,
                 height: 0u64,
                 sheight: 1u64,
-                alltagsever: BloomFile::from_randomness(BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES, true),
+                alltagsever: HashSet::new(),
                 txses: vec![],
                 sigs: vec![],
                 timekeeper: Instant::now() + Duration::from_secs(1),
@@ -297,7 +296,7 @@ struct SavedNode {
     lastbnum: u64,
     height: u64,
     sheight: u64,
-    alltagsever: [u128;2],
+    alltagsever: HashSet<CompressedRistretto>,
     headshard: usize,
     outer_view: HashSet<NodeId>,
     outer_eager: HashSet<NodeId>,
@@ -341,7 +340,7 @@ struct KhoraNode {
     lastbnum: u64,
     height: u64,
     sheight: u64,
-    alltagsever: BloomFile,
+    alltagsever: HashSet<CompressedRistretto>,
     txses: Vec<Vec<u8>>,
     sigs: Vec<NextBlock>,
     timekeeper: Instant,
@@ -393,7 +392,7 @@ impl KhoraNode {
                 lastbnum: self.lastbnum,
                 height: self.height,
                 sheight: self.sheight,
-                alltagsever: self.alltagsever.get_keys(),
+                alltagsever: self.alltagsever.clone(),
                 headshard: self.headshard.clone(),
                 outer_view: self.outer.plumtree_node().lazy_push_peers().clone(),
                 outer_eager: self.outer.plumtree_node().eager_push_peers().clone(),
@@ -477,7 +476,7 @@ impl KhoraNode {
             lastbnum: sn.lastbnum,
             height: sn.height,
             sheight: sn.sheight,
-            alltagsever: BloomFile::from_keys(sn.alltagsever[0],sn.alltagsever[1], BLOOM_NAME, BLOOM_SIZE, BLOOM_HASHES, false),
+            alltagsever: sn.alltagsever.clone(),
             headshard: sn.headshard.clone(),
             is_validator: sn.is_validator,
             is_node: true,

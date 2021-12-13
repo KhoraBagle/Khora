@@ -6,7 +6,7 @@ use crossbeam::channel;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
-use crate::validation::{VERSION, MINSTK, STAKER_BLOOM_NAME, BLOOM_NAME};
+use crate::validation::{VERSION, MINSTK, STAKER_BLOOM_NAME};
 
 /*
 cargo run --bin full_staker --release 9876 pig
@@ -854,7 +854,6 @@ impl epi::App for KhoraStakerGUI {
                 fs::remove_file("lightningblocks_metadata");
                 fs::remove_file("history");
                 fs::remove_file(STAKER_BLOOM_NAME);
-                fs::remove_file(BLOOM_NAME);
                 *setup = true;
                 frame.quit();
             }

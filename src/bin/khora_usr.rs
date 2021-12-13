@@ -214,8 +214,6 @@ struct KhoraNode {
     allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     save_history: bool, // do i really want this? yes?
     me: Account,
-    mine: HashMap<u64, OTAccount>,
-    reversemine: HashMap<CompressedRistretto, u64>,
     key: Scalar,
     stkinfo: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
@@ -226,6 +224,8 @@ struct KhoraNode {
     lastbnum: u64,
     height: u64,
     sheight: u64,
+    mine: HashMap<u64, OTAccount>,
+    reversemine: HashMap<CompressedRistretto, u64>,
     alltagsever: HashSet<CompressedRistretto>,
     headshard: usize,
     rmems: HashMap<u64,OTAccount>,
@@ -362,18 +362,18 @@ impl KhoraNode {
                 // calculate the reward for this block as a function of the current time and scan either the block or an empty block based on conditions
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
-                    let t = Instant::now();
+                    // let t = Instant::now();
                     lastlightning.scanstk(&self.me, &mut None::<[u64; 2]>, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
-                    println!("{}",format!("scan stake: {}",t.elapsed().as_millis()).yellow());
-                    let t = Instant::now();
+                    // println!("{}",format!("scan stake: {}",t.elapsed().as_millis()).yellow());
+                    // let t = Instant::now();
                     let guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);
-                    println!("{}",format!("scan: {}",t.elapsed().as_millis()).yellow());
+                    // println!("{}",format!("scan: {}",t.elapsed().as_millis()).yellow());
                     
                     send_to_gui.push(vec![!guitruster as u8,1]);
                     
-                    let t = Instant::now();
+                    // let t = Instant::now();
                     lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
-                    println!("{}",format!("no one: {}",t.elapsed().as_millis()).yellow());
+                    // println!("{}",format!("no one: {}",t.elapsed().as_millis()).yellow());
 
                     self.lastbnum = self.bnum;
                     let mut hasher = Sha3_512::new();
@@ -548,9 +548,11 @@ impl KhoraNode {
                         }
                         println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
                         let mut serialized_block = vec![0u8;bsize];
-                        if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
-                            break
-                        };
+                        if let Ok(x) = stream.read(&mut serialized_block) {
+                            if x != bsize {
+                                println!("read {} of {} bytes",x,bsize);
+                            }
+                        }
                         if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
                             
                             // let t = Instant::now();
@@ -841,6 +843,7 @@ impl Future for KhoraNode {
 
                         self.mine = HashMap::new();
                         self.reversemine = HashMap::new();
+                        self.alltagsever = HashSet::new();
                         self.me = newacc;
                         self.key = self.me.stake_acc().receive_ot(&self.me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap().sk.unwrap();
 

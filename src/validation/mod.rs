@@ -47,7 +47,7 @@ pub const STAKER_BLOOM_NAME: &'static str = "all_tags";
 pub const STAKER_BLOOM_SIZE: usize =  1_000_000_000*4;
 /// bloom file for stakers hashes
 pub const STAKER_BLOOM_HASHES: u8 = 13;
-/// if you have to many tx, you should combind them
+/// if you have to many tx, you should combine them
 pub const ACCOUNT_COMBINE: usize = 10;
 
 
@@ -825,16 +825,16 @@ impl LightningSyncBlock {
         let newmine = self.info.txout.iter().enumerate().filter_map(|(i,x)| if let Ok(y) = me.receive_ot(x) {imtrue = false; Some((i as u64+*height,y))} else {None}).collect::<Vec<(u64,OTAccount)>>();
         for (n,m) in newmine {
             if alltagsever.contains(&m.tag.unwrap()) {
-                println!("someone sent you money that you can't speand");
+                // println!("someone sent you money that you can't speand");
             } else {
-                let t = std::time::Instant::now();
+                // let t = std::time::Instant::now();
                 alltagsever.insert(m.tag.unwrap());
-                println!("insert tag: {}",t.elapsed().as_millis());
-                let t = std::time::Instant::now();
+                // println!("insert tag: {}",t.elapsed().as_millis());
+                // let t = std::time::Instant::now();
                 reversemine.insert(m.tag.unwrap(),n);
                 mine.insert(n,m);
                 imtrue = false;
-                println!("recieve money: {}",t.elapsed().as_millis());
+                // println!("recieve money: {}",t.elapsed().as_millis());
             }
         }
         for tag in self.info.tags.iter() {

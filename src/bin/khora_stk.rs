@@ -1540,6 +1540,8 @@ impl Future for KhoraNode {
 
 
                         self.mine = HashMap::new();
+                        self.reversemine = HashMap::new();
+                        self.alltagsever = HashSet::new();
                         self.smine = None;
                         self.me = newacc;
                         self.key = self.me.stake_acc().receive_ot(&self.me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap().sk.unwrap();

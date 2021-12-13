@@ -833,19 +833,18 @@ impl KhoraNode {
         sendview.shuffle(&mut rng);
         for node in sendview {
             if let Ok(mut stream) =  TcpStream::connect(node) {
-                if stream.write(&[122 - (self.lightning_yielder as u8)]).unwrap_or_default() == 1 {
+                if stream.write_all(&[122 - (self.lightning_yielder as u8)]).unwrap_or_default() == 1 {
                     let mut ok = [0;8];
-                    stream.read(&mut ok);
-                    if ok != [0;8] {
+                    if stream.read_exact(&mut ok).is_ok(){
                         let syncnum = u64::from_le_bytes(ok);
                         let mut blocksize = [0u8;8];
                         let mut counter = 0;
-                        while stream.read(&mut blocksize).is_ok() {
+                        while stream.read_exact(&mut blocksize).is_ok() {
                             counter += 1;
                             let bsize = u64::from_le_bytes(blocksize) as usize;
                             let mut serialized_block = vec![0u8;bsize];
-                            if stream.read(&mut serialized_block).unwrap_or_default() != bsize {
-                                break
+                            if stream.read_exact(&mut serialized_block).is_err() {
+                                println!("couldn't read the bytes");
                             };
                             if self.lightning_yielder {
                                 if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
@@ -1131,7 +1130,7 @@ impl Future for KhoraNode {
                 while let Ok(mut stream) = self.outerlister.try_recv() {
                     let mut m = vec![0;100_000]; // maybe choose an upper bound in an actually thoughtful way?
                     if let Ok(i) = stream.read(&mut m) { // stream must be read before responding btw
-                        m = m[..i].to_vec();
+                        m.truncate(i);
                         if let Some(mtype) = m.pop() {
                             println!("{}",format!("got a stream of type {}!",mtype).blue());
                             if mtype == 0 /* transaction someone wants to make */ {
@@ -1144,23 +1143,23 @@ impl Future for KhoraNode {
                                         println!("{}","a user sent a tx".bright_yellow());
                                         m.push(0);
                                         self.outer.broadcast_now(m);
-                                        stream.write(&[1u8]);
+                                        stream.write_all(&[1u8]);
                                     }
                                 }
                             } else if mtype == 101 /* e */ {
                                 println!("{}","someone wants a bunch of ips".blue());
                                 let x = self.allnetwork.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>();
-                                stream.write(&bincode::serialize(&x).unwrap());
+                                stream.write_all(&bincode::serialize(&x).unwrap());
                             } else if mtype == 114 /* r */ { // answer their ring question
                                 if let Ok(r) = recieve_ring(&m) {
                                     println!("{}","someone wants a ring".blue());
                                     for i in r {
-                                        stream.write(&History::get_raw(&i));
+                                        stream.write_all(&History::get_raw(&i));
                                     }
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
                                 println!("{}","someone wants lightning".blue());
-                                stream.write(&(self.bnum as u64).to_le_bytes());
+                                stream.write_all(&(self.bnum as u64).to_le_bytes());
                                 let bnum = self.bnum;
                                 thread::spawn(move || {
                                     if let Ok(m) = m.try_into() {
@@ -1169,10 +1168,10 @@ impl Future for KhoraNode {
                                         loop {
                                             if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
                                                 println!("{}",x.len());
-                                                if stream.write(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
                                                     break
                                                 }
-                                                if stream.write(&x).is_err() {
+                                                if stream.write_all(&x).is_err() {
                                                     break
                                                 }
                                             }
@@ -1186,7 +1185,7 @@ impl Future for KhoraNode {
                             } else if mtype == 122 /* z */ { // someone sent a full sync request
                                 println!("{}","someone wants full blocks".blue());
                                 if !self.lightning_yielder {
-                                    stream.write(&(self.bnum as u64).to_le_bytes());
+                                    stream.write_all(&(self.bnum as u64).to_le_bytes());
                                     let bnum = self.bnum;
                                     thread::spawn(move || {
                                         if let Ok(m) = m.try_into() {
@@ -1194,10 +1193,10 @@ impl Future for KhoraNode {
                                             println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                             loop {
                                                 if let Ok(x) = NextBlock::read(&sync_theirnum) {
-                                                    if stream.write(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                    if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
                                                         break
                                                     }
-                                                    if stream.write(&x).is_err() {
+                                                    if stream.write_all(&x).is_err() {
                                                         break
                                                     }
                                                 }

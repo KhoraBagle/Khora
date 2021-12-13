@@ -440,7 +440,7 @@ impl KhoraNode {
         let responces = self.sendview[..cmp::min(recipients,self.sendview.len())].iter().filter_map(|socket| {
             if let Ok(mut stream) =  TcpStream::connect(socket) {
                 println!("connected...");
-                if stream.write(&message).is_ok() {
+                if stream.write_all(&message).is_ok() {
                     println!("request made...");
                     let mut responce = Vec::<u8>::new(); // using 6 byte buffer
                     if let Ok(_) = stream.read_to_end(&mut responce) {
@@ -488,11 +488,10 @@ impl KhoraNode {
                 let mut memloc = 0usize;
                 if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
                     println!("connected...");
-                    if stream.write(&rname).is_ok() {
+                    if stream.write_all(&rname).is_ok() {
                         println!("request made...");
                         let mut member = [0u8;64]; // using 6 byte buffer
-                        while let Ok(x) = stream.read(&mut member) {
-                            if x == 64 {
+                        while stream.read_exact(&mut member).is_ok() {
                                 if let Some(x) = self.rmems.get(&ring[memloc]) {
                                     if x.tag.is_none() {
                                         print!("{}","!".red());
@@ -502,9 +501,6 @@ impl KhoraNode {
                                     self.rmems.insert(ring[memloc],History::read_raw(&member));
                                 }
                                 memloc += 1;
-                            } else {
-                                break
-                            }
                         }
                     }
                 }
@@ -528,30 +524,23 @@ impl KhoraNode {
             println!("connected...");
             let mut m = self.bnum.to_le_bytes().to_vec();
             m.push(121);
-            if stream.write(&m).is_ok() {
+            if stream.write_all(&m).is_ok() {
                 println!("request made...");
                 let mut ok = [0;8];
-                stream.read(&mut ok);
-                if ok != [0;8] {
+                if stream.read_exact(&mut ok).is_ok() {
                     let syncnum = u64::from_le_bytes(ok);
                     println!("responce valid. syncing now...");
                     let mut blocksize = [0u8;8];
                     let mut counter = 0;
-                    while let Ok(x) = stream.read(&mut blocksize) {
+                    while stream.read_exact(&mut blocksize).is_ok() {
                         // println!(".");
                         counter += 1;
                         // let tt = Instant::now();
                         let bsize = u64::from_le_bytes(blocksize) as usize;
-                        if x < 8 {
-                            println!("they're not following the format: sent {} bytes",x);
-                            break
-                        }
                         println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
                         let mut serialized_block = vec![0u8;bsize];
-                        if let Ok(x) = stream.read(&mut serialized_block) {
-                            if x != bsize {
-                                println!("read {} of {} bytes",x,bsize);
-                            }
+                        if stream.read_exact(&mut serialized_block).is_err() {
+                            println!("couldn't read the bytes");
                         }
                         if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
                             
@@ -881,7 +870,9 @@ impl Future for KhoraNode {
                         match TcpStream::connect(socket) {
                             Ok(mut stream) => {
                                 let msg = vec![101u8];
-                                stream.write(&msg).unwrap();
+                                if stream.write_all(&msg).is_err() {
+                                    println!("failed to write entrypoint message");
+                                }
                                 println!("Asking for entrance, awaiting reply...");
                     
                                 let mut data = Vec::<u8>::new(); // using 6 byte buffer

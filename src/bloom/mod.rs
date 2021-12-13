@@ -209,213 +209,218 @@ pub fn needed_bits(false_pos_rate:f32, num_items: u32) -> usize {
     (num_items as f32 * ((1.0/false_pos_rate).ln() / ln22)).round() as usize
 }
 
-// #[cfg(feature = "do-bench")]
-// #[cfg(test)]
-// mod bench {
-//     extern crate test;
-//     use self::test::Bencher;
-//     use rand::{self,Rng};
+#[cfg(feature = "do-bench")]
+#[cfg(test)]
+mod bench {
+    extern crate test;
+    use self::test::Bencher;
+    use rand::{self,Rng};
 
-//     use super::BloomFilter;
+    use super::BloomFilter;
+    use crate::validation::STAKER_BLOOM_NAME;
 
-//     #[bench]
-//     fn insert_benchmark(b: &mut Bencher) {
-//         let cnt = 500000;
-//         let rate = 0.01 as f32;
+    #[bench]
+    fn insert_benchmark(b: &mut Bencher) {
+        let cnt = 500000;
 
-//         let mut bf:BloomFilter = BloomFilter::with_rate(rate,cnt);
-//         let mut rng = rand::thread_rng();
+        let bits = 4_000_000;
+        let hashes = 6; // the problem disapears when there's 1 hash..., problem starts at like 3ish
+        let bf: BloomFile = BloomFile::from_keys(1,2,STAKER_BLOOM_NAME,bits,hashes,true);
+        let mut rng = rand::thread_rng();
 
-//         b.iter(|| {
-//             let mut i = 0;
-//             while i < cnt {
-//                 let v = rng.gen::<i32>();
-//                 bf.insert(&v);
-//                 i+=1;
-//             }
-//         })
-//     }
+        b.iter(|| {
+            let mut i = 0;
+            while i < cnt {
+                let v = rng.gen::<i32>();
+                bf.insert(&v);
+                i+=1;
+            }
+        })
+    }
 
-//     #[bench]
-//     fn contains_benchmark(b: &mut Bencher) {
-//         let cnt = 500000;
-//         let rate = 0.01 as f32;
+    #[bench]
+    fn contains_benchmark(b: &mut Bencher) {
+        let cnt = 500000;
 
-//         let mut bf:BloomFilter = BloomFilter::with_rate(rate,cnt);
-//         let mut rng = rand::thread_rng();
+        let bits = 4_000_000;
+        let hashes = 6; // the problem disapears when there's 1 hash..., problem starts at like 3ish
+        let bf: BloomFile = BloomFile::from_keys(1,2,STAKER_BLOOM_NAME,bits,hashes,true);
+        let mut rng = rand::thread_rng();
 
-//         let mut i = 0;
-//         while i < cnt {
-//             let v = rng.gen::<i32>();
-//             bf.insert(&v);
-//             i+=1;
-//         }
+        let mut i = 0;
+        while i < cnt {
+            let v = rng.gen::<i32>();
+            bf.insert(&v);
+            i+=1;
+        }
 
-//         b.iter(|| {
-//             i = 0;
-//             while i < cnt {
-//                 let v = rng.gen::<i32>();
-//                 bf.contains(&v);
-//                 i+=1;
-//             }
-//         })
-//     }
-// }
+        b.iter(|| {
+            i = 0;
+            while i < cnt {
+                let v = rng.gen::<i32>();
+                bf.contains(&v);
+                i+=1;
+            }
+        })
+    }
+}
 
-// #[cfg(test)]
-// mod tests {
-//     use std::collections::HashSet;
-//     use curve25519_dalek::scalar::Scalar;
-//     use rand::{self,Rng};
-//     use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
-//     use super::BloomFile;
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use curve25519_dalek::scalar::Scalar;
+    use rand::{self,Rng};
+    use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+    use crate::validation::STAKER_BLOOM_NAME;
 
-//     #[test]
-//     fn simple() {
-//         BloomFile::initialize_bloom_file();
-//         let b: BloomFile = BloomFile::from_keys(0,0);
-//         b.insert(&Scalar::from(1u8).as_bytes());
-//         assert!(b.contains(&Scalar::from(1u8).as_bytes()));
-//         assert!(!b.contains(&Scalar::from(2u8).as_bytes()));
-//     }
+    use super::BloomFile;
 
-//     #[test]
-//     fn bloom_test() {
-//         let cnt = 500_000;
-//         let _bits = 4_000_000;
-//         let _hashes = 6; // the problem disapears when there's 1 hash..., problem starts at like 3ish
-//         let rate = 0.021577141 as f32;
+    #[test]
+    fn simple() {
+        let bits = 4_000_000;
+        let hashes = 6; // the problem disapears when there's 1 hash..., problem starts at like 3ish
+        let b: BloomFile = BloomFile::from_keys(1,2,STAKER_BLOOM_NAME,bits,hashes,true);
+        b.insert(&Scalar::from(1u8).as_bytes());
+        assert!(b.contains(&Scalar::from(1u8).as_bytes()));
+        assert!(!b.contains(&Scalar::from(2u8).as_bytes()));
+    }
 
-//         BloomFile::initialize_bloom_file();
-//         let b: BloomFile = BloomFile::from_keys(1,2);
-//         let mut set: HashSet<[u8;32]> = HashSet::new();
-//         let mut rng = rand::thread_rng();
+    #[test]
+    fn bloom_test() {
+        let cnt = 500_000;
+        let bits = 4_000_000;
+        let hashes = 6; // the problem disapears when there's 1 hash..., problem starts at like 3ish
+        let rate = 0.021577141 as f32;
 
-//         let mut i = 0;
-//         while i < cnt {
-//             // let v = rng.gen::<u32>();
-//             let v = i as u32;
-//             assert!(set.insert(*Scalar::from(v).as_bytes()));
-//             b.insert(&Scalar::from(v).as_bytes());
-//             i+=1;
-//         }
+        let b: BloomFile = BloomFile::from_keys(1,2,STAKER_BLOOM_NAME,bits,hashes,true);
+        let mut set: HashSet<[u8;32]> = HashSet::new();
+        let mut rng = rand::thread_rng();
 
-//         i = 0;
-//         let mut false_positives = 0;
-//         let mut true_positives = 0;
-//         let mut true_negatives = 0;
-//         while i < cnt {
-//             let v = rng.gen::<u32>();
-//             // let v = i as u32;
-//             match (b.contains(&Scalar::from(v).as_bytes()),set.contains(Scalar::from(v).as_bytes())) {
-//                 (true, false) => { false_positives += 1; }
-//                 (false, true) => { assert!(false); } // should never happen
-//                 (true, true) => { true_positives += 1; }
-//                 (false, false) => { true_negatives += 1; }
-//             }
-//             i+=1;
-//         }
+        let mut i = 0;
+        while i < cnt {
+            // let v = rng.gen::<u32>();
+            let v = i as u32;
+            assert!(set.insert(*Scalar::from(v).as_bytes()));
+            b.insert(&Scalar::from(v).as_bytes());
+            i+=1;
+        }
 
-//         // make sure we're not too far off
-//         let actual_rate = false_positives as f32 / (false_positives + true_negatives) as f32;
-//         println!("fp: {}    tn: {}  tp: {}",false_positives,true_negatives,true_positives);
-//         println!("expected: {}",rate);
-//         println!("actual:   {}",actual_rate);
-//         assert!(actual_rate > (rate-0.001));
-//         assert!(actual_rate < (rate+0.001));
-//     }
+        i = 0;
+        let mut false_positives = 0;
+        let mut true_positives = 0;
+        let mut true_negatives = 0;
+        while i < cnt {
+            let v = rng.gen::<u32>();
+            // let v = i as u32;
+            match (b.contains(&Scalar::from(v).as_bytes()),set.contains(Scalar::from(v).as_bytes())) {
+                (true, false) => { false_positives += 1; }
+                (false, true) => { assert!(false); } // should never happen
+                (true, true) => { true_positives += 1; }
+                (false, false) => { true_negatives += 1; }
+            }
+            i+=1;
+        }
 
-//     #[test]
-//     fn bloom_parallell() {
-//         let cnt = 500_000 as usize;
-//         let _bits = 4_000_000;
-//         let _hashes = 6; // the problem disapears when there's 1 hash..., problem starts at like 3ish
-//         let rate = 0.021577141 as f32;
+        // make sure we're not too far off
+        let actual_rate = false_positives as f32 / (false_positives + true_negatives) as f32;
+        println!("fp: {}    tn: {}  tp: {}",false_positives,true_negatives,true_positives);
+        println!("expected: {}",rate);
+        println!("actual:   {}",actual_rate);
+        assert!(actual_rate > (rate-0.001));
+        assert!(actual_rate < (rate+0.001));
+    }
 
-//         BloomFile::initialize_bloom_file();
-//         let b: BloomFile = BloomFile::from_keys(1,2);
-//         let mut set: HashSet<[u8;32]> = HashSet::new();
+    #[test]
+    fn bloom_parallell() {
+        let cnt = 500_000 as usize;
+        let bits = 4_000_000;
+        let hashes = 6; // the problem disapears when there's 1 hash..., problem starts at like 3ish
+        let rate = 0.021577141 as f32;
 
+        let b: BloomFile = BloomFile::from_keys(1,2,STAKER_BLOOM_NAME,bits,hashes,true);
 
-//         let mut i = 0;
-//         while i < cnt {
-//             // let v = rng.gen::<u32>();
-//             let v = i as u32;
-//             assert!(set.insert(*Scalar::from(v).as_bytes()));
-//             b.insert(&Scalar::from(v).as_bytes());
-//             i+=1;
-//         }
-
-//         let res = (0..2*cnt as u32).into_par_iter().map(|v| {
-//             // let mut rng = rand::thread_rng();
-//             // let v = rng.gen::<u32>();
-//             match (b.contains(&Scalar::from(v).as_bytes()),set.contains(Scalar::from(v).as_bytes())) {
-//                 (true, false) => { return 0 }
-//                 (false, true) => { assert!(false); return -1 } // should never happen
-//                 (true, true) => { return 1 }
-//                 (false, false) => { return 2 }
-//             }
-//         }).collect::<Vec<_>>();
-//         let false_positives = res.par_iter().filter(|&&x| x == 0).count();
-//         let true_positives = res.par_iter().filter(|&&x| x == 1).count();
-//         let true_negatives = res.par_iter().filter(|&&x| x == 2).count();
-
-//         // make sure we're not too far off
-//         let actual_rate = false_positives as f32 / (false_positives + true_negatives) as f32;
-//         println!("fp: {}    tn: {}  tp: {}",false_positives,true_negatives,true_positives);
-//         println!("expected: {}",rate);
-//         println!("actual:   {}",actual_rate);
-//         assert!(actual_rate > (rate-0.001));
-//         assert!(actual_rate < (rate+0.001));
-//         assert!(true_positives == cnt);
-//     }
+        let mut set: HashSet<[u8;32]> = HashSet::new();
 
 
-//     #[test]
-//     fn bloom_parallell_writing() {
-//         let cnt = 500_000 as usize;
-//         let _bits = 4_000_000;
-//         let _hashes = 6; // the problem disapears when there's 1 hash..., problem starts at like 3ish
-//         let rate = 0.021577141 as f32;
+        let mut i = 0;
+        while i < cnt {
+            // let v = rng.gen::<u32>();
+            let v = i as u32;
+            assert!(set.insert(*Scalar::from(v).as_bytes()));
+            b.insert(&Scalar::from(v).as_bytes());
+            i+=1;
+        }
 
-//         BloomFile::initialize_bloom_file();
-//         let b: BloomFile = BloomFile::from_keys(1,2);
-//         let mut set: HashSet<[u8;32]> = HashSet::new();
+        let res = (0..2*cnt as u32).into_par_iter().map(|v| {
+            // let mut rng = rand::thread_rng();
+            // let v = rng.gen::<u32>();
+            match (b.contains(&Scalar::from(v).as_bytes()),set.contains(Scalar::from(v).as_bytes())) {
+                (true, false) => { return 0 }
+                (false, true) => { assert!(false); return -1 } // should never happen
+                (true, true) => { return 1 }
+                (false, false) => { return 2 }
+            }
+        }).collect::<Vec<_>>();
+        let false_positives = res.par_iter().filter(|&&x| x == 0).count();
+        let true_positives = res.par_iter().filter(|&&x| x == 1).count();
+        let true_negatives = res.par_iter().filter(|&&x| x == 2).count();
+
+        // make sure we're not too far off
+        let actual_rate = false_positives as f32 / (false_positives + true_negatives) as f32;
+        println!("fp: {}    tn: {}  tp: {}",false_positives,true_negatives,true_positives);
+        println!("expected: {}",rate);
+        println!("actual:   {}",actual_rate);
+        assert!(actual_rate > (rate-0.001));
+        assert!(actual_rate < (rate+0.001));
+        assert!(true_positives == cnt);
+    }
 
 
-//         (0..cnt as u32).into_iter().for_each(|v| {
-//             set.insert(*Scalar::from(v).as_bytes());
-//         });
+    #[test]
+    fn bloom_parallell_writing() {
+        let cnt = 500_000 as usize;
+        let bits = 4_000_000;
+        let hashes = 6; // the problem disapears when there's 1 hash..., problem starts at like 3ish
+        let rate = 0.021577141 as f32;
 
-//         (0..cnt as u32).into_par_iter().for_each(|v| {
-//             b.insert(&Scalar::from(v).as_bytes());
-//         });
+        let b: BloomFile = BloomFile::from_keys(1,2,STAKER_BLOOM_NAME,bits,hashes,true);
+
+        let mut set: HashSet<[u8;32]> = HashSet::new();
+
+
+        (0..cnt as u32).into_iter().for_each(|v| {
+            set.insert(*Scalar::from(v).as_bytes());
+        });
+
+        (0..cnt as u32).into_par_iter().for_each(|v| {
+            b.insert(&Scalar::from(v).as_bytes());
+        });
         
 
-//         let res = (0..2*cnt as u32).into_par_iter().map(|v| {
-//             // let mut rng = rand::thread_rng();
-//             // let v = rng.gen::<u32>();
-//             match (b.contains(&Scalar::from(v).as_bytes()),set.contains(Scalar::from(v).as_bytes())) {
-//                 (true, false) => { return 0 }
-//                 (false, true) => { return -1 } // it may be allowed to have false negatives because the chance that 2 items in different threads try to write in the same place is (1 - HASHES/FILE_SIZE)*(1 - HASHES/(FILE_SIZE-1))...*(1 - HASHES/(FILE_SIZE-CORES+1))
-//                 (true, true) => { return 1 } // ~= (1 - HASHES/FILE_SIZE)^(CORES - 1) > 0.999 on most computers for our uses
-//                 (false, false) => { return 2 } // which is fine because there's 128 validators that need to agree and their errors are all in different places
-//             }
-//         }).collect::<Vec<_>>();
-//         let false_positives = res.par_iter().filter(|&&x| x == 0).count();
-//         let false_negatives = res.par_iter().filter(|&&x| x == -1).count();
-//         let true_positives = res.par_iter().filter(|&&x| x == 1).count();
-//         let true_negatives = res.par_iter().filter(|&&x| x == 2).count();
+        let res = (0..2*cnt as u32).into_par_iter().map(|v| {
+            // let mut rng = rand::thread_rng();
+            // let v = rng.gen::<u32>();
+            match (b.contains(&Scalar::from(v).as_bytes()),set.contains(Scalar::from(v).as_bytes())) {
+                (true, false) => { return 0 }
+                (false, true) => { return -1 } // it may be allowed to have false negatives because the chance that 2 items in different threads try to write in the same place is (1 - HASHES/FILE_SIZE)*(1 - HASHES/(FILE_SIZE-1))...*(1 - HASHES/(FILE_SIZE-CORES+1))
+                (true, true) => { return 1 } // ~= (1 - 8*HASHES/FILE_SIZE)^(CORES - 1) > 0.999 on most computers for our uses
+                (false, false) => { return 2 } // which is fine because there's 128 validators that need to agree and their errors are all in different places
+            }
+        }).collect::<Vec<_>>();
+        let false_positives = res.par_iter().filter(|&&x| x == 0).count();
+        let false_negatives = res.par_iter().filter(|&&x| x == -1).count();
+        let true_positives = res.par_iter().filter(|&&x| x == 1).count();
+        let true_negatives = res.par_iter().filter(|&&x| x == 2).count();
 
-//         // make sure we're not too far off
-//         let actual_rate = false_positives as f32 / (false_positives + true_negatives) as f32;
-//         let error_rate = false_negatives as f32 / (false_negatives + true_positives) as f32;
-//         println!("fp: {}    tn: {}  tp: {}  fn: {}",false_positives,true_negatives,true_positives,false_negatives);
-//         println!("expected: {}",rate);
-//         println!("actual:   {}",actual_rate);
-//         println!("error:    {}",error_rate);
-//         assert!(actual_rate > (rate-0.001));
-//         assert!(actual_rate < (rate+0.001));
-//         assert!(error_rate < 0.001);
-//     }
-// }
+        // make sure we're not too far off
+        let actual_rate = false_positives as f32 / (false_positives + true_negatives) as f32;
+        let error_rate = false_negatives as f32 / (false_negatives + true_positives) as f32;
+        println!("fp: {}    tn: {}  tp: {}  fn: {}",false_positives,true_negatives,true_positives,false_negatives);
+        println!("expected: {}",rate);
+        println!("actual:   {}",actual_rate);
+        println!("error:    {}",error_rate);
+        assert!(actual_rate > (rate-0.001));
+        assert!(actual_rate < (rate+0.001));
+        assert!(error_rate < 0.001);
+    }
+}

@@ -146,11 +146,10 @@ fn main() -> Result<(), MainError> {
         let native_options = eframe::NativeOptions::default();
         eframe::run_native(Box::new(app), native_options);
     } else {
-        let node = KhoraNode::load(usend, urecv);
+        let mut node = KhoraNode::load(usend, urecv);
         let mut mymoney = node.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
         mymoney.push(0);
         node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
-        node.save();
 
         let app = gui::user::KhoraUserGUI::new(
             ui_reciever,
@@ -163,6 +162,7 @@ fn main() -> Result<(), MainError> {
         );
         let native_options = eframe::NativeOptions::default();
         thread::spawn(move || {
+            node.attempt_sync();
             executor.spawn(node);
             track_any_err!(executor.run()).unwrap();
         });
@@ -280,6 +280,7 @@ impl KhoraNode {
         f.read_to_end(&mut buf).unwrap();
 
         let sn = bincode::deserialize::<SavedNode>(&buf).unwrap();
+        gui_sender.send(vec![sn.blocktime as u8,128]).unwrap();
 
         let allnetwork = sn.stkinfo.iter().enumerate().map(|(i,x)| (x.0,(i as u64,None))).collect::<HashMap<_,_>>();
         KhoraNode {

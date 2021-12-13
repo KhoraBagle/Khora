@@ -714,7 +714,6 @@ impl epi::App for KhoraStakerGUI {
                                         }
                                         m.push(63);
                                     } else {
-                                        let x = *unstaked as i128 - tot - retain_numeric(fee.to_string()).parse::<i128>().unwrap();
                                         m.extend(str::to_ascii_lowercase(&addr).as_bytes());
                                         m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
                                         m.push(*ringsize);

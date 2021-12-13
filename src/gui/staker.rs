@@ -286,9 +286,11 @@ impl epi::App for KhoraStakerGUI {
 
                 let mut m = vec![];
                 let x = 10_000_000u64;
-                m.extend(str::to_ascii_lowercase(&"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakpkkjflfkbnihkjemkbdjhleddlncjmipffbpninfgkddopmkmofanmahmebeombknnljklfkolpkacljdjpfephfkdjhikcechegbionimhhejdckcnpmejnkmcacia").as_bytes().to_vec());
+                m.extend(b"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakpkkjflfkbnihkjemkbdjhleddlncjmipffbpninfgkddopmkmofanmahmebeombknnljklfkolpkacljdjpfephfkdjhikcechegbionimhhejdckcnpmejnkmcacia");
                 m.extend(x.to_le_bytes().to_vec());
-                let tot = x;
+                m.extend(b"idnalalnbcanbeofcfbpfklbhonfflohoagdgghojhifmppnicbnedhpkmgmjhbcafhplgcafmdhdnifcalnndillfononeanbgfihjjpagncanknamdmgcgilindfjfgpmkijinbaldpopgipefkhcjgadifhjpmhdflgccokbhjiecknhnpigbgpnghpkg");
+                m.extend(x.to_le_bytes().to_vec());
+                let tot = 2*x;
                 if self.unstaked as i128 >= tot as i128 {
                     m.extend(str::to_ascii_lowercase(&self.addr).as_bytes());
                     m.extend(0u64.to_le_bytes());

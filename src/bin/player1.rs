@@ -36,23 +36,28 @@ fn main() {
     println!("{:?}",leader);
 
 
+    let person2 = get_pswrd(&"4321".to_string(),&"1234567".to_string(),&"12345".to_string());
+    let leader = Account::new(&person2).name();
+    println!("{:?}",leader);
 
 
 
-    let person0 = Account::new(&person0);
-    let person1 = Account::new(&person1);
-
-    let x = (0..1000u64).map(|x| person0.derive_ot(&Scalar::from(x))).collect::<Vec<_>>();
 
 
-    let now = Instant::now();
+    // let person0 = Account::new(&person0);
+    // let person1 = Account::new(&person1);
 
-    let z = x.iter().filter(|z| {
-        person1.read_ot(z).is_ok()
-    }).collect::<Vec<_>>();
+    // let x = (0..1000u64).map(|x| person0.derive_ot(&Scalar::from(x))).collect::<Vec<_>>();
+
+
+    // let now = Instant::now();
+
+    // let z = x.iter().filter(|z| {
+    //     person1.read_ot(z).is_ok()
+    // }).collect::<Vec<_>>();
     
 
-    println!("{}",now.elapsed().as_millis());
-    println!("{}",z.len());
+    // println!("{}",now.elapsed().as_millis());
+    // println!("{}",z.len());
 
 }

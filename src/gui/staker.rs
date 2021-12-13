@@ -275,10 +275,10 @@ impl epi::App for KhoraStakerGUI {
                 let mut m = vec![];
                 m.extend(self.addr.as_bytes().to_vec());
                 m.extend(unstake.to_le_bytes());
-                let x = self.staked as i128 - retain_numeric(self.fee.to_string()).parse::<u64>().unwrap() as i128 - unstake as i128 ;
-                if x > 1 {
+                let x = self.staked as i128 - unstake as i128 ;
+                if x >= 0 {
                     m.extend(self.stkaddr.as_bytes());
-                    m.extend((x as u64).to_le_bytes());
+                    m.extend(0u64.to_le_bytes());
                     m.push(63);
                     m.push(33);
                     self.sender.send(m).expect("something's wrong with communication from the gui");
@@ -289,12 +289,9 @@ impl epi::App for KhoraStakerGUI {
                 m.extend(str::to_ascii_lowercase(&"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakpkkjflfkbnihkjemkbdjhleddlncjmipffbpninfgkddopmkmofanmahmebeombknnljklfkolpkacljdjpfephfkdjhikcechegbionimhhejdckcnpmejnkmcacia").as_bytes().to_vec());
                 m.extend(x.to_le_bytes().to_vec());
                 let tot = x;
-                if self.unstaked as i128 >= tot as i128 + retain_numeric(self.fee.to_string()).parse::<i128>().unwrap() {
-                    let x = self.unstaked as i128 - tot as i128- retain_numeric(self.fee.to_string()).parse::<i128>().unwrap();
-                    if x > 0 {
-                        m.extend(str::to_ascii_lowercase(&self.addr).as_bytes());
-                        m.extend((x as u64).to_le_bytes());
-                    }
+                if self.unstaked as i128 >= tot as i128 {
+                    m.extend(str::to_ascii_lowercase(&self.addr).as_bytes());
+                    m.extend(0u64.to_le_bytes());
                     m.push(self.ringsize);
                     m.push(33);
                     m.push(33);
@@ -557,10 +554,8 @@ impl epi::App for KhoraStakerGUI {
                             m.extend(retain_numeric(stake.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec());
                             // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",unstaked,fee,stake);
                             let x = *unstaked  as i128 - retain_numeric(fee.to_string()).parse::<i128>().unwrap() - retain_numeric(stake.to_string()).parse::<i128>().unwrap();
-                            if x > 0 {
-                                m.extend(addr.as_bytes().to_vec());
-                                m.extend((x as u64).to_le_bytes().to_vec());
-                            }
+                            m.extend(addr.as_bytes().to_vec());
+                            m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec());
                             if x >= 0 {
                                 m.push(*ringsize);
                                 m.push(33);
@@ -582,13 +577,9 @@ impl epi::App for KhoraStakerGUI {
                             m.extend(retain_numeric(unstake.to_string()).parse::<u64>().unwrap().to_le_bytes());
                             // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",staked,fee,unstake);
                             let x = *staked as i128 - retain_numeric(fee.to_string()).parse::<u64>().unwrap() as i128 - retain_numeric(unstake.to_string()).parse::<u64>().unwrap() as i128 ;
-                            if x > MINSTK.into() {
+                            if x > MINSTK.into() || x == 0 {
                                 m.extend(stkaddr.as_bytes());
-                                m.extend((x as u64).to_le_bytes());
-                                m.push(63);
-                                m.push(33);
-                                sender.send(m).expect("something's wrong with communication from the gui");
-                            } else if x == 0 {
+                                m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
                                 m.push(63);
                                 m.push(33);
                                 sender.send(m).expect("something's wrong with communication from the gui");
@@ -724,10 +715,8 @@ impl epi::App for KhoraStakerGUI {
                                         m.push(63);
                                     } else {
                                         let x = *unstaked as i128 - tot - retain_numeric(fee.to_string()).parse::<i128>().unwrap();
-                                        if x > 0 {
-                                            m.extend(str::to_ascii_lowercase(&addr).as_bytes());
-                                            m.extend((x as u64).to_le_bytes());
-                                        }
+                                        m.extend(str::to_ascii_lowercase(&addr).as_bytes());
+                                        m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
                                         m.push(*ringsize);
                                         m.push(33);
                                     }
@@ -825,18 +814,7 @@ impl epi::App for KhoraStakerGUI {
                     let mut x = vec![];
                     let pf = retain_numeric(panic_fee.to_string()).parse::<u64>().unwrap();
 
-                    let s = *unstaked;
-                    if s > pf {
-                        x.extend((s - pf).to_le_bytes());
-                    } else {
-                        x.extend(s.to_le_bytes());
-                    }
-                    let s = *staked;
-                    if s > pf {
-                        x.extend((s - pf).to_le_bytes());
-                    } else {
-                        x.extend(s.to_le_bytes());
-                    }
+                    x.extend(pf.to_le_bytes());
                     x.extend(get_pswrd(&*next_pswrd0,&*next_pswrd1,&*next_pswrd2));
                     x.push(u8::MAX);
                     if !*setup {

@@ -87,9 +87,10 @@ impl Transaction {
 
         let ring = inring.to_owned();
         let fee_amount = inamnt.into_iter().sum::<Scalar>() - recipients.iter().map(|(_,&y)| y).sum::<Scalar>();
-        let mut outputs = recipients.into_iter().map(|(rcpt,amout)|
-            if rcpt.vpk == RISTRETTO_BASEPOINT_POINT {rcpt.derive_stk_ot(amout)}
-            else {rcpt.derive_ot(amout)}
+        let mut outputs = recipients.into_iter().filter_map(|(rcpt,amout)|
+            if **amout == Scalar::from(0u8) {None}
+            else if rcpt.vpk == RISTRETTO_BASEPOINT_POINT {Some(rcpt.derive_stk_ot(amout))}
+            else {Some(rcpt.derive_ot(amout))}
         ).collect::<Vec<OTAccount>>();
         outputs.push(fee_ota(&fee_amount));
 

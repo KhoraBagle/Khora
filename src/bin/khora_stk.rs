@@ -1384,7 +1384,11 @@ impl Future for KhoraNode {
 
                         let mut txbin: Vec<u8>;
                         if txtype == 33 /* ! */ { // transaction should be spent with unstaked money
-                            let (loc, acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(x.0,x.1.clone())).unzip();
+                            let loc = self.mine.iter().map(|(&x,_)|x).collect::<Vec<_>>();
+
+                            let m = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>() - outs.iter().map(|x| x.1).sum::<Scalar>();
+                            let x = outs.len() - 1;
+                            outs[x].1 = m;
 
 
                             let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
@@ -1392,19 +1396,14 @@ impl Future for KhoraNode {
                             // println!("ring: {:?}",ring);
                             // println!("mine: {:?}",acc.iter().map(|x|x.pk.compress()).collect::<Vec<_>>());
                             // println!("ring: {:?}",ring.iter().map(|x|OTAccount::summon_ota(&History::get(&x)).pk.compress()).collect::<Vec<_>>());
-                            let mut rlring = ring.into_iter().map(|x| {
-                                let x = OTAccount::summon_ota(&History::get(&x));
-                                if acc.iter().all(|a| a.pk != x.pk) {
-                                    // println!("not mine!");
-                                    x
+                            let rlring = ring.into_iter().map(|x| {
+                                if let Some(x) = self.mine.get(&x) {
+                                    x.clone()
                                 } else {
-                                    // println!("mine!");
-                                    acc.iter().filter(|a| a.pk == x.pk).collect::<Vec<_>>()[0].to_owned()
+                                    OTAccount::summon_ota(&History::get(&x))
                                 }
                             }).collect::<Vec<OTAccount>>();
                             // println!("ring len: {:?}",rlring.len());
-                            let me = self.me;
-                            rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
                             let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
                             let tx = tx.polyform(&rname);
                             if tx.verify().is_ok() {
@@ -1416,6 +1415,11 @@ impl Future for KhoraNode {
                             }
                             
                         } else if txtype == 63 /* ? */ { // transaction should be spent with staked money
+                            let m = Scalar::from(self.smine.unwrap()[1]) - outs.iter().map(|x| x.1).sum::<Scalar>();
+                            let x = outs.len() - 1;
+                            outs[x].1 = m;
+
+                            
                             let (loc, amnt): (Vec<u64>,Vec<u64>) = self.smine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
                             let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
                             let tx = Transaction::spend_ring(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
@@ -1445,12 +1449,17 @@ impl Future for KhoraNode {
                         }
                     } else if istx == u8::MAX /* panic button */ {
                         
-                        let amnt = u64::from_le_bytes(m.drain(..8).collect::<Vec<_>>().try_into().unwrap());
-                        // let amnt = Scalar::from(amnt);
-                        let stkamnt = u64::from_le_bytes(m.drain(..8).collect::<Vec<_>>().try_into().unwrap());
-                        // let mut stkamnt = Scalar::from(stkamnt);
+                        let fee = u64::from_le_bytes(m.drain(..8).collect::<Vec<_>>().try_into().unwrap());
                         let newacc = Account::new(&format!("{}",String::from_utf8_lossy(&m)));
 
+                        let mut amnt = self.mine.iter().map(|x| u64::from_le_bytes(x.1.com.amount.unwrap().as_bytes()[..8].try_into().unwrap())).sum::<u64>();
+                        if amnt >= fee {
+                            amnt -= fee;
+                        }
+                        let mut stkamnt = self.smine.iter().map(|x| x[1]).sum::<u64>();
+                        if stkamnt >= fee {
+                            stkamnt -= fee;
+                        }
                         // send unstaked money
                         if self.mine.len() > 0 {
                             let (loc, _acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(x.0,x.1.clone())).unzip();
@@ -1466,11 +1475,15 @@ impl Future for KhoraNode {
                             rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
                             
                             let mut outs = vec![];
-                            let y = amnt/2u64.pow(BETA as u32) + 1;
+                            let y = amnt/2u64.pow(BETA as u32);
+                            let mut tot = Scalar::zero();
                             for _ in 0..y {
                                 let amnt = Scalar::from(amnt/y);
+                                tot += amnt;
                                 outs.push((&newacc,amnt));
                             }
+                            let amnt = Scalar::from(stkamnt) - tot;
+                            outs.push((&newacc,amnt));
                             let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (x.0,&x.1)).collect());
 
                             println!("{:?}",rlring.iter().map(|x| x.com.amount).collect::<Vec<_>>());
@@ -1496,11 +1509,17 @@ impl Future for KhoraNode {
 
 
                             let mut outs = vec![];
-                            let y = stkamnt/2u64.pow(BETA as u32) + 1;
+                            let y = stkamnt/2u64.pow(BETA as u32);
+                            let mut tot = 0u64;
                             for _ in 0..y {
                                 let stkamnt = Scalar::from(stkamnt/y);
+                                tot += amnt;
                                 outs.push((&newacc,stkamnt));
                             }
+                            let amnt = Scalar::from(stkamnt) - Scalar::from(tot);
+                            outs.push((&newacc,amnt));
+
+                            
                             let tx = Transaction::spend_ring(&vec![inps], &outs.iter().map(|x| (x.0,&x.1)).collect());
                             println!("about to verify!");
                             tx.verify().unwrap();

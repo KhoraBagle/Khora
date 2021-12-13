@@ -805,7 +805,7 @@ impl Future for KhoraNode {
                                 let amnt = Scalar::from(amnt/y);
                                 outs.push((&newacc,amnt));
                             }
-                            let amnt = Scalar::from(tot - amnt - fee); // prob that this is less than 0 is crazy small for reasonable fee
+                            let amnt = Scalar::from(tot - amnt); // prob that this is less than 0 is crazy small for reasonable fee
                             outs.push((&newacc,amnt));
 
                             let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (x.0,&x.1)).collect());

@@ -509,16 +509,11 @@ impl KhoraNode {
                 println!("Error in block verification: there is no shard");
                 return false;
             }
-            let v: bool;
-            if (lastlightning.shards[0] as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
-                if self.is_validator {
-                    v = lastlightning.verify_multithread(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok();
-                } else {
-                    v = lastlightning.verify(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok();
-                }
+            let v = if (lastlightning.shards[0] as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
+                lastlightning.verify_multithread(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok()
             } else {
-                v = false;
-            }
+                false
+            };
             if v  {
                 if save {
                     // saves your current information BEFORE reading the new block. It's possible a leader is trying to cause a fork which can only be determined 1 block later based on what the comittee thinks is real

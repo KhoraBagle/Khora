@@ -324,12 +324,11 @@ impl KhoraNode {
                 // println!("Error in block verification: there is no shard");
                 return send_to_gui;
             }
-            let v: bool;
-            if (lastlightning.shards[0] as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
-                v = lastlightning.verify(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok();
+            let v = if (lastlightning.shards[0] as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
+                lastlightning.verify_multithread(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok()
             } else {
-                v = false;
-            }
+                false
+            };
             if v  {
                 
                 // let t = Instant::now();
@@ -405,8 +404,10 @@ impl KhoraNode {
                 self.cumtime += self.blocktime;
                 self.blocktime = blocktime(self.cumtime);
 
-                if self.send_panic_or_stop(&lastlightning.info.tags) {
-                    send_to_gui.push(vec![]);
+                if save {
+                    if self.send_panic_or_stop(&lastlightning.info.tags) {
+                        send_to_gui.push(vec![]);
+                    }
                 }
                 // println!("block reading process done!!!");
 

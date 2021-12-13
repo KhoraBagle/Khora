@@ -626,14 +626,14 @@ impl LightningSyncBlock {
         if !self.validators.par_iter().all(|x| x.verify(&mut h.clone(), &stkstate)) {
             return Err("at least 1 validator is fake")
         }
-        if !self.validators.par_iter().all(|x| !validator_pool.into_par_iter().all(|y| x.pk != *y)) {
+        if !self.validators.par_iter().any(|x| validator_pool.into_par_iter().any(|y| x.pk == *y)) {
             return Err("at least 1 validator is not in the pool")
         }
-        if validator_pool.par_iter().filter(|x| !self.validators.par_iter().all(|y| x.to_owned() != &y.pk)).count() < SIGNING_CUTOFF {
+        if validator_pool.par_iter().filter(|x| self.validators.par_iter().any(|y| x.to_owned() == &y.pk)).count() < SIGNING_CUTOFF {
             return Err("there aren't enough validators")
         }
         let x = self.validators.par_iter().map(|x| x.pk).collect::<Vec<u64>>();
-        if !x.clone().par_iter().enumerate().all(|(i,y)| x.clone()[..i].into_par_iter().all(|z| y != z)) {
+        if x.par_iter().enumerate().any(|(i,y)| x.par_iter().take(i).any(|z| y == z)) {
             return Err("there's multiple signatures from the same validator")
         }
         return Ok(true)
@@ -656,14 +656,14 @@ impl LightningSyncBlock {
         if !self.validators.iter().all(|x| x.verify(&mut h.clone(), &stkstate)) {
             return Err("at least 1 validator is fake")
         }
-        if !self.validators.iter().all(|x| !validator_pool.into_iter().all(|y| x.pk != *y)) {
+        if !self.validators.iter().all(|x| validator_pool.into_iter().any(|y| x.pk == *y)) {
             return Err("at least 1 validator is not in the pool")
         }
         if validator_pool.iter().filter(|x| !self.validators.iter().all(|y| x.to_owned() != &y.pk)).count() < SIGNING_CUTOFF {
             return Err("there aren't enough validators")
         }
         let x = self.validators.iter().map(|x| x.pk).collect::<Vec<u64>>();
-        if !x.clone().iter().enumerate().all(|(i,y)| x.clone()[..i].into_iter().all(|z| y != z)) {
+        if x.iter().enumerate().any(|(i,y)| x.iter().take(i).any(|z| y == z)) {
             return Err("there's multiple signatures from the same validator")
         }
         return Ok(true)
@@ -821,8 +821,8 @@ impl LightningSyncBlock {
 
     /// scans the block for money sent to you. additionally updates your understanding of the height. returns weather you recieved money
     pub fn scan(&self, me: &Account, mine: &mut HashMap<u64,OTAccount>, reversemine: &mut HashMap<CompressedRistretto,u64>, height: &mut u64, alltagsever: &mut HashSet<CompressedRistretto>) -> bool {
-        let mut imtrue = true;
-        let newmine = self.info.txout.iter().enumerate().filter_map(|(i,x)| if let Ok(y) = me.receive_ot(x) {imtrue = false; Some((i as u64+*height,y))} else {None}).collect::<Vec<(u64,OTAccount)>>();
+        let newmine = self.info.txout.par_iter().enumerate().filter_map(|(i,x)| if let Ok(y) = me.receive_ot(x) {Some((i as u64+*height,y))} else {None}).collect::<Vec<(u64,OTAccount)>>();
+        let mut imtrue = !newmine.is_empty();
         for (n,m) in newmine {
             if alltagsever.contains(&m.tag.unwrap()) {
                 // println!("someone sent you money that you can't speand");
@@ -867,10 +867,10 @@ impl LightningSyncBlock {
     
             let x = self.validators.iter().map(|x| x.pk as usize).collect::<HashSet<_>>();
     
-            winners = comittee[self.shards[0] as usize].iter().filter(|&y| x.contains(y)).map(|x| *x).collect::<Vec<_>>();
-            masochists = comittee[self.shards[0] as usize].iter().filter(|&y| !x.contains(y)).map(|x| *x).collect::<Vec<_>>();
+            winners = comittee[self.shards[0] as usize].par_iter().filter(|&y| x.contains(y)).cloned().collect::<Vec<_>>();
+            masochists = comittee[self.shards[0] as usize].par_iter().filter(|&y| !x.contains(y)).cloned().collect::<Vec<_>>();
             if self.shards.len() > 1 {
-                feelovers = self.shards[1..].iter().map(|x| comittee[*x as usize].clone()).flatten().chain(winners.clone()).collect::<Vec<_>>();
+                feelovers = self.shards[1..].par_iter().map(|x| comittee[*x as usize].clone()).flatten().chain(winners.clone()).collect::<Vec<_>>();
             } else {
                 feelovers = winners.clone();
             }
@@ -1022,7 +1022,7 @@ pub fn select_stakers(block: &Vec<u8>, bnum: &u64, shard: &u128, queue: &mut Vec
     let mut s = AHasher::new_with_keys(0, *shard);
     s.write(&block);
     s.write(&bnum);
-    let mut winner = (0..REPLACERATE).collect::<Vec<usize>>().iter().map(|x| {
+    let mut winner = (0..REPLACERATE).into_par_iter().map(|x| {
         let mut s = s.clone();
         s.write(&x.to_le_bytes()[..]);
         let c = s.finish() as u128;
@@ -1043,7 +1043,7 @@ pub fn select_stakers(block: &Vec<u8>, bnum: &u64, shard: &u128, queue: &mut Vec
     let mut s = AHasher::new_with_keys(1, *shard);
     s.write(&block);
     s.write(&bnum);
-    let mut loser = (0..REPLACERATE).collect::<Vec<usize>>().iter().map(|x| {
+    let mut loser = (0..REPLACERATE).into_par_iter().map(|x| {
         let mut s = s.clone();
         s.write(&x.to_le_bytes()[..]);
         let c = s.finish() as usize;

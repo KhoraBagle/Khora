@@ -170,7 +170,7 @@ fn main() -> Result<(), MainError> {
                 alltagsever: HashSet::new(),
                 txses: HashSet::new(),
                 sigs: vec![],
-                timekeeper: Instant::now() + Duration::from_secs(1),
+                timekeeper: Instant::now(),
                 waitingforentrybool: true,
                 waitingforleaderbool: false,
                 waitingforleadertime: Instant::now(),
@@ -450,7 +450,7 @@ impl KhoraNode {
             lasttags: sn.lasttags.clone(),
             lastspot: sn.lastspot.clone(),
             allnetwork: sn.allnetwork.clone(),
-            timekeeper: Instant::now() - Duration::from_secs(1),
+            timekeeper: Instant::now(),
             waitingforentrybool: true,
             waitingforleaderbool: false,
             waitingforleadertime: Instant::now(),
@@ -909,7 +909,7 @@ impl Future for KhoraNode {
             \*/
             if self.is_validator {
                 // done early tells you if you need to wait before starting the next block stuff because you finished the last block early
-                if ((self.doneerly.elapsed().as_secs() > self.blocktime as u64) && (self.doneerly.elapsed() > self.timekeeper.elapsed())) || self.timekeeper.elapsed().as_secs() > self.blocktime as u64 {
+                if ((self.doneerly.elapsed().as_secs() > self.blocktime as u64) && (self.doneerly.elapsed() >= self.timekeeper.elapsed())) || self.timekeeper.elapsed().as_secs() > self.blocktime as u64 {
                     self.waitingforentrybool = true;
                     self.waitingforleaderbool = false;
                     self.waitingforleadertime = Instant::now();

@@ -128,6 +128,8 @@ pub struct KhoraStakerGUI {
     you_cant_do_that: bool,
     #[cfg_attr(feature = "persistence", serde(skip))]
     maxcli: u8,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    nextblock: u64,
 }
 impl Default for KhoraStakerGUI {
     fn default() -> Self {
@@ -183,6 +185,7 @@ impl Default for KhoraStakerGUI {
             transaction_processed: true,
             transaction_processings: false,
             transaction_processeds: true,
+            nextblock: 0,
             maxcli: 10,
         }
     }
@@ -305,7 +308,7 @@ impl epi::App for KhoraStakerGUI {
                 }
 
 
-                if syncnum == 0 {
+                if self.nextblock == 0 {
                     self.sender.send(vec![self.maxcli,98]);
                 }
 
@@ -318,6 +321,8 @@ impl epi::App for KhoraStakerGUI {
                 self.transaction_processed = true;
             } else if modification == 6 {
                 self.transaction_processeds = true;
+            } else if modification == 7 {
+                self.nextblock = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();
@@ -398,6 +403,7 @@ impl epi::App for KhoraStakerGUI {
             ringsize,
             logout_window,
             maxcli,
+            nextblock,
         } = self;
 
  

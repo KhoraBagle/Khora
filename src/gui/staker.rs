@@ -1,8 +1,9 @@
-use std::{convert::TryInto, fs, time::Instant};
+use std::{convert::TryInto, fs, time::Instant, sync::Arc};
 
 use curve25519_dalek::scalar::Scalar;
 use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit}, epi};
 use crossbeam::channel;
+use parking_lot::RwLock;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
@@ -125,6 +126,8 @@ pub struct KhoraStakerGUI {
     timekeeper: Instant,
     #[cfg_attr(feature = "persistence", serde(skip))]
     you_cant_do_that: bool,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    maxcli: u8,
 }
 impl Default for KhoraStakerGUI {
     fn default() -> Self {
@@ -180,6 +183,7 @@ impl Default for KhoraStakerGUI {
             transaction_processed: true,
             transaction_processings: false,
             transaction_processeds: true,
+            maxcli: 10,
         }
     }
 }
@@ -301,6 +305,10 @@ impl epi::App for KhoraStakerGUI {
                 }
 
 
+                if syncnum == 0 {
+                    self.sender.send(vec![self.maxcli,98]);
+                }
+
 
             } else if modification == 3 {
                 self.validating = i == vec![1];
@@ -389,6 +397,7 @@ impl epi::App for KhoraStakerGUI {
             options_menu,
             ringsize,
             logout_window,
+            maxcli,
         } = self;
 
  
@@ -842,7 +851,12 @@ impl epi::App for KhoraStakerGUI {
             ui.label("This is the number of accounts that aren't yours that the transaction could have been made by from the perspective of spying eyes.");
             ui.label("This only affects non staking transactions.");
             ui.label("\n");
-            ui.add(Slider::new(ringsize, 0..=22).text("Ring Size"));
+            ui.add(Slider::new(ringsize, 0..=20).text("Ring Size"));
+            ui.label("This is the number of nodes you are willing to sync at a time.");
+            ui.label("The higher the number, the more you are willing to help the network in times of need.");
+            ui.label("Any changes will be implimented next time you get a recieve a block.");
+            ui.label("\n");
+            ui.add(Slider::new(maxcli, 1..=255).text("Maximum Clients"));
         });
         egui::Window::new("Logout Menu").open(logout_window).show(ctx, |ui| {
             ui.label("Logging out of your account will refresh all of your wallet settings and will require resync with the blockchain.");

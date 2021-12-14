@@ -846,6 +846,7 @@ impl KhoraNode {
                     let mut ok = [0;8];
                     if stream.read_exact(&mut ok).is_ok(){
                         let syncnum = u64::from_le_bytes(ok);
+                        self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
                         let mut blocksize = [0u8;8];
                         let mut counter = 0;
                         while stream.read_exact(&mut blocksize).is_ok() {
@@ -880,7 +881,8 @@ impl KhoraNode {
                 println!("your friend is probably busy or you have none");
             }
         }
-        
+        self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
+
     }
 
 

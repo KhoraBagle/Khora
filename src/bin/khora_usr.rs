@@ -531,6 +531,7 @@ impl KhoraNode {
                 let mut ok = [0;8];
                 if stream.read_exact(&mut ok).is_ok() {
                     let syncnum = u64::from_le_bytes(ok);
+                    self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
                     println!("responce valid. syncing now...");
                     let mut blocksize = [0u8;8];
                     let mut counter = 0;
@@ -572,6 +573,7 @@ impl KhoraNode {
         if self.lasttags.is_empty() {
             self.gui_sender.send(vec![5]).expect("something's wrong with the communication to the gui");
         }
+        self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
         send
     }
 

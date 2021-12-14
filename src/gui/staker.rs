@@ -125,6 +125,8 @@ pub struct KhoraStakerGUI {
     timekeeper: Instant,
     #[cfg_attr(feature = "persistence", serde(skip))]
     you_cant_do_that: bool,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    syncto: u64,
 }
 impl Default for KhoraStakerGUI {
     fn default() -> Self {
@@ -152,6 +154,7 @@ impl Default for KhoraStakerGUI {
             secret_key: "".to_string(),
             pswd_shown: false,
             block_number: 0,
+            syncto: 0,
             show_next_pswrd: true,
             next_pswrd0: random_pswrd(),
             next_pswrd1: "".to_string(),
@@ -308,6 +311,8 @@ impl epi::App for KhoraStakerGUI {
                 self.transaction_processed = true;
             } else if modification == 6 {
                 self.transaction_processeds = true;
+            } else if modification == 7 {
+                self.syncto =  u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();
@@ -365,6 +370,7 @@ impl epi::App for KhoraStakerGUI {
             timekeeper,
             pswd_shown,
             block_number,
+            syncto,
             show_next_pswrd,
             next_pswrd0,
             next_pswrd1,
@@ -527,7 +533,11 @@ impl epi::App for KhoraStakerGUI {
             ui.label("\n");
 
             if !*setup {
-                ui.label(format!("Current Block: {}",block_number));
+                if *syncto == 0 {
+                    ui.label(format!("Current Block: {}",block_number));
+                } else {
+                    ui.label(format!("Current Block: {}/{}",block_number,syncto));
+                }
                 ui.horizontal(|ui| {
                     ui.label("Next block in: ");
                     let x = *eta as i32 - timekeeper.elapsed().as_secs() as i32 + 1i32;

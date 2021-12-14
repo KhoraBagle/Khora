@@ -118,6 +118,8 @@ pub struct KhoraUserGUI {
     you_cant_do_that: bool,
     #[cfg_attr(feature = "persistence", serde(skip))]
     syncretry: bool,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    syncto: u64,
 }
 impl Default for KhoraUserGUI {
     fn default() -> Self {
@@ -166,6 +168,7 @@ impl Default for KhoraUserGUI {
             logout_window: false,
             transaction_processing: false,
             transaction_processed: true,
+            syncto: 0,
         }
     }
 }
@@ -254,6 +257,8 @@ impl epi::App for KhoraUserGUI {
                 self.lonely = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 5 {
                 self.transaction_processed = true;
+            } else if modification == 7 {
+                self.syncto = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();
@@ -274,6 +279,7 @@ impl epi::App for KhoraUserGUI {
             reciever: _,
             transaction_processing,
             transaction_processed,
+            syncto,
             sender,
             unstaked,
             friends,
@@ -445,7 +451,11 @@ impl epi::App for KhoraUserGUI {
             ui.label("\n");
 
             if !*setup {
-                ui.label(format!("Current Block: {}",block_number));
+                if *syncto == 0 {
+                    ui.label(format!("Current Block: {}",block_number));
+                } else {
+                    ui.label(format!("Current Block: {}/{}",block_number,syncto));
+                }
                 ui.horizontal(|ui| {
                     ui.label("Next block in: ");
                     let x = *eta as i32 - timekeeper.elapsed().as_secs() as i32 + 1i32;

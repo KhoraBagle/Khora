@@ -39,6 +39,7 @@ use serde::{Serialize, Deserialize};
 use khora::validation::{
     NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0,
     STAKER_BLOOM_NAME, STAKER_BLOOM_SIZE, STAKER_BLOOM_HASHES,
+    READ_TIMEOUT, WRITE_TIMEOUT,
     reward, blocktime
 };
 
@@ -100,8 +101,8 @@ fn main() -> Result<(), MainError> {
         for stream in outerlistener.incoming() {
             match stream {
                 Ok(stream) => {
-                    stream.set_read_timeout(Some(Duration::from_millis(500)));
-                    stream.set_write_timeout(Some(Duration::from_millis(500)));
+                    stream.set_read_timeout(READ_TIMEOUT);
+                    stream.set_write_timeout(WRITE_TIMEOUT);
                     sendtcp.send(stream).unwrap();
                 }
                 Err(_) => {
@@ -749,13 +750,11 @@ impl KhoraNode {
                 // this section tells you if you're on the comittee or not
                 // if you're on the comittee you need to pull on your inner node
                 // if you're not you need to poll on your user node
-                self.is_node = true;
                 self.is_validator = false;
                 if let Some(keylocation) = self.keylocation {
                     let keylocation = keylocation as usize;
                     self.is_validator = self.comittee[self.headshard].par_iter().any(|x| *x == keylocation);
                     self.gui_sender.send(vec![self.is_validator as u8,3]).unwrap();
-
 
                     if self.queue[self.headshard].par_iter().take(REPLACERATE).any(|&x| x == keylocation) {
                         // announce yourself to the comittee because it's about to be your turn
@@ -764,10 +763,9 @@ impl KhoraNode {
                         for n in self.comittee[self.headshard].par_iter().filter_map(|&x| nw.get(&si[x].0).unwrap().1).collect::<Vec<_>>() {
                             self.inner.join(NodeId::new(SocketAddr::from((n.ip(),DEFAULT_PORT)),LocalNodeId::new(1)));
                         }
-                    } else {
-                        self.is_node = false;
                     }
                 }
+                self.is_node = !self.is_validator;
 
 
                 println!("full time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
@@ -856,8 +854,8 @@ impl KhoraNode {
         sendview.shuffle(&mut rng);
         for node in sendview {
             if let Ok(mut stream) =  TcpStream::connect(node) {
-                stream.set_read_timeout(Some(Duration::from_millis(500)));
-                stream.set_write_timeout(Some(Duration::from_millis(500)));
+                stream.set_read_timeout(READ_TIMEOUT);
+                stream.set_write_timeout(WRITE_TIMEOUT);
                 if stream.write_all(&[122 - (self.lightning_yielder as u8)]).is_ok() {
                     let mut ok = [0;8];
                     if stream.read_exact(&mut ok).is_ok(){
@@ -897,10 +895,53 @@ impl KhoraNode {
                 println!("your friend is probably busy or you have none");
             }
         }
-        // println!("hi");
         self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
-        // println!("hi");
+    }
 
+    /// returns the responces of each person you sent it to and deletes those who are dead from the view
+    fn get_tx(&mut self) -> (Vec<u8>,usize) {
+
+        if self.txses.len() == 0 {
+            let mut rng = &mut rand::thread_rng();
+            let mut sendview = {
+                let mut x = self.allnetwork.clone();
+                x.remove(&self.me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress());
+                x.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>()
+            };
+            
+            sendview.shuffle(&mut rng);
+            for node in sendview {
+                if let Ok(mut stream) =  TcpStream::connect(node) {
+                    stream.set_read_timeout(READ_TIMEOUT);
+                    stream.set_write_timeout(WRITE_TIMEOUT);
+                    if stream.write_all(&[1]).is_ok() {
+                        let mut txses = vec![];
+                        if stream.read_to_end(&mut txses).is_ok(){
+                            if let Ok(mut x) = bincode::deserialize::<Vec<PolynomialTransaction>>(&txses) {
+                                x.retain(|t| 
+                                    {
+                                        if t.inputs.last() == Some(&1) {
+                                            t.verifystk(&self.stkinfo).is_ok()
+                                        } else {
+                                            let bloom = self.bloom.borrow();
+                                            t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                                        }
+                                    }
+                                );
+
+                                if x.len() > self.txses.len() {
+                                    return (txses,x.len())
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    println!("your friend is probably busy or you have none");
+                }
+            }
+        }
+
+        (bincode::serialize(&self.txses.par_iter().collect::<Vec<_>>()).unwrap(),self.txses.len())
     }
 
 
@@ -941,8 +982,8 @@ impl Future for KhoraNode {
     
                     // if you are the newest member of the comittee you're responcible for choosing the tx that goes into the next block
                     if self.keylocation == Some(self.newest as u64) {
-                        let m = bincode::serialize(&self.txses.par_iter().collect::<Vec<_>>()).unwrap();
-                        println!("{}",format!("sending {} tx as newest",self.txses.len()).red().bold());
+                        let (m,l) = self.get_tx();
+                        println!("{}",format!("sending {} tx as newest",l).red().bold());
 
                         let mut m = Signature::sign_message_nonced(&self.key, &m, &self.newest,&self.bnum);
                         m.push(1u8);
@@ -1164,6 +1205,9 @@ impl Future for KhoraNode {
                                                 stream.write_all(&[1u8]);
                                             }
                                         }
+                                    } else if mtype == 1 {
+                                        println!("{}","a validator needs some tx".blue());
+                                        stream.write_all(&bincode::serialize(&self.txses.iter().collect::<Vec<_>>()).unwrap());
                                     } else if mtype == 101 /* e */ {
                                         println!("{}","someone wants a bunch of ips".blue());
                                         let x = self.allnetwork.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>();

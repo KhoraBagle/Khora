@@ -20,6 +20,7 @@ use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use crate::constants::PEDERSEN_H;
 use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
+use std::time::Duration;
 
 
 pub static VERSION: &str = "v0.94";
@@ -49,6 +50,10 @@ pub const STAKER_BLOOM_SIZE: usize =  1_000_000_000*4;
 pub const STAKER_BLOOM_HASHES: u8 = 13;
 /// if you have to many tx, you should combine them
 pub const ACCOUNT_COMBINE: usize = 10;
+/// read timeout for stream in millis
+pub const READ_TIMEOUT: Option<Duration> = Some(Duration::from_millis(500));
+/// write timeout for stream in millis
+pub const WRITE_TIMEOUT: Option<Duration> = Some(Duration::from_millis(500));
 
 
 

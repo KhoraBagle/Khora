@@ -5,7 +5,7 @@ extern crate trackable;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
-use khora::seal::BETA;
+// use khora::seal::BETA;
 use parking_lot::{RwLock, Mutex};
 use plumcast::node::{LocalNodeId, Node, NodeBuilder, NodeId, SerialLocalNodeIdGenerator};
 use plumcast::service::ServiceBuilder;
@@ -794,15 +794,16 @@ impl KhoraNode {
                     let (loc, amnt): (Vec<u64>,Vec<u64>) = oldstk.1.iter().map(|x|(x[0],x[1])).unzip();
                     let inps = amnt.into_iter().map(|x| oldstk.0.receive_ot(&oldstk.0.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
                     let mut outs = vec![];
-                    let y = oldstk.2/2u64.pow(BETA as u32);
-                    let mut tot = Scalar::zero();
-                    for _ in 0..y {
-                        let amnt = Scalar::from(oldstk.2/y);
-                        tot += amnt;
-                        outs.push((self.me,amnt));
-                    }
-                    let amnt = Scalar::from(oldstk.2) - tot;
-                    outs.push((self.me,amnt));
+                    // let y = oldstk.2/2u64.pow(BETA as u32);
+                    // let mut tot = Scalar::zero();
+                    // for _ in 0..y {
+                    //     let amnt = Scalar::from(oldstk.2/y);
+                    //     tot += amnt;
+                    //     outs.push((self.me,amnt));
+                    // }
+                    // let amnt = Scalar::from(oldstk.2) - tot;
+                    // outs.push((self.me,amnt));
+                    outs.push((self.me,Scalar::from(oldstk.2)));
                     let tx = Transaction::spend_ring(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect());
                     println!("about to verify!");
                     tx.verify().unwrap();
@@ -1433,18 +1434,19 @@ impl Future for KhoraNode {
                             if m.len() >= 8 {
                                 if let Ok(x) = m.drain(..8).collect::<Vec<_>>().try_into() {
                                     let x = u64::from_le_bytes(x);
-                                    // println!("amounts {:?}",x);
-                                    let y = x/2u64.pow(BETA as u32);
-                                    // println!("need to split this up into {} txses!",y);
+                                    // // println!("amounts {:?}",x);
+                                    // let y = x/2u64.pow(BETA as u32);
+                                    // // println!("need to split this up into {} txses!",y);
+                                    // let recv = Account::from_pks(&pks[0], &pks[1], &pks[2]);
+                                    // let mut tot = Scalar::zero();
+                                    // for _ in 0..y {
+                                    //     let amnt = Scalar::from(x/y);
+                                    //     tot += amnt;
+                                    //     outs.push((recv,amnt));
+                                    // }
+                                    // let amnt = Scalar::from(x) - tot;
                                     let recv = Account::from_pks(&pks[0], &pks[1], &pks[2]);
-                                    let mut tot = Scalar::zero();
-                                    for _ in 0..y {
-                                        let amnt = Scalar::from(x/y);
-                                        tot += amnt;
-                                        outs.push((recv,amnt));
-                                    }
-                                    let amnt = Scalar::from(x) - tot;
-                                    outs.push((recv,amnt));
+                                    outs.push((recv,Scalar::from(x)));
                                 } else {
                                     let recv = Account::from_pks(&pks[0], &pks[1], &pks[2]);
                                     let amnt = Scalar::zero();
@@ -1606,15 +1608,16 @@ impl Future for KhoraNode {
                             rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
                             
                             let mut outs = vec![];
-                            let y = amnt/2u64.pow(BETA as u32);
-                            let mut tot = Scalar::zero();
-                            for _ in 0..y {
-                                let amnt = Scalar::from(amnt/y);
-                                tot += amnt;
-                                outs.push((&newacc,amnt));
-                            }
-                            let amnt = Scalar::from(stkamnt) - tot;
-                            outs.push((&newacc,amnt));
+                            // let y = amnt/2u64.pow(BETA as u32);
+                            // let mut tot = Scalar::zero();
+                            // for _ in 0..y {
+                            //     let amnt = Scalar::from(amnt/y);
+                            //     tot += amnt;
+                            //     outs.push((&newacc,amnt));
+                            // }
+                            // let amnt = Scalar::from(stkamnt) - tot;
+                            // outs.push((&newacc,amnt));
+                            outs.push((&newacc,Scalar::from(amnt)));
                             let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (x.0,&x.1)).collect());
 
                             println!("{:?}",rlring.iter().map(|x| x.com.amount).collect::<Vec<_>>());
@@ -1640,15 +1643,16 @@ impl Future for KhoraNode {
 
 
                             let mut outs = vec![];
-                            let y = stkamnt/2u64.pow(BETA as u32);
-                            let mut tot = 0u64;
-                            for _ in 0..y {
-                                let stkamnt = Scalar::from(stkamnt/y);
-                                tot += amnt;
-                                outs.push((&newacc,stkamnt));
-                            }
-                            let amnt = Scalar::from(stkamnt) - Scalar::from(tot);
-                            outs.push((&newacc,amnt));
+                            // let y = stkamnt/2u64.pow(BETA as u32);
+                            // let mut tot = 0u64;
+                            // for _ in 0..y {
+                            //     let stkamnt = Scalar::from(stkamnt/y);
+                            //     tot += amnt;
+                            //     outs.push((&newacc,stkamnt));
+                            // }
+                            // let amnt = Scalar::from(stkamnt) - Scalar::from(tot);
+                            // outs.push((&newacc,amnt));
+                            outs.push((&newacc,Scalar::from(stkamnt)));
 
                             
                             let tx = Transaction::spend_ring(&vec![inps], &outs.iter().map(|x| (x.0,&x.1)).collect());

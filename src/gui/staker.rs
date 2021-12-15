@@ -278,20 +278,20 @@ impl epi::App for KhoraStakerGUI {
                 self.block_number = u64::from_le_bytes(i.try_into().unwrap());
 
 
-                if self.block_number%10 == 0 {
-                    let unstake = 100_000_000u64;
-                    let mut m = vec![];
-                    m.extend(self.addr.as_bytes().to_vec());
-                    m.extend(unstake.to_le_bytes());
-                    let x = self.staked as i128 - unstake as i128 ;
-                    if x >= 0 {
-                        m.extend(self.stkaddr.as_bytes());
-                        m.extend(0u64.to_le_bytes());
-                        m.push(63);
-                        m.push(33);
-                        self.sender.send(m).expect("something's wrong with communication from the gui");
-                    }
+                let unstake = 100_000_000u64;
+                let mut m = vec![];
+                m.extend(self.addr.as_bytes().to_vec());
+                m.extend(unstake.to_le_bytes());
+                let x = self.staked as i128 - unstake as i128 ;
+                if x >= 0 {
+                    m.extend(self.stkaddr.as_bytes());
+                    m.extend(0u64.to_le_bytes());
+                    m.push(63);
+                    m.push(33);
+                    self.sender.send(m).expect("something's wrong with communication from the gui");
+                }
     
+                if self.block_number%10 == 0 {
                     let mut m = vec![];
                     let x = 10_000_000u64;
                     m.extend(b"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakpkkjflfkbnihkjemkbdjhleddlncjmipffbpninfgkddopmkmofanmahmebeombknnljklfkolpkacljdjpfephfkdjhikcechegbionimhhejdckcnpmejnkmcacia");

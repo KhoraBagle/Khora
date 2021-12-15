@@ -1272,6 +1272,9 @@ impl Future for KhoraNode {
                             if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&m) {
                                 let s = self.readblock(lastblock, m, true);
                                 self.outer.handle_gossip_now(fullmsg, s);
+                                if self.mine.len() >= ACCOUNT_COMBINE && s {
+                                    self.gui_sender.send(vec![8]);
+                                }
                                 println!("{}","you have recieved a full block".green());
                             } else {
                                 self.outer.handle_gossip_now(fullmsg, false);
@@ -1469,6 +1472,59 @@ impl Future for KhoraNode {
                         } else {
                             println!("transaction not made right now");
                         }
+                    } else if istx == 2 /* divide accounts so you can make faster tx */ {
+
+
+                        let fee = Scalar::from(u64::from_le_bytes(m.try_into().unwrap()));
+
+
+                        for mine in self.mine.clone().iter().collect::<Vec<_>>().chunks(ACCOUNT_COMBINE) {
+                            if mine.len() > 1 {
+                                let (loc, acc): (Vec<u64>,Vec<OTAccount>) = mine.iter().map(|x|(*x.0,x.1.clone())).unzip();
+    
+                                let mymoney = acc.iter().map(|x| x.com.amount.unwrap()).sum::<Scalar>();
+                                let outs = vec![(self.me,mymoney-fee)];
+    
+
+
+
+
+
+
+                                let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
+                                let ring = recieve_ring(&rname).expect("shouldn't fail");
+                                // println!("ring: {:?}",ring);
+                                // println!("mine: {:?}",acc.iter().map(|x|x.pk.compress()).collect::<Vec<_>>());
+                                // println!("ring: {:?}",ring.iter().map(|x|OTAccount::summon_ota(&History::get(&x)).pk.compress()).collect::<Vec<_>>());
+                                let rlring = ring.iter().map(|x| {
+                                    if let Some(x) = self.mine.get(&x) {
+                                        x.clone()
+                                    } else {
+                                        OTAccount::summon_ota(&History::get(&x))
+                                    }
+                                }).collect::<Vec<OTAccount>>();
+                                // println!("ring len: {:?}",rlring.len());
+                                let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                                let tx = tx.polyform(&rname);
+                                
+
+
+
+                                println!("ring:----------------------------------\n{:?}",ring);
+                                if tx.verify().is_ok() {
+                                    let mut txbin = bincode::serialize(&tx).unwrap();
+                                    txbin.push(0);
+                                    self.lasttags.push(tx.tags[0]);
+                                    self.outer.broadcast_now(txbin);
+                                    println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
+                                } else {
+                                    println!("{}","TRANSACTION INVALID".red().bold());
+                                }
+                            }
+                        }
+                        println!("{}","done with that".green());
+
+
                     } else if istx == u8::MAX /* panic button */ {
                         
                         let fee = u64::from_le_bytes(m.drain(..8).collect::<Vec<_>>().try_into().unwrap());

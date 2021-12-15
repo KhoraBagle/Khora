@@ -259,6 +259,10 @@ impl epi::App for KhoraUserGUI {
                 self.transaction_processed = true;
             } else if modification == 7 {
                 self.nextblock = u64::from_le_bytes(i.try_into().unwrap());
+            } else if modification == 8 {
+                let mut m = retain_numeric(self.fee.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec();
+                m.push(2);
+                self.sender.send(m);
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();

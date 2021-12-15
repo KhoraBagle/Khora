@@ -574,6 +574,9 @@ impl KhoraNode {
             self.gui_sender.send(vec![5]).expect("something's wrong with the communication to the gui");
         }
         self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
+        if self.mine.len() >= ACCOUNT_COMBINE {
+            self.gui_sender.send(vec![8]);
+        }
     }
 
 }

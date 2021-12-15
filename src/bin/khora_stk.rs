@@ -1158,14 +1158,16 @@ impl Future for KhoraNode {
                                 let x = self.allnetwork.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>();
                                 stream.write_all(&bincode::serialize(&x).unwrap());
                             } else if mtype == 114 /* r */ { // answer their ring question
-                                if let Ok(r) = recieve_ring(&m) {
-                                    println!("{}","someone wants a ring".blue());
-                                    for i in r {
-                                        if stream.write_all(&History::get_raw(&i)).is_err() {
-                                            break
+                                thread::spawn(move || {
+                                    if let Ok(r) = recieve_ring(&m) {
+                                        println!("{}","someone wants a ring".blue());
+                                        for i in r {
+                                            if stream.write_all(&History::get_raw(&i)).is_err() {
+                                                break
+                                            }
                                         }
                                     }
-                                }
+                                });
                             } else if mtype == 121 /* y */ { // someone sent a sync request
                                 println!("{}","someone wants lightning".blue());
                                 if *self.clients.read() < self.maxcli {

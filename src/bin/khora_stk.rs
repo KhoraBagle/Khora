@@ -6,6 +6,7 @@ use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
 use khora::seal::BETA;
+use parking_lot::{RwLock, Mutex};
 use plumcast::node::{LocalNodeId, Node, NodeBuilder, NodeId, SerialLocalNodeIdGenerator};
 use plumcast::service::ServiceBuilder;
 use rand::prelude::SliceRandom;
@@ -15,6 +16,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, IpAddr, TcpStream};
 use std::path::Path;
+use std::sync::Arc;
 use std::thread;
 use trackable::error::MainError;
 use crossbeam::channel;
@@ -113,7 +115,6 @@ fn main() -> Result<(), MainError> {
     if setup {
         // everyone agrees this person starts with 1 khora token
         let initial_history = (PERSON0,1u64);
-
         std::thread::spawn(move || {
             let pswrd = urecv.recv().unwrap();
             let lightning_yielder = urecv.recv().unwrap()[0] == 1;
@@ -170,7 +171,7 @@ fn main() -> Result<(), MainError> {
                 alltagsever: HashSet::new(),
                 txses: HashSet::new(),
                 sigs: vec![],
-                timekeeper: Instant::now() + Duration::from_secs(1),
+                timekeeper: Instant::now(),
                 waitingforentrybool: true,
                 waitingforleaderbool: false,
                 waitingforleadertime: Instant::now(),
@@ -190,6 +191,8 @@ fn main() -> Result<(), MainError> {
                 lightning_yielder,
                 ringsize: 5,
                 gui_timer: Instant::now(),
+                clients: Arc::new(RwLock::new(0)),
+                maxcli: 10,
             };
             node.save();
 
@@ -239,8 +242,6 @@ fn main() -> Result<(), MainError> {
         mymoney.push(0);
         println!("my money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
         node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
-        node.save();
-
 
         let app = gui::staker::KhoraStakerGUI::new(
             ui_reciever,
@@ -311,6 +312,7 @@ struct SavedNode {
     ringsize: u8,
     lasttags: Vec<CompressedRistretto>,
     lastspot: Option<u64>,
+    maxcli: u8,
 }
 
 /// the node used to run all the networking
@@ -363,6 +365,8 @@ struct KhoraNode {
     ringsize: u8,
     lasttags: Vec<CompressedRistretto>,
     lastspot: Option<u64>,
+    clients: Arc<RwLock<u8>>,
+    maxcli: u8,
 }
 
 impl KhoraNode {
@@ -405,6 +409,7 @@ impl KhoraNode {
                 ringsize: self.ringsize,
                 av: self.outer.hyparview_node.active_view.clone(),
                 pv: self.outer.hyparview_node.passive_view.clone(),
+                maxcli: self.maxcli,
             }; // just redo initial conditions on the rest
             let mut sn = bincode::serialize(&sn).unwrap();
             let mut f = File::create("myNode").unwrap();
@@ -450,7 +455,7 @@ impl KhoraNode {
             lasttags: sn.lasttags.clone(),
             lastspot: sn.lastspot.clone(),
             allnetwork: sn.allnetwork.clone(),
-            timekeeper: Instant::now() - Duration::from_secs(1),
+            timekeeper: Instant::now(),
             waitingforentrybool: true,
             waitingforleaderbool: false,
             waitingforleadertime: Instant::now(),
@@ -490,6 +495,8 @@ impl KhoraNode {
             lightning_yielder: sn.lightning_yielder,
             gui_timer: Instant::now(),
             ringsize: sn.ringsize,
+            clients: Arc::new(RwLock::new(0)),
+            maxcli: sn.maxcli,
         }
     }
 
@@ -911,7 +918,7 @@ impl Future for KhoraNode {
             \*/
             if self.is_validator {
                 // done early tells you if you need to wait before starting the next block stuff because you finished the last block early
-                if ((self.doneerly.elapsed().as_secs() > self.blocktime as u64) && (self.doneerly.elapsed() > self.timekeeper.elapsed())) || self.timekeeper.elapsed().as_secs() > self.blocktime as u64 {
+                if ((self.doneerly.elapsed().as_secs() > self.blocktime as u64) && (self.doneerly.elapsed() >= self.timekeeper.elapsed())) || self.timekeeper.elapsed().as_secs() > self.blocktime as u64 {
                     self.waitingforentrybool = true;
                     self.waitingforleaderbool = false;
                     self.waitingforleadertime = Instant::now();
@@ -953,9 +960,6 @@ impl Future for KhoraNode {
                 gm.push(4);
                 self.gui_sender.send(gm).expect("should be working");
             }
-
-
-
 
 
 
@@ -1158,58 +1162,70 @@ impl Future for KhoraNode {
                                 if let Ok(r) = recieve_ring(&m) {
                                     println!("{}","someone wants a ring".blue());
                                     for i in r {
-                                        stream.write_all(&History::get_raw(&i));
+                                        if stream.write_all(&History::get_raw(&i)).is_err() {
+                                            break
+                                        }
                                     }
                                 }
                             } else if mtype == 121 /* y */ { // someone sent a sync request
                                 println!("{}","someone wants lightning".blue());
-                                stream.write_all(&(self.bnum as u64).to_le_bytes());
-                                let bnum = self.bnum;
-                                thread::spawn(move || {
-                                    if let Ok(m) = m.try_into() {
-                                        let mut sync_theirnum = u64::from_le_bytes(m);
-                                        println!("{}",format!("syncing them from {}",sync_theirnum).blue());
-                                        loop {
-                                            if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
-                                                println!("{}",x.len());
-                                                if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
-                                                    break
-                                                }
-                                                if stream.write_all(&x).is_err() {
-                                                    break
-                                                }
-                                            }
-                                            sync_theirnum += 1;
-                                            if sync_theirnum == bnum {
-                                                break
-                                            }
-                                        } 
-                                    }
-                                });
-                            } else if mtype == 122 /* z */ { // someone sent a full sync request
-                                println!("{}","someone wants full blocks".blue());
-                                if !self.lightning_yielder {
-                                    stream.write_all(&(self.bnum as u64).to_le_bytes());
+                                if *self.clients.read() < self.maxcli {
                                     let bnum = self.bnum;
+                                    *self.clients.write() += 1;
+                                    let cli = self.clients.clone();
                                     thread::spawn(move || {
                                         if let Ok(m) = m.try_into() {
-                                            let mut sync_theirnum = u64::from_le_bytes(m);
-                                            println!("{}",format!("syncing them from {}",sync_theirnum).blue());
-                                            loop {
-                                                if let Ok(x) = NextBlock::read(&sync_theirnum) {
-                                                    if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
-                                                        break
+                                            if stream.write_all(&bnum.to_le_bytes()).is_ok() {
+                                                let mut sync_theirnum = u64::from_le_bytes(m);
+                                                println!("{}",format!("syncing them from {}",sync_theirnum).blue());
+                                                loop {
+                                                    if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
+                                                        println!("{}",x.len());
+                                                        if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                            break
+                                                        }
+                                                        if stream.write_all(&x).is_err() {
+                                                            break
+                                                        }
                                                     }
-                                                    if stream.write_all(&x).is_err() {
+                                                    sync_theirnum += 1;
+                                                    if sync_theirnum == bnum {
                                                         break
                                                     }
                                                 }
-                                                sync_theirnum += 1;
-                                                if sync_theirnum == bnum {
-                                                    break
-                                                }
-                                            } 
+                                            }
                                         }
+                                        *cli.write() -= 1;
+                                    });
+                                }
+                            } else if mtype == 122 /* z */ { // someone sent a full sync request
+                                println!("{}","someone wants full blocks".blue());
+                                if !self.lightning_yielder && *self.clients.read() < self.maxcli {
+                                    let bnum = self.bnum;
+                                    *self.clients.write() += 1;
+                                    let cli = self.clients.clone();
+                                    thread::spawn(move || {
+                                        if let Ok(m) = m.try_into() {
+                                            if stream.write_all(&bnum.to_le_bytes()).is_ok() {
+                                                let mut sync_theirnum = u64::from_le_bytes(m);
+                                                println!("{}",format!("syncing them from {}",sync_theirnum).blue());
+                                                loop {
+                                                    if let Ok(x) = NextBlock::read(&sync_theirnum) {
+                                                        if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                            break
+                                                        }
+                                                        if stream.write_all(&x).is_err() {
+                                                            break
+                                                        }
+                                                    }
+                                                    sync_theirnum += 1;
+                                                    if sync_theirnum == bnum {
+                                                        break
+                                                    }
+                                                } 
+                                            }
+                                        }
+                                        *cli.write() -= 1;
                                     });
                                 }
                             } else {
@@ -1593,6 +1609,8 @@ impl Future for KhoraNode {
                         println!("Saving!");
                         self.save();
                         self.gui_sender.send(vec![253]).unwrap();
+                    } else if istx == 98 /* b */ {
+                        self.maxcli = m[0];
                     }
                 }
             }

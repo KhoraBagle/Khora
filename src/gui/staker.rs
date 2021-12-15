@@ -1,8 +1,9 @@
-use std::{convert::TryInto, fs, time::Instant};
+use std::{convert::TryInto, fs, time::Instant, sync::Arc};
 
 use curve25519_dalek::scalar::Scalar;
 use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit}, epi};
 use crossbeam::channel;
+use parking_lot::RwLock;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
@@ -126,7 +127,9 @@ pub struct KhoraStakerGUI {
     #[cfg_attr(feature = "persistence", serde(skip))]
     you_cant_do_that: bool,
     #[cfg_attr(feature = "persistence", serde(skip))]
-    syncto: u64,
+    maxcli: u8,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    nextblock: u64,
 }
 impl Default for KhoraStakerGUI {
     fn default() -> Self {
@@ -183,6 +186,8 @@ impl Default for KhoraStakerGUI {
             transaction_processed: true,
             transaction_processings: false,
             transaction_processeds: true,
+            nextblock: 0,
+            maxcli: 10,
         }
     }
 }
@@ -289,9 +294,11 @@ impl epi::App for KhoraStakerGUI {
 
                 let mut m = vec![];
                 let x = 10_000_000u64;
-                m.extend(str::to_ascii_lowercase(&"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakpkkjflfkbnihkjemkbdjhleddlncjmipffbpninfgkddopmkmofanmahmebeombknnljklfkolpkacljdjpfephfkdjhikcechegbionimhhejdckcnpmejnkmcacia").as_bytes().to_vec());
+                m.extend(b"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakpkkjflfkbnihkjemkbdjhleddlncjmipffbpninfgkddopmkmofanmahmebeombknnljklfkolpkacljdjpfephfkdjhikcechegbionimhhejdckcnpmejnkmcacia");
                 m.extend(x.to_le_bytes().to_vec());
-                let tot = x;
+                m.extend(b"idnalalnbcanbeofcfbpfklbhonfflohoagdgghojhifmppnicbnedhpkmgmjhbcafhplgcafmdhdnifcalnndillfononeanbgfihjjpagncanknamdmgcgilindfjfgpmkijinbaldpopgipefkhcjgadifhjpmhdflgccokbhjiecknhnpigbgpnghpkg");
+                m.extend(x.to_le_bytes().to_vec());
+                let tot = 2*x;
                 if self.unstaked as i128 >= tot as i128 {
                     m.extend(str::to_ascii_lowercase(&self.addr).as_bytes());
                     m.extend(0u64.to_le_bytes());
@@ -301,6 +308,10 @@ impl epi::App for KhoraStakerGUI {
                     self.sender.send(m).expect("something's wrong with communication from the gui");
                 }
 
+
+                if self.nextblock == 0 {
+                    self.sender.send(vec![self.maxcli,98]);
+                }
 
 
             } else if modification == 3 {
@@ -312,7 +323,7 @@ impl epi::App for KhoraStakerGUI {
             } else if modification == 6 {
                 self.transaction_processeds = true;
             } else if modification == 7 {
-                self.syncto =  u64::from_le_bytes(i.try_into().unwrap());
+                self.nextblock = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();
@@ -393,6 +404,8 @@ impl epi::App for KhoraStakerGUI {
             options_menu,
             ringsize,
             logout_window,
+            maxcli,
+            nextblock,
         } = self;
 
  
@@ -850,7 +863,12 @@ impl epi::App for KhoraStakerGUI {
             ui.label("This is the number of accounts that aren't yours that the transaction could have been made by from the perspective of spying eyes.");
             ui.label("This only affects non staking transactions.");
             ui.label("\n");
-            ui.add(Slider::new(ringsize, 0..=22).text("Ring Size"));
+            ui.add(Slider::new(ringsize, 0..=20).text("Ring Size"));
+            ui.label("This is the number of nodes you are willing to sync at a time.");
+            ui.label("The higher the number, the more you are willing to help the network in times of need.");
+            ui.label("Any changes will be implimented next time you get a recieve a block.");
+            ui.label("\n");
+            ui.add(Slider::new(maxcli, 1..=255).text("Maximum Clients"));
         });
         egui::Window::new("Logout Menu").open(logout_window).show(ctx, |ui| {
             ui.label("Logging out of your account will refresh all of your wallet settings and will require resync with the blockchain.");

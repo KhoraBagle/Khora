@@ -943,7 +943,7 @@ impl LightningSyncBlock {
         }
         // println!("{}",t.elapsed().as_millis());
 
-        (changed == *mine, nonetosome && mine.is_some())
+        (changed != *mine, nonetosome && mine.is_some())
 
 
     }

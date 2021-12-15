@@ -157,7 +157,6 @@ impl Default for KhoraStakerGUI {
             secret_key: "".to_string(),
             pswd_shown: false,
             block_number: 0,
-            syncto: 0,
             show_next_pswrd: true,
             next_pswrd0: random_pswrd(),
             next_pswrd1: "".to_string(),
@@ -381,7 +380,6 @@ impl epi::App for KhoraStakerGUI {
             timekeeper,
             pswd_shown,
             block_number,
-            syncto,
             show_next_pswrd,
             next_pswrd0,
             next_pswrd1,
@@ -546,10 +544,10 @@ impl epi::App for KhoraStakerGUI {
             ui.label("\n");
 
             if !*setup {
-                if *syncto == 0 {
+                if *nextblock == 0 {
                     ui.label(format!("Current Block: {}",block_number));
                 } else {
-                    ui.label(format!("Current Block: {}/{}",block_number,syncto));
+                    ui.label(format!("Current Block: {}/{}",block_number,nextblock));
                 }
                 ui.horizontal(|ui| {
                     ui.label("Next block in: ");

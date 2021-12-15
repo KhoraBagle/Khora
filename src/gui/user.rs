@@ -279,7 +279,6 @@ impl epi::App for KhoraUserGUI {
             reciever: _,
             transaction_processing,
             transaction_processed,
-            syncto,
             sender,
             unstaked,
             friends,

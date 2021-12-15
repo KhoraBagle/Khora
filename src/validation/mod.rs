@@ -825,7 +825,7 @@ impl LightningSyncBlock {
         let mut imtrue = !newmine.is_empty();
         for (n,m) in newmine {
             if alltagsever.contains(&m.tag.unwrap()) {
-                // println!("someone sent you money that you can't speand");
+                println!("someone sent you money that you can't speand");
             } else {
                 // let t = std::time::Instant::now();
                 alltagsever.insert(m.tag.unwrap());

@@ -369,7 +369,7 @@ impl KhoraNode {
                     let guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);
                     // println!("{}",format!("scan: {}",t.elapsed().as_millis()).yellow());
                     
-                    send_to_gui.push(vec![!guitruster as u8,1]);
+                    self.gui_sender.send(vec![!guitruster as u8,1]);
                     
                     // let t = Instant::now();
                     lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
@@ -404,9 +404,11 @@ impl KhoraNode {
                 self.cumtime += self.blocktime;
                 self.blocktime = blocktime(self.cumtime);
 
-                if save {
-                    if self.send_panic_or_stop(&lastlightning.info.tags) {
-                        send_to_gui.push(vec![]);
+                if self.send_panic_or_stop(&lastlightning.info.tags) {
+                    if save {
+                        if let Some((x,_)) = self.moneyreset.clone() {
+                            self.send_message(x, TRANSACTION_SEND_TO);
+                        }
                     }
                 }
                 // println!("block reading process done!!!");
@@ -429,7 +431,7 @@ impl KhoraNode {
                 true
             }
         } else {
-            true
+            false
         }
     }
 

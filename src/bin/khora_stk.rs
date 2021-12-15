@@ -1199,7 +1199,7 @@ impl Future for KhoraNode {
                                                 t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
                                             };
                                             if ok {
-                                                println!("{}","a user sent a tx".bright_yellow());
+                                                println!("{}","a user sent a tx".blue());
                                                 m.push(0);
                                                 self.outer.broadcast_now(m);
                                                 stream.write_all(&[1u8]);
@@ -1366,7 +1366,7 @@ impl Future for KhoraNode {
                             }
                         }
                         /* spam */
-                        println!("{}","the staker sent spam".bright_yellow().bold());
+                        println!("{}",format!("a staker ({}) sent spam ({} bytes)",fullmsg.sender,m.len()).bright_yellow().bold());
                         self.outer.kill(&fullmsg.sender);
                         self.outer.handle_gossip_now(fullmsg, false);
                     }

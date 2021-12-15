@@ -244,7 +244,7 @@ impl Signature {
 
     /// recieves a signed message and returns the key that signed it (for if it's not signed with a location)
     pub fn recieve_signed_message2(signed_message: &mut Vec<u8>) -> Option<CompressedRistretto> {
-        if signed_message.len() < 96 {
+        if signed_message.len() >= 96 {
             let sig = signed_message.par_drain(..96).collect::<Vec<_>>();
             let c = Scalar::from_bits(sig[..32].try_into().unwrap());
             let r = Scalar::from_bits(sig[32..64].try_into().unwrap());

@@ -59,7 +59,8 @@ pub fn reward(cumtime: f64, blocktime: f64) -> f64 {
 /// calculates the amount of time the current block takes to be created
 pub fn blocktime(cumtime: f64) -> f64 {
     // 60f64/(6.337618E-8f64*cumtime+2f64).ln()
-    10.0
+    // 10.0
+    30.0
 }
 
 #[derive(Default, Clone, Serialize, Deserialize, Eq, Hash, Debug)]

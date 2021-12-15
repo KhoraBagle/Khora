@@ -200,18 +200,18 @@ impl PolynomialTransaction {
         let mut tr = Transcript::new(b"seal tx");
         let tags: Vec<&Tag> = self.tags.iter().map(|a| a).collect();
 
-        if self.outputs.iter().all(|y| {
-                if let Ok(z) = stakereader_acc().read_ot(y) {
-                    if let Some(a) = &z.com.amount {
-                        u64::from_le_bytes(a.as_bytes()[..8].try_into().unwrap()) >= MINSTK
+        if let Ok(i) = recieve_ring(&self.inputs) {
+            if self.outputs.iter().all(|y| {
+                    if let Ok(z) = stakereader_acc().read_ot(y) {
+                        if let Some(a) = &z.com.amount {
+                            u64::from_le_bytes(a.as_bytes()[..8].try_into().unwrap()) >= MINSTK
+                        } else {
+                            false
+                        }
                     } else {
-                        false
+                        true
                     }
-                } else {
-                    true
-                }
-            }) {
-                if let Ok(i) = recieve_ring(&self.inputs) {
+                }) {
                     let inputs = i.iter().map(|x| OTAccount::summon_ota(&History::get(x))).collect::<Vec<OTAccount>>();        
                     let mut outputs = self.outputs.clone();
                     outputs.push(fee_ota(&Scalar::from(self.fee)));

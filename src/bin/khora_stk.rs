@@ -100,6 +100,8 @@ fn main() -> Result<(), MainError> {
         for stream in outerlistener.incoming() {
             match stream {
                 Ok(stream) => {
+                    stream.set_read_timeout(Some(Duration::from_millis(500)));
+                    stream.set_write_timeout(Some(Duration::from_millis(500)));
                     sendtcp.send(stream).unwrap();
                 }
                 Err(_) => {
@@ -193,6 +195,7 @@ fn main() -> Result<(), MainError> {
                 gui_timer: Instant::now(),
                 clients: Arc::new(RwLock::new(0)),
                 maxcli: 10,
+                spammers: HashSet::new(),
             };
             node.save();
 
@@ -367,6 +370,7 @@ struct KhoraNode {
     lastspot: Option<u64>,
     clients: Arc<RwLock<u8>>,
     maxcli: u8,
+    spammers: HashSet<SocketAddr>,
 }
 
 impl KhoraNode {
@@ -496,6 +500,7 @@ impl KhoraNode {
             ringsize: sn.ringsize,
             clients: Arc::new(RwLock::new(0)),
             maxcli: sn.maxcli,
+            spammers: HashSet::new(),
         }
     }
 
@@ -851,6 +856,8 @@ impl KhoraNode {
         sendview.shuffle(&mut rng);
         for node in sendview {
             if let Ok(mut stream) =  TcpStream::connect(node) {
+                stream.set_read_timeout(Some(Duration::from_millis(500)));
+                stream.set_write_timeout(Some(Duration::from_millis(500)));
                 if stream.write_all(&[122 - (self.lightning_yielder as u8)]).is_ok() {
                     let mut ok = [0;8];
                     if stream.read_exact(&mut ok).is_ok(){
@@ -1012,11 +1019,9 @@ impl Future for KhoraNode {
                                         self.waitingforleaderbool = true;
                                         self.waitingforleadertime = Instant::now();
                                         self.inner.handle_gossip_now(fullmsg, true);
-                                    } else {
-                                        self.inner.handle_gossip_now(fullmsg, false);
+
+                                        continue
                                     }
-                                } else {
-                                    self.inner.handle_gossip_now(fullmsg, false);
                                 }
                             }
                         } else if mtype == 2 /* the signatures you're supposed to process as the leader */ {
@@ -1024,25 +1029,24 @@ impl Future for KhoraNode {
                                 println!("{}","recieved block signature".red());
                                 self.sigs.push(sig);
                                 self.inner.handle_gossip_now(fullmsg, true);
-                            } else {
-                                self.inner.handle_gossip_now(fullmsg, false);
+
+                                continue
                             }
                         } else if mtype == 3 /* the full block that was made */ {
                             if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&m) {
                                 if self.readblock(lastblock, m, true) {
                                     println!("{}","recieved full block".red());
                                     self.inner.handle_gossip_now(fullmsg, true);
-                                } else {
-                                    self.inner.handle_gossip_now(fullmsg, false);
+
+                                    continue;
                                 }
-                            } else {
-                                self.inner.handle_gossip_now(fullmsg, false);
                             }
-                        } else /* spam that you choose not to propegate */ {
-                            // self.inner.kill(&fullmsg.sender);
-                            println!("{}","a validator sent spam".bright_yellow().bold());
-                            self.inner.handle_gossip_now(fullmsg, false);
                         }
+                        /* spam that you choose not to propegate */ 
+                        println!("{}","a validator sent spam".bright_yellow().bold());
+                        self.inner.kill(&fullmsg.sender);
+                        self.inner.handle_gossip_now(fullmsg, false);
+                        
                     }
                     did_something = true;
                 }
@@ -1140,100 +1144,107 @@ impl Future for KhoraNode {
 
                 // jhgfjhfgj
                 while let Ok(mut stream) = self.outerlister.try_recv() {
-                    let mut m = vec![0;100_000]; // maybe choose an upper bound in an actually thoughtful way?
-                    if let Ok(i) = stream.read(&mut m) { // stream must be read before responding btw
-                        m.truncate(i);
-                        if let Some(mtype) = m.pop() {
-                            println!("{}",format!("got a stream of type {}!",mtype).blue());
-                            if mtype == 0 /* transaction someone wants to make */ {
-                                if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
-                                    let ok = {
-                                        let bloom = self.bloom.borrow();
-                                        t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
-                                    };
-                                    if ok {
-                                        println!("{}","a user sent a tx".bright_yellow());
-                                        m.push(0);
-                                        self.outer.broadcast_now(m);
-                                        stream.write_all(&[1u8]);
-                                    }
-                                }
-                            } else if mtype == 101 /* e */ {
-                                println!("{}","someone wants a bunch of ips".blue());
-                                let x = self.allnetwork.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>();
-                                stream.write_all(&bincode::serialize(&x).unwrap());
-                            } else if mtype == 114 /* r */ { // answer their ring question
-                                if let Ok(r) = recieve_ring(&m) {
-                                    println!("{}","someone wants a ring".blue());
-                                    for i in r {
-                                        if stream.write_all(&History::get_raw(&i)).is_err() {
-                                            break
+                    if let Ok(sa) = stream.peer_addr() {
+                        if !self.spammers.contains(&sa) {
+                            let mut m = vec![0;100_000]; // maybe choose an upper bound in an actually thoughtful way?
+                            if let Ok(i) = stream.read(&mut m) { // stream must be read before responding btw
+                                m.truncate(i);
+                                if let Some(mtype) = m.pop() {
+                                    println!("{}",format!("got a stream of type {}!",mtype).blue());
+                                    if mtype == 0 /* transaction someone wants to make */ {
+                                        if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
+                                            let ok = {
+                                                let bloom = self.bloom.borrow();
+                                                t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                                            };
+                                            if ok {
+                                                println!("{}","a user sent a tx".bright_yellow());
+                                                m.push(0);
+                                                self.outer.broadcast_now(m);
+                                                stream.write_all(&[1u8]);
+                                            }
                                         }
-                                    }
-                                }
-                            } else if mtype == 121 /* y */ { // someone sent a sync request
-                                println!("{}","someone wants lightning".blue());
-                                if *self.clients.read() < self.maxcli {
-                                    let bnum = self.bnum;
-                                    *self.clients.write() += 1;
-                                    let cli = self.clients.clone();
-                                    thread::spawn(move || {
-                                        if let Ok(m) = m.try_into() {
-                                            if stream.write_all(&bnum.to_le_bytes()).is_ok() {
-                                                let mut sync_theirnum = u64::from_le_bytes(m);
-                                                println!("{}",format!("syncing them from {}",sync_theirnum).blue());
-                                                loop {
-                                                    if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
-                                                        println!("{}",x.len());
-                                                        if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
-                                                            break
-                                                        }
-                                                        if stream.write_all(&x).is_err() {
-                                                            break
-                                                        }
-                                                    }
-                                                    sync_theirnum += 1;
-                                                    if sync_theirnum == bnum {
+                                    } else if mtype == 101 /* e */ {
+                                        println!("{}","someone wants a bunch of ips".blue());
+                                        let x = self.allnetwork.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>();
+                                        stream.write_all(&bincode::serialize(&x).unwrap());
+                                    } else if mtype == 114 /* r */ { // answer their ring question
+                                        if let Ok(r) = recieve_ring(&m) {
+                                            println!("{}","someone wants a ring".blue());
+                                            thread::spawn(move || {
+                                                for i in r {
+                                                    if stream.write_all(&History::get_raw(&i)).is_err() {
                                                         break
                                                     }
                                                 }
-                                            }
+                                            });
                                         }
-                                        *cli.write() -= 1;
-                                    });
-                                }
-                            } else if mtype == 122 /* z */ { // someone sent a full sync request
-                                println!("{}","someone wants full blocks".blue());
-                                if !self.lightning_yielder && *self.clients.read() < self.maxcli {
-                                    let bnum = self.bnum;
-                                    *self.clients.write() += 1;
-                                    let cli = self.clients.clone();
-                                    thread::spawn(move || {
-                                        if let Ok(m) = m.try_into() {
-                                            if stream.write_all(&bnum.to_le_bytes()).is_ok() {
-                                                let mut sync_theirnum = u64::from_le_bytes(m);
-                                                println!("{}",format!("syncing them from {}",sync_theirnum).blue());
-                                                loop {
-                                                    if let Ok(x) = NextBlock::read(&sync_theirnum) {
-                                                        if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
-                                                            break
-                                                        }
-                                                        if stream.write_all(&x).is_err() {
-                                                            break
+                                    } else if mtype == 121 /* y */ { // someone sent a sync request
+                                        println!("{}","someone wants lightning".blue());
+                                        if *self.clients.read() < self.maxcli {
+                                            let bnum = self.bnum;
+                                            *self.clients.write() += 1;
+                                            let cli = self.clients.clone();
+                                            thread::spawn(move || {
+                                                if let Ok(m) = m.try_into() {
+                                                    if stream.write_all(&bnum.to_le_bytes()).is_ok() {
+                                                        let mut sync_theirnum = u64::from_le_bytes(m);
+                                                        println!("{}",format!("syncing them from {}",sync_theirnum).blue());
+                                                        loop {
+                                                            if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
+                                                                println!("{}",x.len());
+                                                                if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                                    break
+                                                                }
+                                                                if stream.write_all(&x).is_err() {
+                                                                    break
+                                                                }
+                                                            }
+                                                            sync_theirnum += 1;
+                                                            if sync_theirnum == bnum {
+                                                                break
+                                                            }
                                                         }
                                                     }
-                                                    sync_theirnum += 1;
-                                                    if sync_theirnum == bnum {
-                                                        break
-                                                    }
-                                                } 
-                                            }
+                                                }
+                                                *cli.write() -= 1;
+                                            });
                                         }
-                                        *cli.write() -= 1;
-                                    });
+                                    } else if mtype == 122 /* z */ { // someone sent a full sync request
+                                        println!("{}","someone wants full blocks".blue());
+                                        if !self.lightning_yielder && *self.clients.read() < self.maxcli {
+                                            let bnum = self.bnum;
+                                            *self.clients.write() += 1;
+                                            let cli = self.clients.clone();
+                                            thread::spawn(move || {
+                                                if let Ok(m) = m.try_into() {
+                                                    if stream.write_all(&bnum.to_le_bytes()).is_ok() {
+                                                        let mut sync_theirnum = u64::from_le_bytes(m);
+                                                        println!("{}",format!("syncing them from {}",sync_theirnum).blue());
+                                                        loop {
+                                                            if let Ok(x) = NextBlock::read(&sync_theirnum) {
+                                                                if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                                    break
+                                                                }
+                                                                if stream.write_all(&x).is_err() {
+                                                                    break
+                                                                }
+                                                            }
+                                                            sync_theirnum += 1;
+                                                            if sync_theirnum == bnum {
+                                                                break
+                                                            }
+                                                        } 
+                                                    }
+                                                }
+                                                *cli.write() -= 1;
+                                            });
+                                        }
+                                    } else {
+                                        self.spammers.insert(sa);
+                                        println!("{}","the user sent spam".bright_yellow().bold());
+                                    }
                                 }
-                            } else {
-                                println!("{}","the user sent spam".bright_yellow().bold());
                             }
                         }
                     }
@@ -1266,11 +1277,9 @@ impl Future for KhoraNode {
                                         println!("{}","a staker sent a tx".green());
                                         self.txses.insert(t);
                                         self.outer.handle_gossip_now(fullmsg, true);
-                                    } else {
-                                        self.outer.handle_gossip_now(fullmsg, false);
+
+                                        continue
                                     }
-                                } else {
-                                    self.outer.handle_gossip_now(fullmsg, false);
                                 }
                             }
                         } else if mtype == 3 /* recieved a full block */ {
@@ -1281,27 +1290,24 @@ impl Future for KhoraNode {
                                     self.gui_sender.send(vec![8]);
                                 }
                                 println!("{}","you have recieved a full block".green());
-                            } else {
-                                self.outer.handle_gossip_now(fullmsg, false);
+
+                                continue
                             }
                         } else if mtype == 97 /* a */ {
                             println!("{}","a staker is trying to connect".green());
                             self.outer.plumtree_node.lazy_push_peers.insert(fullmsg.sender);
                             self.outer.dm(bincode::serialize(&self.allnetwork).unwrap().into_iter().chain(vec![98u8]).collect::<Vec<u8>>(), &[fullmsg.sender], false);
+
+                            continue
                         } else if mtype == 98 /* b */ {
                             if self.allnetwork.par_iter().all(|(_,(_,x))| x.is_none()) {
                                 if let Ok(x) = bincode::deserialize(&m) {
                                     println!("{}","you have connected to the network".green());
                                     self.allnetwork = x;
+
+                                    continue
                                 }
                             }
-                        // } else if mtype == 108 /* l */ { // a lightning block
-                        //     if self.lightning_yielder {
-                        //         if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&m) {
-                        //             println!("{}","you have recieved a lightning block".green());
-                        //             self.readlightning(lastblock, m, None); // that whole thing with 3 and 8 makes it super unlikely to get more blocks (expecially for my small thing?)
-                        //         }
-                        //     }
                         } else if mtype == 110 /* n */ {
                             if let Some(who) = Signature::recieve_signed_message2(&mut m) {
                                 if let Ok(m) = bincode::deserialize::<IpAddr>(&m) {
@@ -1310,17 +1316,15 @@ impl Future for KhoraNode {
                                         println!("{}","a staker has announced their ip".green());
                                     }
                                     self.outer.handle_gossip_now(fullmsg, true);
-                                } else {
-                                    self.outer.handle_gossip_now(fullmsg, false);
+
+                                    continue
                                 }
-                            } else {
-                                self.outer.handle_gossip_now(fullmsg, false);
                             }
-                        } else /* spam */ {
-                            println!("{}","the staker sent spam".bright_yellow().bold());
-                            // self.outer.kill(&fullmsg.sender);
-                            self.outer.handle_gossip_now(fullmsg, false);
                         }
+                        /* spam */
+                        println!("{}","the staker sent spam".bright_yellow().bold());
+                        self.outer.kill(&fullmsg.sender);
+                        self.outer.handle_gossip_now(fullmsg, false);
                     }
                     did_something = true;
                 }

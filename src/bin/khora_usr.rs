@@ -442,6 +442,8 @@ impl KhoraNode {
         let mut dead = HashSet::<SocketAddr>::new();
         let responces = self.sendview[..cmp::min(recipients,self.sendview.len())].iter().filter_map(|socket| {
             if let Ok(mut stream) =  TcpStream::connect(socket) {
+                stream.set_read_timeout(Some(Duration::from_millis(500)));
+                stream.set_write_timeout(Some(Duration::from_millis(500)));
                 println!("connected...");
                 if stream.write_all(&message).is_ok() {
                     println!("request made...");
@@ -490,6 +492,8 @@ impl KhoraNode {
                 self.sendview.shuffle(&mut rng);
                 let mut memloc = 0usize;
                 if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
+                    stream.set_read_timeout(Some(Duration::from_millis(500)));
+                    stream.set_write_timeout(Some(Duration::from_millis(500)));
                     println!("connected...");
                     if stream.write_all(&rname).is_ok() {
                         println!("request made...");
@@ -523,6 +527,8 @@ impl KhoraNode {
         self.sendview.shuffle(&mut rng);
         println!("attempting sync...");
         if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
+            stream.set_read_timeout(Some(Duration::from_millis(500)));
+            stream.set_write_timeout(Some(Duration::from_millis(500)));
             println!("connected...");
             let mut m = self.bnum.to_le_bytes().to_vec();
             m.push(121);

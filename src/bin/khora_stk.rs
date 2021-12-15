@@ -838,11 +838,14 @@ impl KhoraNode {
     /// returns the responces of each person you sent it to and deletes those who are dead from the view
     fn attempt_sync(&mut self, node: Option<SocketAddr> ) {
 
+        // println!("hi");
         let mut rng = &mut rand::thread_rng();
         let mut sendview = if let Some(x) = node {
             vec![x]
         } else {
-            self.allnetwork.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>()
+            let mut x = self.allnetwork.clone();
+            x.remove(&self.me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress());
+            x.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>()
         };
         
         sendview.shuffle(&mut rng);
@@ -887,7 +890,9 @@ impl KhoraNode {
                 println!("your friend is probably busy or you have none");
             }
         }
+        // println!("hi");
         self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
+        // println!("hi");
 
     }
 

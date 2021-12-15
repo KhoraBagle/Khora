@@ -280,7 +280,6 @@ impl KhoraNode {
         f.read_to_end(&mut buf).unwrap();
 
         let sn = bincode::deserialize::<SavedNode>(&buf).unwrap();
-        gui_sender.send(vec![sn.blocktime as u8,128]).unwrap();
 
         let allnetwork = sn.stkinfo.iter().enumerate().map(|(i,x)| (x.0,(i as u64,None))).collect::<HashMap<_,_>>();
         KhoraNode {
@@ -316,13 +315,12 @@ impl KhoraNode {
     }
 
     /// reads a lightning block and saves information when appropriate and returns if you accepted the block
-    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, save: bool) -> Vec<Vec<u8>> {
-        let mut send_to_gui = vec![];
+    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, save: bool) {
         if lastlightning.bnum >= self.bnum {
             let com = self.comittee.par_iter().map(|x| x.par_iter().map(|y| *y as u64).collect::<Vec<_>>()).collect::<Vec<_>>();
             if lastlightning.shards.len() == 0 {
                 // println!("Error in block verification: there is no shard");
-                return send_to_gui;
+                return ();
             }
             let v = if (lastlightning.shards[0] as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
                 lastlightning.verify_multithread(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok()
@@ -369,7 +367,9 @@ impl KhoraNode {
                     let guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);
                     // println!("{}",format!("scan: {}",t.elapsed().as_millis()).yellow());
                     
-                    self.gui_sender.send(vec![!guitruster as u8,1]);
+                    if save {
+                        self.gui_sender.send(vec![!guitruster as u8,1]);
+                    }
                     
                     // let t = Instant::now();
                     lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
@@ -418,7 +418,6 @@ impl KhoraNode {
 
             }
         }
-        send_to_gui
     }
 
     /// runs the operations needed for the panic button to work
@@ -518,9 +517,8 @@ impl KhoraNode {
     }
 
     /// returns the responces of each person you sent it to and deletes those who are dead from the view
-    fn attempt_sync(&mut self) -> Vec<Vec<u8>> {
+    fn attempt_sync(&mut self) {
 
-        let mut send = vec![];
         let mut rng = &mut rand::thread_rng();
         self.sendview.shuffle(&mut rng);
         println!("attempting sync...");
@@ -550,7 +548,7 @@ impl KhoraNode {
                         if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
                             
                             // let t = Instant::now();
-                            send = self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
+                            self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
                             // println!("{}",format!("block reading time: {}ms",t.elapsed().as_millis()).bright_yellow().bold());
                         } else {
                             println!("they send a fake block");
@@ -576,7 +574,6 @@ impl KhoraNode {
             self.gui_sender.send(vec![5]).expect("something's wrong with the communication to the gui");
         }
         self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
-        send
     }
 
 }
@@ -857,18 +854,9 @@ impl Future for KhoraNode {
                         let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
                         gm.push(4);
                         self.gui_sender.send(gm).expect("should be working");
-                        let send = self.attempt_sync();
+                        self.attempt_sync();
                         self.gui_sender.send(vec![self.blocktime as u8,128]).expect("something's wrong with the communication to the gui");
 
-                        send.into_iter().for_each(|x| {
-                            if x.is_empty() {
-                                if let Some((x,_)) = self.moneyreset.clone() {
-                                    self.send_message(x, TRANSACTION_SEND_TO);
-                                }
-                            } else {
-                                self.gui_sender.send(x).expect("something's wrong with the communication to the gui");
-                            }
-                        });
 
                     } else if istx == 42 /* * */ { // entry address
                         let socket = format!("{}:{}",String::from_utf8_lossy(&m),OUTSIDER_PORT);

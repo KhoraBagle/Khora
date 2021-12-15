@@ -822,7 +822,7 @@ impl LightningSyncBlock {
     /// scans the block for money sent to you. additionally updates your understanding of the height. returns weather you recieved money
     pub fn scan(&self, me: &Account, mine: &mut HashMap<u64,OTAccount>, reversemine: &mut HashMap<CompressedRistretto,u64>, height: &mut u64, alltagsever: &mut HashSet<CompressedRistretto>) -> bool {
         let newmine = self.info.txout.par_iter().enumerate().filter_map(|(i,x)| if let Ok(y) = me.receive_ot(x) {Some((i as u64+*height,y))} else {None}).collect::<Vec<(u64,OTAccount)>>();
-        let mut imtrue = !newmine.is_empty();
+        let mut imtrue = newmine.is_empty();
         for (n,m) in newmine {
             if alltagsever.contains(&m.tag.unwrap()) {
                 println!("someone sent you money that you can't speand");
@@ -833,7 +833,7 @@ impl LightningSyncBlock {
                 // let t = std::time::Instant::now();
                 reversemine.insert(m.tag.unwrap(),n);
                 mine.insert(n,m);
-                imtrue = false;
+                imtrue = true;
                 // println!("recieve money: {}",t.elapsed().as_millis());
             }
         }
@@ -841,7 +841,6 @@ impl LightningSyncBlock {
             if let Some(loc) = reversemine.get(tag) {
                 mine.remove(loc);
                 reversemine.remove(tag);
-                imtrue = false;
             }
         }
 

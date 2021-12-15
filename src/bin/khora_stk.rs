@@ -236,7 +236,7 @@ fn main() -> Result<(), MainError> {
         let native_options = eframe::NativeOptions::default();
         eframe::run_native(Box::new(app), native_options);
     } else {
-        let node = KhoraNode::load(frontnode, backnode, usend, urecv,recvtcp);
+        let mut node = KhoraNode::load(frontnode, backnode, usend, urecv,recvtcp);
         let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
         mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
         mymoney.push(0);
@@ -255,7 +255,7 @@ fn main() -> Result<(), MainError> {
         );
         let native_options = eframe::NativeOptions::default();
         std::thread::spawn(move || {
-
+            node.attempt_sync(None);
             executor.spawn(service.map_err(|e| panic!("{}", e)));
             executor.spawn(node);
     
@@ -436,7 +436,6 @@ impl KhoraNode {
         outer.hyparview_node.passive_view = sn.pv;
 
         
-        gui_sender.send(vec![sn.blocktime as u8 + 1,128]).unwrap();
 
 
         let key = sn.key;

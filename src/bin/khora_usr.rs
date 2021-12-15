@@ -5,7 +5,6 @@ extern crate trackable;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll};
-use khora::bloom::BloomFile;
 use khora::seal::BETA;
 use rand::prelude::SliceRandom;
 use std::{cmp, thread};

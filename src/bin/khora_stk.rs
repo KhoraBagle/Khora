@@ -930,7 +930,7 @@ impl KhoraNode {
                                 );
 
                                 if x.len() > self.txses.len() {
-                                    return (txses,x.len())
+                                    return (bincode::serialize(&x).unwrap(),x.len())
                                 }
                             }
                         }

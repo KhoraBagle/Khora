@@ -207,6 +207,7 @@ fn main() -> Result<(), MainError> {
                 vec![
                 bincode::serialize(&node.me.name()).expect("should work"),
                 bincode::serialize(&node.me.stake_acc().name()).expect("should work"),
+                bincode::serialize(&node.me.nonanony_acc().name()).expect("should work"),
                 bincode::serialize(&node.me.sk.as_bytes().to_vec()).expect("should work"),
                 bincode::serialize(&node.me.vsk.as_bytes().to_vec()).expect("should work"),
                 bincode::serialize(&node.me.ask.as_bytes().to_vec()).expect("should work"),
@@ -219,6 +220,7 @@ fn main() -> Result<(), MainError> {
             let node = KhoraNode::load(frontnode, backnode, usend, urecv,recvtcp);
             let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
             mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+            mymoney.extend(node.nmine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
             mymoney.push(0);
             println!("my money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
             node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
@@ -235,6 +237,7 @@ fn main() -> Result<(), MainError> {
             ui_sender,
             "".to_string(),
             "".to_string(),
+            "".to_string(),
             vec![],
             vec![],
             vec![],
@@ -246,8 +249,9 @@ fn main() -> Result<(), MainError> {
         let mut node = KhoraNode::load(frontnode, backnode, usend, urecv,recvtcp);
         let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
         mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+        mymoney.extend(node.nmine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
         mymoney.push(0);
-        println!("my money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
+        println!("my staked money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
         node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
 
         let app = gui::staker::KhoraStakerGUI::new(
@@ -255,6 +259,7 @@ fn main() -> Result<(), MainError> {
             ui_sender,
             node.me.name(),
             node.me.stake_acc().name(),
+            node.me.nonanony_acc().name(),
             node.me.sk.as_bytes().to_vec(),
             node.me.vsk.as_bytes().to_vec(),
             node.me.ask.as_bytes().to_vec(),
@@ -690,6 +695,7 @@ impl KhoraNode {
                 // send info to the gui
                 let mut mymoney = self.mine.par_iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
                 mymoney.extend(self.smine.unwrap_or_default()[1].to_le_bytes());
+                mymoney.extend(self.nmine.unwrap_or_default()[1].to_le_bytes());
                 mymoney.push(0);
                 self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
 
@@ -1704,6 +1710,7 @@ impl Future for KhoraNode {
                             vec![
                                 bincode::serialize(&self.me.name()).expect("should work"),
                                 bincode::serialize(&self.me.stake_acc().name()).expect("should work"),
+                                bincode::serialize(&self.me.nonanony_acc().name()).expect("should work"),
                                 bincode::serialize(&self.me.sk.as_bytes().to_vec()).expect("should work"),
                                 bincode::serialize(&self.me.vsk.as_bytes().to_vec()).expect("should work"),
                                 bincode::serialize(&self.me.ask.as_bytes().to_vec()).expect("should work"),

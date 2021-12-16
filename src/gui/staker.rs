@@ -67,11 +67,13 @@ pub struct KhoraStakerGUI {
     fee: String,
     unstaked: u64,
     staked: u64,
+    nonanony: u64,
     friends: Vec<String>,
     friend_names: Vec<String>,
     stake: String,
     unstake: String,
     addr: String,
+    nonanonyaddr: String,
     stkaddr: String,
     dont_trust_amounts: bool,
     password0: String,
@@ -143,6 +145,7 @@ impl Default for KhoraStakerGUI {
             sender: s,
             unstaked: 0u64,
             staked: 0u64,
+            nonanony: 0u64,
             friends: vec![],
             edit_names: vec![],
             friend_names: vec![],
@@ -150,6 +153,7 @@ impl Default for KhoraStakerGUI {
             name_adding: "".to_string(),
             addr: "".to_string(),
             stkaddr: "".to_string(),
+            nonanonyaddr: "".to_string(),
             dont_trust_amounts: false,
             password0: "".to_string(),
             pswd_guess0: "".to_string(),
@@ -191,12 +195,13 @@ impl Default for KhoraStakerGUI {
     }
 }
 impl KhoraStakerGUI {
-    pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: channel::Sender<Vec<u8>>, addr: String, stkaddr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
+    pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: channel::Sender<Vec<u8>>, addr: String, stkaddr: String, nonanonyaddr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
         KhoraStakerGUI{
             reciever,
             sender,
             addr,
             stkaddr,
+            nonanonyaddr,
             setup,
             sk,
             vsk,
@@ -271,7 +276,9 @@ impl epi::App for KhoraStakerGUI {
             if modification == 0 {
                 let u = i.drain(..8).collect::<Vec<_>>();
                 self.unstaked = u64::from_le_bytes(u.try_into().unwrap());
-                self.staked = u64::from_le_bytes(i.try_into().unwrap());
+                let u = i.drain(..8).collect::<Vec<_>>();
+                self.staked = u64::from_le_bytes(u.try_into().unwrap());
+                self.nonanony = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 1 {
                 self.dont_trust_amounts = i.pop() == Some(0);
             } else if modification == 2 {
@@ -294,9 +301,9 @@ impl epi::App for KhoraStakerGUI {
                 if self.block_number%10 == 0 {
                     let mut m = vec![];
                     let x = 10_000_000u64;
-                    m.extend(b"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakpkkjflfkbnihkjemkbdjhleddlncjmipffbpninfgkddopmkmofanmahmebeombknnljklfkolpkacljdjpfephfkdjhikcechegbionimhhejdckcnpmejnkmcacia");
+                    m.extend(b"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklbkjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklb");
                     m.extend(x.to_le_bytes().to_vec());
-                    m.extend(b"idnalalnbcanbeofcfbpfklbhonfflohoagdgghojhifmppnicbnedhpkmgmjhbcafhplgcafmdhdnifcalnndillfononeanbgfihjjpagncanknamdmgcgilindfjfgpmkijinbaldpopgipefkhcjgadifhjpmhdflgccokbhjiecknhnpigbgpnghpkg");
+                    m.extend(b"idnalalnbcanbeofcfbpfklbhonfflohoagdgghojhifmppnicbnedhpkmgmjhbckjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklbkjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklb");
                     m.extend(x.to_le_bytes().to_vec());
                     let tot = 2*x;
                     if self.unstaked as i128 >= tot as i128 {
@@ -336,24 +343,12 @@ impl epi::App for KhoraStakerGUI {
                 let i: Vec<Vec<u8>> = bincode::deserialize(&i).unwrap();
                 self.addr = bincode::deserialize(&i[0]).unwrap();
                 self.stkaddr = bincode::deserialize(&i[1]).unwrap();
-                self.sk = bincode::deserialize(&i[2]).unwrap();
-                self.vsk = bincode::deserialize(&i[3]).unwrap();
-                self.tsk = bincode::deserialize(&i[4]).unwrap();
+                self.nonanonyaddr = bincode::deserialize(&i[2]).unwrap();
+                self.sk = bincode::deserialize(&i[3]).unwrap();
+                self.vsk = bincode::deserialize(&i[4]).unwrap();
+                self.tsk = bincode::deserialize(&i[5]).unwrap();
                 self.setup = false;
                 // println!("Done with setup!");
-            } else if modification == u8::MAX {
-                let info = i.pop().unwrap();
-                if info == 0 {
-                    self.addr = String::from_utf8_lossy(&i).to_string();
-                } else if info == 1 {
-                    self.stkaddr = String::from_utf8_lossy(&i).to_string();
-                } else if info == 2 {
-                    self.sk = i;
-                } else if info == 3 {
-                    self.vsk = i;
-                } else if info == 4 {
-                    self.tsk = i;
-                }
             }
             ctx.request_repaint();
         }
@@ -365,6 +360,8 @@ impl epi::App for KhoraStakerGUI {
             transaction_processed,
             transaction_processings,
             transaction_processeds,
+            nonanonyaddr,
+            nonanony,
             sender,
             unstaked,
             staked,
@@ -529,10 +526,16 @@ impl epi::App for KhoraStakerGUI {
             }
             if !*setup {
                 ui.horizontal(|ui| {
-                    if ui.button("📋").on_hover_text("Click to copy your wallet address to clipboard").clicked() {
+                    if ui.button("📋").on_hover_text("Click to copy your invisable wallet address to clipboard").clicked() {
                         ui.output().copied_text = addr.clone();
                     }
-                    ui.add(Label::new("Wallet Address").underline()).on_hover_text(&*addr);
+                    ui.add(Label::new("Invisible Wallet Address").underline()).on_hover_text(&*addr);
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("📋").on_hover_text("Click to copy your visible wallet address to clipboard").clicked() {
+                        ui.output().copied_text = nonanonyaddr.clone();
+                    }
+                    ui.add(Label::new("Visible Wallet Address").underline()).on_hover_text(&*nonanonyaddr);
                 });
                 ui.horizontal(|ui| {
                     if ui.button("📋").on_hover_text("Click to copy your staking wallet address to clipboard").clicked() {
@@ -565,8 +568,12 @@ impl epi::App for KhoraStakerGUI {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Unstaked Khora");
+                    ui.label("Invisible Unstaked Khora");
                     ui.label(&unstaked.separated_string());
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Visible Unstaked Khora");
+                    ui.label(&nonanony.separated_string());
                 });
                 ui.horizontal(|ui| {
                     ui.label("Staked Khora");

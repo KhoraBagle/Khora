@@ -1536,6 +1536,26 @@ impl Future for KhoraNode {
                                 txbin = vec![];
                                 println!("you can't make that transaction!");
                             }
+                        } else if txtype == 64 /* ?+1 */ { // transaction should be spent with staked money
+                            let m = Scalar::from(self.nmine.unwrap()[1]) - outs.iter().map(|x| x.1).sum::<Scalar>();
+                            let x = outs.len() - 1;
+                            outs[x].1 = m;
+
+                            
+                            let (loc, amnt): (Vec<u64>,Vec<u64>) = self.nmine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
+                            let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
+                            let tx = Transaction::spend_ring(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                            // tx.verify().unwrap();
+                            let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
+                            loc.push(2);
+                            let tx = tx.polyform(&loc); // push 0
+                            if tx.verifystk(&self.nonanony).is_ok() {
+                                txbin = bincode::serialize(&tx).unwrap();
+                                self.txses.insert(tx);
+                            } else {
+                                txbin = vec![];
+                                println!("you can't make that transaction!");
+                            }
                         } else {
                             txbin = vec![];
                             println!("somethings wrong with your query!");

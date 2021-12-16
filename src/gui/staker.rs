@@ -1,11 +1,11 @@
-use std::{convert::TryInto, fs, time::Instant, sync::Arc};
+use std::{convert::TryInto, fs, time::Instant};
 
 use curve25519_dalek::scalar::Scalar;
 use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit}, epi};
 use crossbeam::channel;
-use parking_lot::RwLock;
 use separator::Separatable;
 use getrandom::getrandom;
+use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_512};
 use crate::validation::{VERSION, MINSTK, STAKER_BLOOM_NAME};
 
@@ -52,6 +52,10 @@ fn retain_numeric(mut number: String) -> String {
     number.retain(|x| x.is_ascii_digit());
     number
 }
+
+
+#[derive(PartialEq, Serialize, Deserialize)]
+pub enum TxInput { Invisable, Visible, Stake }
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "persistence", serde(default))] // if we add new fields, give them default values when deserializing old state
@@ -87,7 +91,6 @@ pub struct KhoraStakerGUI {
     next_pswrd2: String,
     panic_fee: String,
     entrypoint: String,
-    stkspeand: bool,
     setup: bool,
     lightning_yielder: bool,
     validating: bool,
@@ -99,6 +102,7 @@ pub struct KhoraStakerGUI {
     transaction_processing: bool,
     transaction_processeds: bool,
     transaction_processings: bool,
+    txtype: TxInput,
 
     #[cfg_attr(feature = "persistence", serde(skip))]
     lonely: u16,
@@ -167,7 +171,7 @@ impl Default for KhoraStakerGUI {
             next_pswrd2: random_pswrd()[..5].to_string(),
             panic_fee: "1".to_string(),
             entrypoint: "".to_string(),
-            stkspeand: false,
+            txtype: TxInput::Invisable,
             show_reset: false,
             you_cant_do_that: false,
             eta: 60,
@@ -389,7 +393,7 @@ impl epi::App for KhoraStakerGUI {
             next_pswrd2,
             panic_fee,
             entrypoint,
-            stkspeand,
+            txtype,
             show_reset,
             you_cant_do_that,
             setup,
@@ -684,6 +688,10 @@ impl epi::App for KhoraStakerGUI {
                             send_addr.push("".to_string());
                             send_amnt.push("".to_string());
                         }
+                        ui.radio_value(txtype, TxInput::Stake, "Spend with staked money");
+                        ui.radio_value(txtype, TxInput::Invisable, "Spend with invisible unstaked money");
+                        ui.radio_value(txtype, TxInput::Visible, "Spend with visible unstaked money");
+                        ui.end_row();
                         ui.add(Label::new("Name").heading());
                         ui.add(Label::new("Wallet Address").heading());
                         ui.add(Label::new("Amount").heading());
@@ -733,26 +741,33 @@ impl epi::App for KhoraStakerGUI {
                                         }
                                     }
                                 }
-                                if *stkspeand {
-                                    let x = tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
-                                    *you_cant_do_that = (*staked as i128) < MINSTK as i128 + x || *staked as i128 == x;
-                                } else {
-                                    *you_cant_do_that = (*unstaked as i128) < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
-                                }
-;                               if !*you_cant_do_that {
-                                    if *stkspeand {
-                                        let x = *staked as i128 - tot - retain_numeric(fee.to_string()).parse::<i128>().unwrap();
+                                match txtype {
+                                    TxInput::Stake => {
+                                        let x = tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
+                                        *you_cant_do_that = (*staked as i128) < MINSTK as i128 + x || *staked as i128 == x;
                                         if x > 0 {
                                             m.extend(str::to_ascii_lowercase(&stkaddr).as_bytes());
                                             m.extend((x as u64).to_le_bytes());
                                         }
                                         m.push(63);
-                                    } else {
+                                    }
+                                    TxInput::Invisable => {
+                                        *you_cant_do_that = (*unstaked as i128) < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
+
                                         m.extend(str::to_ascii_lowercase(&addr).as_bytes());
                                         m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
                                         m.push(*ringsize);
                                         m.push(33);
                                     }
+                                    TxInput::Visible => {
+                                        *you_cant_do_that = (*nonanony as i128) < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
+
+                                        m.extend(str::to_ascii_lowercase(&nonanonyaddr).as_bytes());
+                                        m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
+                                        m.push(63); // 63?
+                                    }
+                                }
+;                               if !*you_cant_do_that {
                                     m.push(33);
                                     sender.send(m).expect("something's wrong with communication from the gui");
                                     *send_name = vec!["".to_string()];
@@ -761,11 +776,10 @@ impl epi::App for KhoraStakerGUI {
                                 }
                             }
                             ui.end_row();
-                            ui.label("");
-                            ui.label("");
-                            ui.label("");
-                            ui.label("");
-                            ui.add(Checkbox::new(stkspeand,"Spend with staked money"));
+                            // ui.label("");
+                            // ui.label("");
+                            // ui.label("");
+                            // ui.label("");
                         }
                     });
                     if delete_row_x != usize::MAX {

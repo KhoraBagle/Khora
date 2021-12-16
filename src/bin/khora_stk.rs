@@ -1218,8 +1218,16 @@ impl Future for KhoraNode {
                                     if mtype == 0 /* transaction someone wants to make */ {
                                         if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
                                             let ok = {
-                                                let bloom = self.bloom.borrow();
-                                                t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                                                if t.inputs.last() == Some(&0u8) {
+                                                    let bloom = self.bloom.borrow();
+                                                    t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                                                } else if t.inputs.last() == Some(&1u8) {
+                                                    t.verifystk(&self.stkinfo).is_ok()
+                                                } else if t.inputs.last() == Some(&2u8) {
+                                                    t.verifystk(&self.nonanony).is_ok()
+                                                } else {
+                                                    false
+                                                }
                                             };
                                             if ok {
                                                 println!("{}","a user sent a tx".blue());
@@ -1333,11 +1341,15 @@ impl Future for KhoraNode {
                             if m.len() < 100_000 {
                                 if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
                                     let ok = {
-                                        if t.inputs.last() == Some(&1) {
-                                            t.verifystk(&self.stkinfo).is_ok()
-                                        } else {
+                                        if t.inputs.last() == Some(&0u8) {
                                             let bloom = self.bloom.borrow();
                                             t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                                        } else if t.inputs.last() == Some(&1u8) {
+                                            t.verifystk(&self.stkinfo).is_ok()
+                                        } else if t.inputs.last() == Some(&2u8) {
+                                            t.verifystk(&self.nonanony).is_ok()
+                                        } else {
+                                            false
                                         }
                                     };
                                     if ok {

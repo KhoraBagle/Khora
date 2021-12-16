@@ -151,11 +151,14 @@ fn main() -> Result<(), MainError> {
                 outerlister: channel::unbounded().1,
                 allnetwork,
                 lasttags: vec![],
+                nonanony: vec![],
                 lastspot: None,
                 me,
                 mine: HashMap::new(),
                 reversemine: HashMap::new(),
                 smine: smine.clone(), // [location, amount]
+                nmine: None,
+                nheight: 0,
                 key,
                 keylocation,
                 leader: PERSON0,
@@ -285,6 +288,8 @@ struct SavedNode {
     mine: HashMap<u64, OTAccount>,
     reversemine: HashMap<CompressedRistretto, u64>,
     smine: Option<[u64; 2]>, // [location, amount]
+    nmine: Option<[u64; 2]>, // [location, amount]
+    nheight: u64,
     allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     key: Scalar,
     keylocation: Option<u64>,
@@ -292,6 +297,7 @@ struct SavedNode {
     overthrown: HashSet<CompressedRistretto>,
     votes: Vec<i32>,
     stkinfo: Vec<(CompressedRistretto,u64)>,
+    nonanony: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
     exitqueue: Vec<VecDeque<usize>>,
     comittee: Vec<Vec<usize>>,
@@ -331,12 +337,15 @@ struct KhoraNode {
     mine: HashMap<u64, OTAccount>,
     reversemine: HashMap<CompressedRistretto, u64>,
     smine: Option<[u64; 2]>, // [location, amount]
+    nmine: Option<[u64; 2]>, // [location, amount]
+    nheight: u64,
     key: Scalar,
     keylocation: Option<u64>,
     leader: CompressedRistretto, // would they ever even reach consensus on this for new people when a dishonest person is eliminated???
     overthrown: HashSet<CompressedRistretto>,
     votes: Vec<i32>,
     stkinfo: Vec<(CompressedRistretto,u64)>,
+    nonanony: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
     exitqueue: Vec<VecDeque<usize>>,
     comittee: Vec<Vec<usize>>,
@@ -385,6 +394,8 @@ impl KhoraNode {
                 mine: self.mine.clone(),
                 reversemine: self.reversemine.clone(),
                 smine: self.smine.clone(), // [location, amount]
+                nheight: self.nheight,
+                nmine: self.nmine.clone(), // [location, amount]
                 allnetwork: self.allnetwork.clone(),
                 key: self.key,
                 keylocation: self.keylocation.clone(),
@@ -415,6 +426,7 @@ impl KhoraNode {
                 av: self.outer.hyparview_node.active_view.clone(),
                 pv: self.outer.hyparview_node.passive_view.clone(),
                 maxcli: self.maxcli,
+                nonanony: self.nonanony.clone(),
             }; // just redo initial conditions on the rest
             let mut sn = bincode::serialize(&sn).unwrap();
             let mut f = File::create("myNode").unwrap();
@@ -471,6 +483,8 @@ impl KhoraNode {
             mine: sn.mine.clone(),
             reversemine: sn.reversemine.clone(),
             smine: sn.smine.clone(), // [location, amount]
+            nheight: sn.nheight,
+            nmine: sn.nmine.clone(), // [location, amount]
             key: sn.key,
             keylocation: sn.keylocation.clone(),
             leader: sn.leader.clone(),
@@ -502,6 +516,7 @@ impl KhoraNode {
             clients: Arc::new(RwLock::new(0)),
             maxcli: sn.maxcli,
             spammers: HashSet::new(),
+            nonanony: sn.nonanony.clone(),
         }
     }
 
@@ -598,13 +613,14 @@ impl KhoraNode {
                 }
 
 
-                println!("none time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
+                // println!("none time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
                 // calculate the reward for this block as a function of the current time and scan either the block or an empty block based on conditions
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
-                    let (mut guitruster, new) = lastlightning.scanstk(&self.me, &mut self.smine, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
-                    guitruster = !(lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever) || guitruster);
-                    self.gui_sender.send(vec![guitruster as u8,1]).expect("there's a problem communicating to the gui!");
+                    let (mut guitruster, new) = lastlightning.scanstk(&self.me, &mut self.smine, true, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
+                    guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever) || guitruster;
+                    guitruster = lastlightning.scannonanony(&self.me, &mut self.nmine, &mut self.nheight) || guitruster;
+                    self.gui_sender.send(vec![!guitruster as u8,1]).expect("there's a problem communicating to the gui!");
 
                     if new {
                         let message = bincode::serialize(&self.outer.plumtree_node().id().address().ip()).unwrap();
@@ -638,7 +654,7 @@ impl KhoraNode {
                     }
                     LightningSyncBlock::save(&vec![]);
                 }
-                println!("some time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
+                // println!("some time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
 
                 self.votes[self.exitqueue[self.headshard][0]] = 0; self.votes[self.exitqueue[self.headshard][1]] = 0;
                 self.newest = self.queue[self.headshard][0] as u64;
@@ -654,7 +670,7 @@ impl KhoraNode {
 
                 
 
-                println!("midd time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
+                // println!("midd time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
                 
                 let s = &self.stkinfo;
                 let o = &self.overthrown;
@@ -692,7 +708,7 @@ impl KhoraNode {
                 let bloom = self.bloom.borrow();
                 println!("{}",format!("had {} tx",self.txses.len()).magenta());
                 println!("{}",format!("block had {} stkin, {} stkout, {} otain",lastlightning.info.stkin.len(),lastlightning.info.stkin.len(),lastlightning.info.txout.len()).magenta());
-                println!("late time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
+                // println!("late time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
                 self.txses = self.txses.par_iter().filter(|x| {
                     if x.inputs.last() == Some(&1) {
                         x.verifystk(s).is_ok()
@@ -700,7 +716,7 @@ impl KhoraNode {
                         x.tags.par_iter().all(|x| !bloom.contains(x.as_bytes()))
                     }
                 }).cloned().collect();
-                println!("most time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
+                // println!("most time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
 
                 println!("{}",format!("have {} tx",self.txses.len()).magenta());
                 // runs any operations needed for the panic button to function
@@ -785,8 +801,8 @@ impl KhoraNode {
                     if !self.mine.iter().all(|x| x.1.com.amount.unwrap() != Scalar::from(oldstk.2)) {
                         oldstkcheck = true;
                     }
-                    if !(lastlightning.info.stkout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.txout.is_empty()) {
-                        lastlightning.scanstk(&oldstk.0, &mut oldstk.1, &mut self.sheight.clone(), &self.comittee, reward, &self.stkinfo);
+                    if !lastlightning.info.is_empty() {
+                        lastlightning.scanstk(&oldstk.0, &mut oldstk.1, true, &mut self.sheight.clone(), &self.comittee, reward, &self.stkinfo);
                     } else {
                         NextBlock::pay_self_empty(&self.headshard, &self.comittee, &mut oldstk.1, reward);
                     }
@@ -1049,7 +1065,7 @@ impl Future for KhoraNode {
                                     if let Ok(m) = bincode::deserialize::<Vec<PolynomialTransaction>>(&m) {
 
                                         if let Some(keylocation) = &self.keylocation {
-                                            let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, m, &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo);
+                                            let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, m, &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo, &self.nonanony);
                                             let mut m = bincode::serialize(&m).unwrap();
                                             m.push(2);
                                             for _ in self.comittee[self.headshard].iter().filter(|&x|*x as u64 == *keylocation).collect::<Vec<_>>() {
@@ -1161,7 +1177,7 @@ impl Future for KhoraNode {
                 if self.waitingforentrybool && (self.waitingforentrytime.elapsed().as_secs() > (0.66*self.blocktime) as u64) {
                     self.waitingforentrybool = false;
                     for keylocation in &self.keylocation {
-                        let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, vec![], &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo);
+                        let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, vec![], &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo, &self.nonanony);
                         println!("{}","ATTEMPTING TO MAKE AN EMPTY BLOCK".red().bold());
                         let mut m = bincode::serialize(&m).unwrap();
                         m.push(2);

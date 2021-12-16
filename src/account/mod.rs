@@ -85,6 +85,18 @@ pub fn stakereader_acc() -> Account {
         vpk: RISTRETTO_BASEPOINT_POINT,
     }
 }
+
+/// use this to check if it's a nonanony account
+pub fn nonanonyreader_acc() -> Account {
+    Account{
+        sk: Scalar::one(),
+        pk: Account::tag_k_gen(Scalar::one()),
+        ask: Scalar::from(2u8),
+        apk: RISTRETTO_BASEPOINT_POINT*Scalar::from(2u8),
+        vsk: Scalar::from(2u8),
+        vpk: RISTRETTO_BASEPOINT_POINT*Scalar::from(2u8),
+    }
+}
 /// makes the fee output account
 pub fn fee_ota(amount: &Scalar) -> OTAccount {
     let com = Commitment::commit(amount, &Scalar::from(0u8));
@@ -282,6 +294,18 @@ impl Account {
             apk: RISTRETTO_BASEPOINT_POINT,
             vsk: Scalar::one(), // appendix B has info on ask (tsk in the paper) and vsk
             vpk: RISTRETTO_BASEPOINT_POINT,
+        }
+    }
+
+    pub fn nonanony_acc(&self) -> Account {
+        let sk = self.sk;
+        Account{
+            sk,
+            pk: Account::tag_k_gen(sk),
+            ask: Scalar::from(2u8),
+            apk: RISTRETTO_BASEPOINT_POINT*Scalar::from(2u8),
+            vsk: Scalar::from(2u8), // appendix B has info on ask (tsk in the paper) and vsk
+            vpk: RISTRETTO_BASEPOINT_POINT*Scalar::from(2u8),
         }
     }
 

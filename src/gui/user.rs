@@ -89,6 +89,9 @@ pub struct KhoraUserGUI {
     save_extra: bool,
     transaction_processing: bool,
     transaction_processed: bool,
+    nonanony: u64,
+    
+    nonanonyaddr: String,
 
     #[cfg_attr(feature = "persistence", serde(skip))]
     options_menu: bool,
@@ -169,15 +172,18 @@ impl Default for KhoraUserGUI {
             transaction_processing: false,
             transaction_processed: true,
             nextblock: 0,
+            nonanony: 0,
+            nonanonyaddr: "".to_string(),
         }
     }
 }
 impl KhoraUserGUI {
-    pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: channel::Sender<Vec<u8>>, addr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
+    pub fn new(reciever: channel::Receiver<Vec<u8>>, sender: channel::Sender<Vec<u8>>, addr: String, nonanonyaddr: String, sk: Vec<u8>, vsk: Vec<u8>, tsk: Vec<u8>, setup: bool) -> Self {
         KhoraUserGUI{
             reciever,
             sender,
             addr,
+            nonanonyaddr,
             setup,
             sk,
             vsk,
@@ -248,7 +254,8 @@ impl epi::App for KhoraUserGUI {
         if let Ok(mut i) = self.reciever.try_recv() {
             let modification = i.pop().unwrap();
             if modification == 0 {
-                self.unstaked = u64::from_le_bytes(i.try_into().unwrap());
+                self.unstaked = u64::from_le_bytes(i.drain(..8).collect::<Vec<_>>().try_into().unwrap());
+                self.nonanony = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 1 {
                 self.dont_trust_amounts = i.pop() == Some(0);
             } else if modification == 2 {
@@ -269,9 +276,10 @@ impl epi::App for KhoraUserGUI {
             } else if modification == 254 {
                 let i: Vec<Vec<u8>> = bincode::deserialize(&i).unwrap();
                 self.addr = bincode::deserialize(&i[0]).unwrap();
-                self.sk = bincode::deserialize(&i[1]).unwrap();
-                self.vsk = bincode::deserialize(&i[2]).unwrap();
-                self.tsk = bincode::deserialize(&i[3]).unwrap();
+                self.nonanonyaddr = bincode::deserialize(&i[1]).unwrap();
+                self.sk = bincode::deserialize(&i[2]).unwrap();
+                self.vsk = bincode::deserialize(&i[3]).unwrap();
+                self.tsk = bincode::deserialize(&i[4]).unwrap();
                 self.setup = false;
                 // println!("Done with setup!");
             }
@@ -322,6 +330,8 @@ impl epi::App for KhoraUserGUI {
             logout_window,
             syncretry,
             nextblock,
+            nonanony,
+            nonanonyaddr,
         } = self;
 
  
@@ -441,16 +451,22 @@ impl epi::App for KhoraUserGUI {
             }
             if !*setup {
                 ui.horizontal(|ui| {
-                    if ui.button("📋").on_hover_text("Click to copy your wallet address to clipboard").clicked() {
+                    if ui.button("📋").on_hover_text("Click to copy your invisible wallet address to clipboard").clicked() {
                         ui.output().copied_text = addr.clone();
                     }
-                    ui.add(Label::new("Wallet Address").underline()).on_hover_text(&*addr);
+                    ui.add(Label::new("Hidden Wallet Address").underline()).on_hover_text(&*addr);
                 });
-                if ui.button(format!("Divide my accounts by {}",ACCOUNT_COMBINE)).clicked() {
-                    let mut m = retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec();
-                    m.push(2);
-                    sender.send(m);
-                }
+                ui.horizontal(|ui| {
+                    if ui.button("📋").on_hover_text("Click to copy your visible wallet address to clipboard").clicked() {
+                        ui.output().copied_text = nonanonyaddr.clone();
+                    }
+                    ui.add(Label::new("Visible Wallet Address").underline()).on_hover_text(&*nonanonyaddr);
+                });
+                // if ui.button(format!("Divide my accounts by {}",ACCOUNT_COMBINE)).clicked() {
+                //     let mut m = retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec();
+                //     m.push(2);
+                //     sender.send(m);
+                // }
             }
             ui.label("\n");
 
@@ -479,8 +495,12 @@ impl epi::App for KhoraUserGUI {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Khora Balance");
+                    ui.label("Hidden Khora Balance");
                     ui.label(&unstaked.separated_string());
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Visible Khora Balance");
+                    ui.label(&nonanony.separated_string());
                 });
                 if ui.button("Sync Wallet").clicked() && !*setup {
                     sender.send(vec![121]).expect("something's wrong with communication from the gui");

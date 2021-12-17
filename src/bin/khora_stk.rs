@@ -1655,6 +1655,10 @@ impl Future for KhoraNode {
                         if stkamnt >= fee {
                             stkamnt -= fee;
                         }
+                        let mut nonanony = self.nmine.iter().map(|x| x[1]).sum::<u64>();
+                        if nonanony >= fee {
+                            nonanony -= fee;
+                        }
                         // send unstaked money
                         if self.mine.len() > 0 {
                             let (loc, _acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(x.0,x.1.clone())).unzip();
@@ -1730,6 +1734,44 @@ impl Future for KhoraNode {
                                 txbin.push(0);
                                 self.outer.broadcast_now(txbin.clone());
                                 self.oldstk = Some((self.me.clone(),self.smine.clone(),stkamnt));
+                                println!("sending tx!");
+                            } else {
+                                println!("you can't make that transaction!");
+                            }
+                        }
+
+                        // send staked money
+                        if let Some(nmine) = &self.nmine {
+                            let (loc, amnt) = (nmine[0],nmine[1]);
+                            let inps = self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(amnt))).unwrap();
+
+
+                            let mut outs = vec![];
+                            // let y = stkamnt/2u64.pow(BETA as u32);
+                            // let mut tot = 0u64;
+                            // for _ in 0..y {
+                            //     let stkamnt = Scalar::from(stkamnt/y);
+                            //     tot += amnt;
+                            //     outs.push((&newacc,stkamnt));
+                            // }
+                            // let amnt = Scalar::from(stkamnt) - Scalar::from(tot);
+                            // outs.push((&newacc,amnt));
+                            outs.push((&newacc,Scalar::from(nonanony)));
+
+                            
+                            let tx = Transaction::spend_ring_nonce(&vec![inps], &outs.iter().map(|x| (x.0,&x.1)).collect(),self.bnum/NONCEYNESS);
+                            println!("about to verify!");
+                            tx.verify().unwrap();
+                            println!("finished to verify!");
+                            let mut loc = loc.to_le_bytes().to_vec();
+                            loc.push(2);
+                            let tx = tx.polyform(&loc); // push 0
+                            if tx.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok() {
+                                let mut txbin = bincode::serialize(&tx).unwrap();
+                                self.txses.insert(tx);
+                                txbin.push(0);
+                                self.outer.broadcast_now(txbin.clone());
+                                // self.oldnoanony = Some((self.me.clone(),self.nmine.clone(),nonanony));
                                 println!("sending tx!");
                             } else {
                                 println!("you can't make that transaction!");

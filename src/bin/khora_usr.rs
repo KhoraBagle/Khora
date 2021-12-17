@@ -360,7 +360,7 @@ impl KhoraNode {
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
                     // let t = Instant::now();
-                    lastlightning.scanstk(&self.me, &mut None::<[u64; 2]>, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
+                    lastlightning.scanstk(&self.me, &mut None::<[u64; 2]>, false, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
                     // println!("{}",format!("scan stake: {}",t.elapsed().as_millis()).yellow());
                     // let t = Instant::now();
                     let guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);

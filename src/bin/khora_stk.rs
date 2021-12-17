@@ -711,15 +711,20 @@ impl KhoraNode {
                 }
                 // if you save the history, the txses you know about matter; otherwise, they don't (becuase you're not involved in block creation)
                 let s = self.stkinfo.borrow();
+                let n = self.nonanony.borrow();
                 let bloom = self.bloom.borrow();
                 println!("{}",format!("had {} tx",self.txses.len()).magenta());
                 println!("{}",format!("block had {} stkin, {} stkout, {} otain",lastlightning.info.stkin.len(),lastlightning.info.stkin.len(),lastlightning.info.txout.len()).magenta());
                 // println!("late time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
-                self.txses = self.txses.par_iter().filter(|x| {
-                    if x.inputs.last() == Some(&1) {
-                        x.verifystk(s).is_ok()
+                self.txses = self.txses.par_iter().filter(|t| {
+                    if t.inputs.last() == Some(&0u8) {
+                        t.tags.par_iter().all(|y| !bloom.contains(y.as_bytes()))
+                    } else if t.inputs.last() == Some(&1u8) {
+                        t.verifystk(s).is_ok()
+                    } else if t.inputs.last() == Some(&2u8) {
+                        t.verifystk(n).is_ok()
                     } else {
-                        x.tags.par_iter().all(|x| !bloom.contains(x.as_bytes()))
+                        false
                     }
                 }).cloned().collect();
                 // println!("most time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());

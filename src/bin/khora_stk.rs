@@ -1553,7 +1553,7 @@ impl Future for KhoraNode {
                                 txbin = vec![];
                                 println!("you can't make that transaction!");
                             }
-                        } else if txtype == 64 /* ?+1 */ { // transaction should be spent with staked money
+                        } else if txtype == 64 /* ?+1 */ { // transaction should be spent with nonanony money
                             let m = Scalar::from(self.nmine.unwrap()[1]) - outs.iter().map(|x| x.1).sum::<Scalar>();
                             let x = outs.len() - 1;
                             outs[x].1 = m;

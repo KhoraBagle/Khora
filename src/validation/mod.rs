@@ -1041,7 +1041,7 @@ impl LightningSyncBlock {
 
         } else {
             *height -= self.info.nonanonyout.len() as u64;
-            let nonanonycr = me.stake_acc().derive_stk_ot(&Scalar::from(2u8)).pk.compress();
+            let nonanonycr = me.nonanony_acc().derive_stk_ot(&Scalar::one()).pk.compress();
             for (i,x) in self.info.nonanonyin.iter().enumerate() {
                 if nonanonycr == x.0 {
                     *mine = Some([i as u64+*height,x.1]);
@@ -1050,6 +1050,12 @@ impl LightningSyncBlock {
                 }
             }
             *height += self.info.nonanonyin.len() as u64;
+            if self.bnum%10 == 0 {
+                println!("ideal: {:?}",nonanonycr);
+                println!("real: {:?}",self.info.nonanonyin);
+                println!("staker reference: {:?}",self.info.stkin);
+                println!("random: {:?}",self.info.txout.iter().map(|x| x.pk.compress()).collect::<Vec<_>>());
+            }
         }
 
         if benone {

@@ -73,8 +73,6 @@ fn main() -> Result<(), MainError> {
             println!("password:\n{:?}",pswrd);
 
             let me = Account::new(&pswrd);
-            let validator = me.stake_acc().receive_ot(&me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap(); //make a new account
-            let key = validator.sk.unwrap();
             if will_stk {
                 History::initialize();
             }
@@ -93,7 +91,6 @@ fn main() -> Result<(), MainError> {
                 reversemine: HashMap::new(),
                 nmine: None,
                 nheight: 0,
-                key,
                 stkinfo: vec![initial_history.clone()],
                 queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|_| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
                 exitqueue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
@@ -193,7 +190,6 @@ struct SavedNode {
     nmine: Option<[u64; 2]>, // [location, amount]
     nheight: u64,
     reversemine: HashMap<CompressedRistretto, u64>,
-    key: Scalar,
     stkinfo: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
     exitqueue: Vec<VecDeque<usize>>,
@@ -221,7 +217,6 @@ struct KhoraNode {
     allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     save_history: bool, // do i really want this? yes?
     me: Account,
-    key: Scalar,
     stkinfo: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
     exitqueue: Vec<VecDeque<usize>>,
@@ -260,7 +255,6 @@ impl KhoraNode {
                 nheight: self.nheight,
                 nmine: self.nmine.clone(), // [location, amount]
                 reversemine: self.reversemine.clone(),
-                key: self.key,
                 stkinfo: self.stkinfo.clone(),
                 queue: self.queue.clone(),
                 exitqueue: self.exitqueue.clone(),
@@ -302,7 +296,6 @@ impl KhoraNode {
             me: sn.me,
             mine: sn.mine.clone(),
             reversemine: sn.reversemine.clone(),
-            key: sn.key,
             stkinfo: sn.stkinfo.clone(),
             queue: sn.queue.clone(),
             exitqueue: sn.exitqueue.clone(),
@@ -863,7 +856,6 @@ impl Future for KhoraNode {
                         self.reversemine = HashMap::new();
                         self.alltagsever = HashSet::new();
                         self.me = newacc;
-                        self.key = self.me.stake_acc().receive_ot(&self.me.stake_acc().derive_stk_ot(&Scalar::from(1u8))).unwrap().sk.unwrap();
 
                         let mut info = bincode::serialize(&
                             vec![

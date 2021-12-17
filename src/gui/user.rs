@@ -90,7 +90,6 @@ pub struct KhoraUserGUI {
     transaction_processing: bool,
     transaction_processed: bool,
     nonanony: u64,
-    
     nonanonyaddr: String,
 
     #[cfg_attr(feature = "persistence", serde(skip))]

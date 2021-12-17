@@ -117,6 +117,45 @@ impl Transaction {
         }
     }
 
+    pub fn spend_ring_nonce(inring: &Vec<OTAccount>, recipients: &Vec<(&Account, &Scalar)>, nonce: u64) -> Transaction{
+        let (poss,inamnt): (Vec<usize>,Vec<Scalar>) = inring.iter().enumerate().filter_map(|(i,a)|if let Some(x) = a.com.amount {Some((i,x))} else {None}).unzip();
+
+        // println!("in amount: {:?}",inamnt);
+
+        let ring = inring.to_owned();
+        let fee_amount = inamnt.into_iter().sum::<Scalar>() - recipients.iter().map(|(_,&y)| y).sum::<Scalar>();
+        let mut outputs = recipients.into_iter().filter_map(|(rcpt,amout)|
+            if **amout == Scalar::from(0u8) {None}
+            else if rcpt.vpk == RISTRETTO_BASEPOINT_POINT {Some(rcpt.derive_stk_ot(amout))}
+            else if rcpt.vpk == RISTRETTO_BASEPOINT_POINT*Scalar::from(2u8) {Some(rcpt.derive_stk_ot(amout))}
+            else {Some(rcpt.derive_ot(amout))}
+        ).collect::<Vec<OTAccount>>();
+        outputs.push(fee_ota(&fee_amount));
+
+        // println!("fee: {:?}",fee_amount);
+
+        let inputs:Vec<OTAccount> = ring.iter().map(|acct|(acct.clone())).collect();
+        let sigin:Vec<&OTAccount> = ring.iter().map(|acct|acct).collect();
+        let sigout:Vec<&OTAccount> = outputs.iter().map(|acct|acct).collect();
+
+        let tagelem: Vec<Tag> = poss.iter().map(|pos| ring[*pos].clone()).map(|acct| acct.get_tag().unwrap().clone()).collect();
+        let tags: Vec<&Tag> = tagelem.iter().map(|t|t).collect();
+        
+        let mut tr = Transcript::new(b"seal tx{}");
+        tr.append_u64(b"nonce", nonce);
+        let seal = SealSig::sign(&mut tr, &sigin, &tags, &poss, &sigout).expect("Not able sign tx");
+        outputs.pop();
+
+        outputs.iter_mut().for_each(|x| {*x = x.publish_offer();});
+        Transaction{
+            inputs ,
+            outputs,
+            tags: tagelem,
+            seal,
+            fee: u64::from_le_bytes(fee_amount.as_bytes()[..8].try_into().unwrap()),
+        }
+    }
+
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let mut tr = Transcript::new(b"seal tx");
@@ -200,7 +239,6 @@ impl PolynomialTransaction {
     /// verifies that a non staker transaction is valid
     /// this does check that it is labeled as non staker
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let mut tr = Transcript::new(b"seal tx");
         let tags: Vec<&Tag> = self.tags.iter().map(|a| a).collect();
 
         if let Ok(i) = recieve_ring(&self.inputs) {
@@ -220,6 +258,7 @@ impl PolynomialTransaction {
                     outputs.push(fee_ota(&Scalar::from(self.fee)));
                     let outputs: Vec<&OTAccount> = outputs.iter().map(|a|a).collect();
                     
+                    let mut tr = Transcript::new(b"seal tx");
                     let b = self.seal.verify(&mut tr, &inputs.iter().collect::<Vec<_>>(), &tags, &outputs);
         
                     if b.is_ok() {
@@ -232,10 +271,10 @@ impl PolynomialTransaction {
 
     /// checks if a staker tx is valid given the history.
     /// WARNING: this does not check if it is labeled as a staker transaction
-    pub fn verifystk(&self,history:&Vec<(CompressedRistretto,u64)>) -> Result<(), TransactionError> {
+    pub fn verifystk(&self,history:&Vec<(CompressedRistretto,u64)>, nonce: u64) -> Result<(), TransactionError> {
         let mut i = self.inputs.clone();
         i.pop();
-        let mut tr = Transcript::new(b"seal tx");
+
         let tags: Vec<&Tag> = self.tags.iter().map(|a| a).collect();
         let places = i.chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap()) as usize).collect::<Vec<_>>();
         if !places[1..].iter().enumerate().all(|(i,&x)| x > places[i]) {
@@ -255,6 +294,8 @@ impl PolynomialTransaction {
         outputs.push(fee_ota(&Scalar::from(self.fee)));
         let outputs: Vec<&OTAccount> = outputs.iter().map(|a|a).collect();
         
+        let mut tr = Transcript::new(b"seal tx");
+        tr.append_u64(b"nonce", nonce);
         let b = self.seal.verify(&mut tr, &input.iter().collect::<Vec<_>>(), &tags, &outputs);
 
         match b {

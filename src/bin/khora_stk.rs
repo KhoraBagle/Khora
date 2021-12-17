@@ -39,7 +39,7 @@ use serde::{Serialize, Deserialize};
 use khora::validation::{
     NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0,
     STAKER_BLOOM_NAME, STAKER_BLOOM_SIZE, STAKER_BLOOM_HASHES,
-    READ_TIMEOUT, WRITE_TIMEOUT,
+    READ_TIMEOUT, WRITE_TIMEOUT, NONCEYNESS,
     reward, blocktime
 };
 
@@ -712,6 +712,7 @@ impl KhoraNode {
                 // if you save the history, the txses you know about matter; otherwise, they don't (becuase you're not involved in block creation)
                 let s = self.stkinfo.borrow();
                 let n = self.nonanony.borrow();
+                let b = self.bnum/NONCEYNESS;
                 let bloom = self.bloom.borrow();
                 println!("{}",format!("had {} tx",self.txses.len()).magenta());
                 println!("{}",format!("block had {} stkin, {} stkout, {} otain",lastlightning.info.stkin.len(),lastlightning.info.stkin.len(),lastlightning.info.txout.len()).magenta());
@@ -720,9 +721,9 @@ impl KhoraNode {
                     if t.inputs.last() == Some(&0u8) {
                         t.tags.par_iter().all(|y| !bloom.contains(y.as_bytes()))
                     } else if t.inputs.last() == Some(&1u8) {
-                        t.verifystk(s).is_ok()
+                        t.verifystk(s,b).is_ok()
                     } else if t.inputs.last() == Some(&2u8) {
-                        t.verifystk(n).is_ok()
+                        t.verifystk(n,b).is_ok()
                     } else {
                         false
                     }
@@ -831,14 +832,14 @@ impl KhoraNode {
                     // let amnt = Scalar::from(oldstk.2) - tot;
                     // outs.push((self.me,amnt));
                     outs.push((self.me,Scalar::from(oldstk.2)));
-                    let tx = Transaction::spend_ring(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect());
+                    let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect(),self.bnum/NONCEYNESS);
                     println!("about to verify!");
                     tx.verify().unwrap();
                     println!("finished to verify!");
                     let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
                     loc.push(1);
                     let tx = tx.polyform(&loc); // push 0
-                    if tx.verifystk(&self.stkinfo).is_ok() {
+                    if tx.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok() {
                         let mut txbin = bincode::serialize(&tx).unwrap();
                         self.txses.insert(tx);
                         txbin.push(0);
@@ -949,7 +950,9 @@ impl KhoraNode {
                                 x.retain(|t| 
                                     {
                                         if t.inputs.last() == Some(&1) {
-                                            t.verifystk(&self.stkinfo).is_ok()
+                                            t.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok()
+                                        } else if t.inputs.last() == Some(&2) {
+                                            t.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok()
                                         } else {
                                             let bloom = self.bloom.borrow();
                                             t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
@@ -1227,9 +1230,9 @@ impl Future for KhoraNode {
                                                     let bloom = self.bloom.borrow();
                                                     t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
                                                 } else if t.inputs.last() == Some(&1u8) {
-                                                    t.verifystk(&self.stkinfo).is_ok()
+                                                    t.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok()
                                                 } else if t.inputs.last() == Some(&2u8) {
-                                                    t.verifystk(&self.nonanony).is_ok()
+                                                    t.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok()
                                                 } else {
                                                     false
                                                 }
@@ -1350,9 +1353,9 @@ impl Future for KhoraNode {
                                             let bloom = self.bloom.borrow();
                                             t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
                                         } else if t.inputs.last() == Some(&1u8) {
-                                            t.verifystk(&self.stkinfo).is_ok()
+                                            t.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok()
                                         } else if t.inputs.last() == Some(&2u8) {
-                                            t.verifystk(&self.nonanony).is_ok()
+                                            t.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok()
                                         } else {
                                             false
                                         }
@@ -1541,12 +1544,12 @@ impl Future for KhoraNode {
                             
                             let (loc, amnt): (Vec<u64>,Vec<u64>) = self.smine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
                             let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
-                            let tx = Transaction::spend_ring(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                            // tx.verify().unwrap();
+                            let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
+                            tx.verify().unwrap();
                             let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
                             loc.push(1);
                             let tx = tx.polyform(&loc); // push 0
-                            if tx.verifystk(&self.stkinfo).is_ok() {
+                            if tx.verifystk(&self.stkinfo, self.bnum/NONCEYNESS).is_ok() {
                                 txbin = bincode::serialize(&tx).unwrap();
                                 self.txses.insert(tx);
                             } else {
@@ -1561,12 +1564,12 @@ impl Future for KhoraNode {
                             
                             let (loc, amnt): (Vec<u64>,Vec<u64>) = self.nmine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
                             let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
-                            let tx = Transaction::spend_ring(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                            // tx.verify().unwrap();
+                            let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
+                            tx.verify().unwrap();
                             let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
                             loc.push(2);
                             let tx = tx.polyform(&loc); // push 0
-                            if tx.verifystk(&self.nonanony).is_ok() {
+                            if tx.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok() {
                                 txbin = bincode::serialize(&tx).unwrap();
                                 self.txses.insert(tx);
                             } else {
@@ -1714,14 +1717,14 @@ impl Future for KhoraNode {
                             outs.push((&newacc,Scalar::from(stkamnt)));
 
                             
-                            let tx = Transaction::spend_ring(&vec![inps], &outs.iter().map(|x| (x.0,&x.1)).collect());
+                            let tx = Transaction::spend_ring_nonce(&vec![inps], &outs.iter().map(|x| (x.0,&x.1)).collect(),self.bnum/NONCEYNESS);
                             println!("about to verify!");
                             tx.verify().unwrap();
                             println!("finished to verify!");
                             let mut loc = loc.to_le_bytes().to_vec();
                             loc.push(1);
                             let tx = tx.polyform(&loc); // push 0
-                            if tx.verifystk(&self.stkinfo).is_ok() {
+                            if tx.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok() {
                                 let mut txbin = bincode::serialize(&tx).unwrap();
                                 self.txses.insert(tx);
                                 txbin.push(0);

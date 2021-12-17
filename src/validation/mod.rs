@@ -54,6 +54,8 @@ pub const ACCOUNT_COMBINE: usize = 10;
 pub const READ_TIMEOUT: Option<Duration> = Some(Duration::from_millis(500));
 /// write timeout for stream in millis
 pub const WRITE_TIMEOUT: Option<Duration> = Some(Duration::from_millis(500));
+/// how often the nonce is replaced for visible transactions
+pub const NONCEYNESS: u64 = 100;
 
 
 
@@ -380,7 +382,7 @@ impl NextBlock {
     pub fn valicreate(key: &Scalar, location: &u64, leader: &CompressedRistretto, mut txs: Vec<PolynomialTransaction>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, bloom: &BloomFile, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &Vec<(CompressedRistretto,u64)>) -> NextBlock {
         let mut stks = txs.par_iter().filter(|x| 
             if x.inputs.last() == Some(&1) {
-                x.verifystk(&stkstate).is_ok()
+                x.verifystk(&stkstate,bnum/NONCEYNESS).is_ok()
             } else {
                 false
             }
@@ -393,7 +395,7 @@ impl NextBlock {
         }).map(|x| x.1.to_owned()).collect::<Vec<_>>();
         let mut nonanons = txs.par_iter().filter(|x| 
             if x.inputs.last() == Some(&2) {
-                x.verifystk(&nonanony).is_ok()
+                x.verifystk(&nonanony,bnum/NONCEYNESS).is_ok()
             } else {
                 false
             }

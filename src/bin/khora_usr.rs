@@ -367,7 +367,8 @@ impl KhoraNode {
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
                     // let t = Instant::now();
-                    lastlightning.scanstk(&self.me, &mut None::<[u64; 2]>, false, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
+                    // lastlightning.scanstk(&self.me, &mut None::<[u64; 2]>, false, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
+                    self.sheight = self.stkinfo.len() as u64;
                     // println!("{}",format!("scan stake: {}",t.elapsed().as_millis()).yellow());
                     // let t = Instant::now();
                     let mut guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);
@@ -379,7 +380,7 @@ impl KhoraNode {
                     }
                     
                     // let t = Instant::now();
-                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
+                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut vec![], false, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
                     // println!("{}",format!("no one: {}",t.elapsed().as_millis()).yellow());
 
                     self.lastbnum = self.bnum;

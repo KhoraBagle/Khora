@@ -547,6 +547,7 @@ impl KhoraNode {
                 false
             };
             if v  {
+                println!("{}","=========================================================\ngot a block!".magenta());
                 if save {
                     // saves your current information BEFORE reading the new block. It's possible a leader is trying to cause a fork which can only be determined 1 block later based on what the comittee thinks is real
                     self.save();
@@ -580,7 +581,6 @@ impl KhoraNode {
                 }
                 self.headshard = lastlightning.shards[0] as usize;
 
-                println!("{}","=========================================================\ngot a block!".magenta());
 
                 self.overthrown.remove(&self.stkinfo[lastlightning.leader.pk as usize].0);
                 if self.stkinfo[lastlightning.leader.pk as usize].0 != self.leader {
@@ -645,7 +645,7 @@ impl KhoraNode {
                     if let Some(x) = &self.smine {
                         self.keylocation = Some(x[0])
                     }
-                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, true);
+                    lastlightning.scan_as_noone(&mut self.stkinfo,&mut self.nonanony,true, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, true);
 
                     self.lastbnum = self.bnum;
                     let mut hasher = Sha3_512::new();
@@ -772,6 +772,8 @@ impl KhoraNode {
 
 
 
+                println!("{:?}",self.nmine);
+                println!("{:?}",self.nonanony);
 
 
 
@@ -833,9 +835,9 @@ impl KhoraNode {
                     // outs.push((self.me,amnt));
                     outs.push((self.me,Scalar::from(oldstk.2)));
                     let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect(),self.bnum/NONCEYNESS);
-                    println!("about to verify!");
-                    tx.verify().unwrap();
-                    println!("finished to verify!");
+                    // println!("about to verify!");
+                    // tx.verify().unwrap();
+                    // println!("finished to verify!");
                     let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
                     loc.push(1);
                     let tx = tx.polyform(&loc); // push 0
@@ -1545,7 +1547,7 @@ impl Future for KhoraNode {
                             let (loc, amnt): (Vec<u64>,Vec<u64>) = self.smine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
                             let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
                             let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
-                            tx.verify().unwrap();
+                            // tx.verify().unwrap();
                             let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
                             loc.push(1);
                             let tx = tx.polyform(&loc); // push 0
@@ -1565,10 +1567,11 @@ impl Future for KhoraNode {
                             let (loc, amnt): (Vec<u64>,Vec<u64>) = self.nmine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
                             let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
                             let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
-                            tx.verify().unwrap();
+                            tx.verify_nonce(self.bnum/NONCEYNESS).unwrap();
                             let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
                             loc.push(2);
                             let tx = tx.polyform(&loc); // push 0
+                            println!("{:?}",self.nonanony);
                             if tx.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok() {
                                 txbin = bincode::serialize(&tx).unwrap();
                                 self.txses.insert(tx);
@@ -1722,9 +1725,9 @@ impl Future for KhoraNode {
 
                             
                             let tx = Transaction::spend_ring_nonce(&vec![inps], &outs.iter().map(|x| (x.0,&x.1)).collect(),self.bnum/NONCEYNESS);
-                            println!("about to verify!");
-                            tx.verify().unwrap();
-                            println!("finished to verify!");
+                            // println!("about to verify!");
+                            // tx.verify().unwrap();
+                            // println!("finished to verify!");
                             let mut loc = loc.to_le_bytes().to_vec();
                             loc.push(1);
                             let tx = tx.polyform(&loc); // push 0
@@ -1760,9 +1763,9 @@ impl Future for KhoraNode {
 
                             
                             let tx = Transaction::spend_ring_nonce(&vec![inps], &outs.iter().map(|x| (x.0,&x.1)).collect(),self.bnum/NONCEYNESS);
-                            println!("about to verify!");
-                            tx.verify().unwrap();
-                            println!("finished to verify!");
+                            // println!("about to verify!");
+                            // tx.verify().unwrap();
+                            // println!("finished to verify!");
                             let mut loc = loc.to_le_bytes().to_vec();
                             loc.push(2);
                             let tx = tx.polyform(&loc); // push 0

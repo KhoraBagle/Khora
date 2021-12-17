@@ -141,7 +141,7 @@ impl Transaction {
         let tagelem: Vec<Tag> = poss.iter().map(|pos| ring[*pos].clone()).map(|acct| acct.get_tag().unwrap().clone()).collect();
         let tags: Vec<&Tag> = tagelem.iter().map(|t|t).collect();
         
-        let mut tr = Transcript::new(b"seal tx{}");
+        let mut tr = Transcript::new(b"seal tx");
         tr.append_u64(b"nonce", nonce);
         let seal = SealSig::sign(&mut tr, &sigin, &tags, &poss, &sigout).expect("Not able sign tx");
         outputs.pop();
@@ -166,6 +166,25 @@ impl Transaction {
         outputs.push(fee_ota(&Scalar::from(self.fee)));
         let outputs: Vec<&OTAccount> = outputs.iter().map(|a|a).collect();
         
+        let b = self.seal.verify(&mut tr, &inputs, &tags, &outputs);
+
+        match b {
+            Ok(()) => Ok(()),
+            Err(_) => Err(TransactionError::InvalidTransaction)
+        }
+    }
+
+
+    pub fn verify_nonce(&self, nonce: u64) -> Result<(), TransactionError> {
+        let inputs: Vec<&OTAccount> = self.inputs.iter().map(|a| a).collect();
+        let tags: Vec<&Tag> = self.tags.iter().map(|a| a).collect();
+        
+        let mut outputs = self.outputs.clone();
+        outputs.push(fee_ota(&Scalar::from(self.fee)));
+        let outputs: Vec<&OTAccount> = outputs.iter().map(|a|a).collect();
+        
+        let mut tr = Transcript::new(b"seal tx");
+        tr.append_u64(b"nonce",nonce);
         let b = self.seal.verify(&mut tr, &inputs, &tags, &outputs);
 
         match b {

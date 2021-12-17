@@ -66,8 +66,8 @@ pub fn reward(cumtime: f64, blocktime: f64) -> f64 {
 /// calculates the amount of time the current block takes to be created
 pub fn blocktime(cumtime: f64) -> f64 {
     // 60f64/(6.337618E-8f64*cumtime+2f64).ln()
-    // 10.0
-    30.0
+    10.0
+    // 30.0
 }
 
 #[derive(Default, Clone, Serialize, Deserialize, Eq, Hash, Debug)]
@@ -531,7 +531,7 @@ impl NextBlock {
             let x = b.txs.len();
             tags = tags.union(&b.txs.into_par_iter().map(|x| x.tags).flatten().collect::<HashSet<Tag>>()).map(|&x| x).collect::<HashSet<CompressedRistretto>>();
             // println!("tx: {}",x);
-            if x > 63 {
+            if x > 64 {
                 blk.shards.par_extend(b.shards);
             }
         }
@@ -750,7 +750,7 @@ impl LightningSyncBlock {
     }
 
     /// updates the staker state by dulling out punishments and gifting rewards. also updates the queue, exitqueue, and comittee if stakers left
-    pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, netinfo: &mut HashMap<CompressedRistretto, (u64, Option<SocketAddr>)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
+    pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, nonanony: &mut Vec<(CompressedRistretto,u64)>, dononanony: bool, netinfo: &mut HashMap<CompressedRistretto, (u64, Option<SocketAddr>)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
         if save_history {History::append(&self.info.txout)};
 
 
@@ -802,7 +802,7 @@ impl LightningSyncBlock {
                 netinfo.get_mut(x).unwrap().0 -= 1;
             });
             valinfo.remove(*x as usize);
-
+            
             
             *queue = queue.into_par_iter().map(|y| {
                 let z = y.into_par_iter().filter_map(|z|
@@ -865,6 +865,23 @@ impl LightningSyncBlock {
                 *val = v;
             }
         }
+
+
+        if dononanony {
+
+            for x in self.info.nonanonyout.iter().rev() {
+                nonanony.remove(*x as usize);
+            }
+            self.info.nonanonyin.iter().for_each(|x| {
+                if let Some(z) = nonanony.par_iter_mut().find_first(|y| x.0 == y.0) {
+                    z.1 += x.1;
+                } else {
+                    nonanony.push(*x);
+                }
+            });
+    
+        }
+
 
         // println!("valinfo {:?}",valinfo);
         // println!("valinfo {:?}",self.info.stkin);
@@ -1021,7 +1038,7 @@ impl LightningSyncBlock {
             }
             *height -= self.info.nonanonyout.len() as u64;
             
-            let nonanonycr = me.pk.compress();
+            let nonanonycr = me.nonanony_acc().derive_stk_ot(&Scalar::one()).pk.compress();
             if benone {
                 for (i,x) in self.info.nonanonyin.iter().enumerate() {
                     if nonanonycr == x.0 {
@@ -1060,6 +1077,9 @@ impl LightningSyncBlock {
             }
         }
 
+        println!("height {}",height);
+        println!("out {}",self.info.nonanonyout.len());
+        println!("in {}",self.info.nonanonyin.len());
         if benone {
             *mine = None;
         }

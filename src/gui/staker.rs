@@ -293,7 +293,9 @@ impl epi::App for KhoraStakerGUI {
                 let mut m = vec![];
                 m.extend(self.addr.as_bytes().to_vec());
                 m.extend(unstake.to_le_bytes());
-                let x = self.staked as i128 - unstake as i128 ;
+                m.extend(self.nonanonyaddr.as_bytes().to_vec());
+                m.extend(unstake.to_le_bytes());
+                let x = self.staked as i128 - 2*unstake as i128 ;
                 if x >= 0 {
                     m.extend(self.stkaddr.as_bytes());
                     m.extend(0u64.to_le_bytes());
@@ -766,7 +768,7 @@ impl epi::App for KhoraStakerGUI {
 
                                         m.extend(str::to_ascii_lowercase(&nonanonyaddr).as_bytes());
                                         m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
-                                        m.push(63); // 63?
+                                        m.push(64); // 63?
                                     }
                                 }
 ;                               if !*you_cant_do_that {

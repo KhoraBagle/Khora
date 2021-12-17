@@ -6,6 +6,7 @@ use crossbeam::channel;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
+use serde::{Serialize, Deserialize};
 use crate::validation::{VERSION, ACCOUNT_COMBINE};
 
 /*
@@ -14,6 +15,9 @@ cargo run --bin full_staker --release 9877 dog 0 9876
 cargo run --bin full_staker --release 9878 cow 0 9876
 cargo run --bin full_staker --release 9879 ant 0 9876
 */
+
+#[derive(PartialEq, Serialize, Deserialize)]
+pub enum TxInput { Invisable, Visible }
 
 
 fn random_pswrd() -> String {
@@ -91,6 +95,7 @@ pub struct KhoraUserGUI {
     transaction_processed: bool,
     nonanony: u64,
     nonanonyaddr: String,
+    txtype: TxInput,
 
     #[cfg_attr(feature = "persistence", serde(skip))]
     options_menu: bool,
@@ -173,6 +178,7 @@ impl Default for KhoraUserGUI {
             nextblock: 0,
             nonanony: 0,
             nonanonyaddr: "".to_string(),
+            txtype: TxInput::Invisable,
         }
     }
 }
@@ -331,6 +337,7 @@ impl epi::App for KhoraUserGUI {
             nextblock,
             nonanony,
             nonanonyaddr,
+            txtype,
         } = self;
 
  
@@ -551,6 +558,10 @@ impl epi::App for KhoraUserGUI {
                 ui.add(Label::new("Money owned is not yet verified").text_color(egui::Color32::RED));
             }
             if !*setup {
+                ui.horizontal(|ui| {
+                    ui.radio_value(txtype, TxInput::Invisable, "Spend with invisible unstaked money");
+                    ui.radio_value(txtype, TxInput::Visible, "Spend with visible unstaked money");
+                });
                 let mut delete_row_x = usize::MAX;
                 egui::ScrollArea::vertical().show(ui,|ui| {
                     egui::Grid::new("spending_grid").min_col_width(90.0).max_col_width(500.0).show(ui, |ui| {
@@ -598,22 +609,35 @@ impl epi::App for KhoraUserGUI {
                             ui.label("");
                             if ui.button("Send Transaction").clicked() && !*setup {
                                 let mut m = vec![];
-                                let mut tot = 0u64;
+                                let mut tot = 0i128;
                                 for (who,amnt) in send_addr.iter_mut().zip(send_amnt.iter_mut()) {
                                     if let Ok(x) = retain_numeric(amnt.to_string()).parse::<u64>() {
                                         if x > 0 {
                                             m.extend(str::to_ascii_lowercase(&who).as_bytes().to_vec());
                                             m.extend(x.to_le_bytes().to_vec());
-                                            tot += x;
+                                            tot += x as i128;
                                         }
                                     }
                                 }
-                                *you_cant_do_that = *unstaked < tot + retain_numeric(fee.to_string()).parse::<u64>().unwrap();
                                 
+                                match txtype {
+                                    TxInput::Invisable => {
+                                        *you_cant_do_that = (*unstaked as i128) < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
+
+                                        m.extend(str::to_ascii_lowercase(&addr).as_bytes());
+                                        m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
+                                        m.push(*ringsize);
+                                        m.push(33);
+                                    }
+                                    TxInput::Visible => {
+                                        *you_cant_do_that = (*nonanony as i128) < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
+
+                                        m.extend(str::to_ascii_lowercase(&nonanonyaddr).as_bytes());
+                                        m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
+                                        m.push(63); // 63?
+                                    }
+                                }
 ;                                if !*you_cant_do_that {
-                                    m.extend(str::to_ascii_lowercase(&addr).as_bytes());
-                                    m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
-                                    m.push(*ringsize);
                                     m.push(33);
                                     sender.send(m).expect("something's wrong with communication from the gui");
                                     *send_name = vec!["".to_string()];

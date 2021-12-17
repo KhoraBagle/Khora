@@ -651,7 +651,12 @@ impl Future for KhoraNode {
                         mymoney.push(0);
                         self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
 
-                        self.ringsize = m.pop().unwrap();
+                        let txtype = m.pop().unwrap();
+
+                        if txtype == 33 /* ! */ {
+                            self.ringsize = m.pop().unwrap();
+                        }
+
                         let mut outs = vec![];
                         let mut validtx = true;
                         while m.len() > 0 {
@@ -702,38 +707,67 @@ impl Future for KhoraNode {
                                 validtx = false;
                             }
                         }
+                        if txtype == 33 /* ! */ {
+                            self.ringsize = m.pop().unwrap();
 
-                        // if you need help with ring generation
-                        if self.mine.len() > 0 && validtx && outs.len() > 1 {
-                            let (loc, acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(*x.0,x.1.clone())).unzip();
-        
+                            // if you need help with ring generation
+                            if self.mine.len() > 0 && validtx && outs.len() > 1 {
+                                let (loc, acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(*x.0,x.1.clone())).unzip();
+            
 
-                            let m = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>() - outs.iter().map(|x| x.1).sum::<Scalar>();
+                                let m = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>() - outs.iter().map(|x| x.1).sum::<Scalar>();
+                                let x = outs.len() - 1;
+                                outs[x].1 = m;
+
+
+                                println!("loc: {:?}",loc);
+                                println!("height: {}",self.height);
+                                self.rmems = HashMap::new();
+                                for (i,j) in loc.iter().zip(acc) {
+                                    println!("i: {}, j.pk: {:?}",i,j.pk.compress());
+                                    self.rmems.insert(*i,j);
+                                }
+                                
+                                self.rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
+                                let ring = recieve_ring(&self.rname).expect("shouldn't fail");
+
+
+                                self.fill_ring();
+                                println!("ring:----------------------------------\n{:?}",ring);
+                                let mut rnamesend = self.rname.clone();
+                                rnamesend.push(114);
+                                let mut got_the_ring = true;
+                                let rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
+                                let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                                if got_the_ring && tx.verify().is_ok() {
+                                    let tx = tx.polyform(&self.rname);
+                                    let mut txbin = bincode::serialize(&tx).unwrap();
+                                    txbin.push(0);
+                                    self.lasttags.push(tx);
+                                    self.send_message(txbin,TRANSACTION_SEND_TO);
+                                    println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
+                                } else {
+                                    println!("{}","YOU DIDNT GET THE RING".red().bold());
+                                }
+
+
+                            } else {
+                                println!("{}","TRANSACTION INVALID".red().bold());
+                            }
+                        } else if txtype ==  64 /* ?+1 */ {
+                            let m = Scalar::from(self.nmine.unwrap()[1]) - outs.iter().map(|x| x.1).sum::<Scalar>();
                             let x = outs.len() - 1;
                             outs[x].1 = m;
 
-
-                            println!("loc: {:?}",loc);
-                            println!("height: {}",self.height);
-                            self.rmems = HashMap::new();
-                            for (i,j) in loc.iter().zip(acc) {
-                                println!("i: {}, j.pk: {:?}",i,j.pk.compress());
-                                self.rmems.insert(*i,j);
-                            }
                             
-                            self.rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
-                            let ring = recieve_ring(&self.rname).expect("shouldn't fail");
+                            let (loc, amnt): (Vec<u64>,Vec<u64>) = self.nmine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
+                            let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
+                            let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
+                            if tx.verify().is_ok() {
+                                let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
+                                loc.push(2);
+                                let tx = tx.polyform(&loc);
 
-
-                            self.fill_ring();
-                            println!("ring:----------------------------------\n{:?}",ring);
-                            let mut rnamesend = self.rname.clone();
-                            rnamesend.push(114);
-                            let mut got_the_ring = true;
-                            let rlring = ring.iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
-                            let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                            if got_the_ring && tx.verify().is_ok() {
-                                let tx = tx.polyform(&self.rname);
                                 let mut txbin = bincode::serialize(&tx).unwrap();
                                 txbin.push(0);
                                 self.lasttags.push(tx);
@@ -742,10 +776,6 @@ impl Future for KhoraNode {
                             } else {
                                 println!("{}","YOU DIDNT GET THE RING".red().bold());
                             }
-
-
-                        } else {
-                            println!("{}","TRANSACTION INVALID".red().bold());
                         }
                     } else if istx == 2 /* divide accounts so you can make faster tx */ {
 

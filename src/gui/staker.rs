@@ -680,6 +680,11 @@ impl epi::App for KhoraStakerGUI {
                 ui.add(Label::new("Money owned is not yet verified").text_color(egui::Color32::RED));
             }
             if !*setup {
+                ui.horizontal(|ui| {
+                    ui.radio_value(txtype, TxInput::Stake, "Spend with staked money");
+                    ui.radio_value(txtype, TxInput::Invisable, "Spend with invisible unstaked money");
+                    ui.radio_value(txtype, TxInput::Visible, "Spend with visible unstaked money");
+                });
                 let mut delete_row_x = usize::MAX;
                 egui::ScrollArea::vertical().show(ui,|ui| {
                     egui::Grid::new("spending_grid").min_col_width(90.0).max_col_width(500.0).show(ui, |ui| {
@@ -688,9 +693,6 @@ impl epi::App for KhoraStakerGUI {
                             send_addr.push("".to_string());
                             send_amnt.push("".to_string());
                         }
-                        ui.radio_value(txtype, TxInput::Stake, "Spend with staked money");
-                        ui.radio_value(txtype, TxInput::Invisable, "Spend with invisible unstaked money");
-                        ui.radio_value(txtype, TxInput::Visible, "Spend with visible unstaked money");
                         ui.end_row();
                         ui.add(Label::new("Name").heading());
                         ui.add(Label::new("Wallet Address").heading());

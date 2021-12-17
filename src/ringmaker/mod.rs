@@ -144,45 +144,50 @@ pub fn recieve_ring(recieved: &Vec<u8>) -> Result<Vec<u64>,&'static str> {
         let now_bytes: Vec<u8> = recieved.drain(..8).collect(); //u32
         let now_bytes: Result<[u8;8],_> = now_bytes.try_into();
         let now = u64::from_le_bytes(now_bytes.unwrap()) as i128;
+    
+    
+    
+        if recieved.len() < 64*8 {
+            let mut coefficients = Vec::<u64>::new();
+            while recieved.len() > 0 {
+                let ci: Vec<u8> = recieved.drain(..8).collect();
+                let ci: [u8;8] = ci.try_into().unwrap();
+                coefficients.push(u64::from_le_bytes(ci));
+            }
+    
+    
+            let coefficients = coefficients.iter().map(|x| *x as i128).collect();
+            let poly = PolynomialOverP::<i128>::new(coefficients, P);
+            /* these next 2 paragraphs of comments are good */
+            let throwaway: Vec<_> = (0..r).collect();
+            let h: Vec<_> = throwaway.iter().map(|x| {hash(&(*x as u32)) as u64 % P as u64} ).collect();
+            let mut places = Vec::<i128>::new();
+            for x in 0..r {
+                let mut throwaway = poly.eval(&(x as i128));
+                if throwaway < 0 {
+                    throwaway = throwaway + P;
+                }
+                let y = PolynomialOverP::<i128>::new(vec![throwaway], P);
+                let lpos = PolynomialOverP::<i128>::new(vec![h[x as usize] as i128], P) - y;
+                
+                if  lpos.clone().coefs().len() > 0 {
+                    let mut lpos = lpos.coefs()[0];
+                    if lpos < 0 {lpos = lpos + P;}
+                    places.push(lpos%now as i128);
+                }
+                else {
+                    places.push(0);
+                }
+    
+            }
+    
+            places.sort();
+            places.dedup();
+            Ok(places.into_iter().map(|x| x as u64).collect())
 
-
-
-        let mut coefficients = Vec::<u64>::new();
-        while recieved.len() > 0 {
-            let ci: Vec<u8> = recieved.drain(..8).collect();
-            let ci: [u8;8] = ci.try_into().unwrap();
-            coefficients.push(u64::from_le_bytes(ci));
+        } else {
+            Err("someone is spamming you with inputs, there's over 64")
         }
-
-
-        let coefficients = coefficients.iter().map(|x| *x as i128).collect();
-        let poly = PolynomialOverP::<i128>::new(coefficients, P);
-        /* these next 2 paragraphs of comments are good */
-        let throwaway: Vec<_> = (0..r).collect();
-        let h: Vec<_> = throwaway.iter().map(|x| {hash(&(*x as u32)) as u64 % P as u64} ).collect();
-        let mut places = Vec::<i128>::new();
-        for x in 0..r {
-            let mut throwaway = poly.eval(&(x as i128));
-            if throwaway < 0 {
-                throwaway = throwaway + P;
-            }
-            let y = PolynomialOverP::<i128>::new(vec![throwaway], P);
-            let lpos = PolynomialOverP::<i128>::new(vec![h[x as usize] as i128], P) - y;
-            
-            if  lpos.clone().coefs().len() > 0 {
-                let mut lpos = lpos.coefs()[0];
-                if lpos < 0 {lpos = lpos + P;}
-                places.push(lpos%now as i128);
-            }
-            else {
-                places.push(0);
-            }
-
-        }
-
-        places.sort();
-        places.dedup();
-        Ok(places.into_iter().map(|x| x as u64).collect())
     } else {
         Err("this is not a regular transaction")
     }

@@ -20,6 +20,7 @@ use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use crate::constants::PEDERSEN_H;
 use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
+use std::time::Duration;
 
 
 pub static VERSION: &str = "v0.94";
@@ -49,6 +50,10 @@ pub const STAKER_BLOOM_SIZE: usize =  1_000_000_000*4;
 pub const STAKER_BLOOM_HASHES: u8 = 13;
 /// if you have to many tx, you should combine them
 pub const ACCOUNT_COMBINE: usize = 10;
+/// read timeout for stream in millis
+pub const READ_TIMEOUT: Option<Duration> = Some(Duration::from_millis(500));
+/// write timeout for stream in millis
+pub const WRITE_TIMEOUT: Option<Duration> = Some(Duration::from_millis(500));
 
 
 
@@ -59,7 +64,8 @@ pub fn reward(cumtime: f64, blocktime: f64) -> f64 {
 /// calculates the amount of time the current block takes to be created
 pub fn blocktime(cumtime: f64) -> f64 {
     // 60f64/(6.337618E-8f64*cumtime+2f64).ln()
-    10.0
+    // 10.0
+    30.0
 }
 
 #[derive(Default, Clone, Serialize, Deserialize, Eq, Hash, Debug)]
@@ -68,6 +74,8 @@ pub fn blocktime(cumtime: f64) -> f64 {
 pub struct Syncedtx{
     pub stkout: Vec<u64>,
     pub stkin: Vec<(CompressedRistretto,u64)>,
+    pub nonanonyout: Vec<u64>,
+    pub nonanonyin: Vec<(CompressedRistretto,u64)>,
     pub txout: Vec<OTAccount>,
     pub tags: Vec<CompressedRistretto>,
     pub fees: u64,
@@ -82,27 +90,79 @@ impl PartialEq for Syncedtx {
 impl Syncedtx {
     /// distills the important information from a group of transactions
     pub fn from(txs: &Vec<PolynomialTransaction>)->Syncedtx {
-        let stkout = txs.iter().filter_map(|x|
+        let stkout = txs.par_iter().filter_map(|x|
             if x.inputs.last() == Some(&1) {Some(x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>())} else {None}
         ).flatten().collect::<Vec<u64>>();
-        let stkin = txs.iter().map(|x|
+        let mut stkin = txs.par_iter().map(|x|
             x.outputs.iter().filter_map(|y| 
                 if let Ok(z) = stakereader_acc().read_ot(y) {Some((z.pk.compress(),u64::from_le_bytes(z.com.amount.unwrap().as_bytes()[..8].try_into().unwrap())))} else {None}
             ).collect::<Vec<_>>()
         ).flatten().collect::<Vec<(CompressedRistretto,u64)>>();
-        let txout = txs.into_iter().map(|x|
+        
+        stkin = stkin.par_iter().enumerate().map(|(i,x)| {
+            (x.0,stkin.par_iter().take(i+1).filter_map(|y| {
+                if y.0 == x.0 {
+                    Some(y.1)
+                } else {
+                    None
+                }
+            }).sum::<u64>())
+        }).collect();
+        stkin = stkin.par_iter().rev().enumerate().filter_map(|(i,&x)| {
+            if stkin.par_iter().take(i).all(|y| y.0 != x.0) {
+                Some(x)
+            } else {
+                None
+            }
+        }).collect();
+
+        // println!("stkin{:?}",stkin);
+
+        let nonanonyout = txs.par_iter().filter_map(|x|
+            if x.inputs.last() == Some(&2) {Some(x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>())} else {None}
+        ).flatten().collect::<Vec<u64>>();
+        let mut nonanonyin = txs.par_iter().map(|x|
+            x.outputs.iter().filter_map(|y| 
+                if let Ok(z) = nonanonyreader_acc().read_ot(y) {Some((z.pk.compress(),u64::from_le_bytes(z.com.amount.unwrap().as_bytes()[..8].try_into().unwrap())))} else {None}
+            ).collect::<Vec<_>>()
+        ).flatten().collect::<Vec<(CompressedRistretto,u64)>>();
+
+        nonanonyin = nonanonyin.par_iter().enumerate().map(|(i,x)| {
+            (x.0,nonanonyin.par_iter().take(i+1).filter_map(|y| {
+                if y.0 == x.0 {
+                    Some(y.1)
+                } else {
+                    None
+                }
+            }).sum::<u64>())
+        }).collect();
+        nonanonyin = nonanonyin.par_iter().rev().enumerate().filter_map(|(i,&x)| {
+            if nonanonyin.par_iter().take(i).all(|y| y.0 != x.0) {
+                Some(x)
+            } else {
+                None
+            }
+        }).collect();
+
+
+        let txout = txs.into_par_iter().map(|x|
             x.outputs.to_owned().into_iter().filter(|x| stakereader_acc().read_ot(x).is_err()).collect::<Vec<_>>()
         ).flatten().collect::<Vec<OTAccount>>();
-        let tags = txs.iter().filter_map(|x|
+        let tags = txs.par_iter().filter_map(|x|
             if x.inputs.last() != Some(&1) {Some(x.tags.clone())} else {None}
         ).flatten().collect::<Vec<CompressedRistretto>>();
-        let fees = txs.iter().map(|x|x.fee).sum::<u64>();
-        Syncedtx{stkout,stkin,txout,tags,fees}
+        let fees = txs.par_iter().map(|x|x.fee).sum::<u64>();
+        Syncedtx{stkout,stkin,nonanonyout,nonanonyin,txout,tags,fees}
     }
 
     /// the message block creaters sign so even lightning blocks can be verified
     pub fn to_sign(txs: &Vec<PolynomialTransaction>)->Vec<u8> {
         bincode::serialize(&Syncedtx::from(txs)).unwrap()
+    }
+
+    /// checks the info is empty
+    pub fn is_empty(&self)->bool {
+        self.txout.is_empty() && self.stkout.is_empty() && self.stkin.is_empty() && self.nonanonyout.is_empty() && self.nonanonyin.is_empty() && self.tags.is_empty()
     }
 }
 
@@ -238,7 +298,7 @@ impl Signature {
 
     /// recieves a signed message and returns the key that signed it (for if it's not signed with a location)
     pub fn recieve_signed_message2(signed_message: &mut Vec<u8>) -> Option<CompressedRistretto> {
-        if signed_message.len() < 96 {
+        if signed_message.len() >= 96 {
             let sig = signed_message.par_drain(..96).collect::<Vec<_>>();
             let c = Scalar::from_bits(sig[..32].try_into().unwrap());
             let r = Scalar::from_bits(sig[32..64].try_into().unwrap());
@@ -317,13 +377,30 @@ impl PartialEq for NextBlock {
 }
 impl NextBlock {
     /// selects the transactions that are valid (as a member of the comittee in block generation)
-    pub fn valicreate(key: &Scalar, location: &u64, leader: &CompressedRistretto, mut txs: Vec<PolynomialTransaction>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, bloom: &BloomFile,/* _history: &Vec<OTAccount>,*/ stkstate: &Vec<(CompressedRistretto,u64)>) -> NextBlock {
-        let stks = txs.par_iter().filter_map(|x| 
-            if x.inputs.last() == Some(&1) {if x.verifystk(&stkstate).is_ok() {Some(x.to_owned())} else {None}} else {None}
-        ).collect::<Vec<PolynomialTransaction>>(); /* i would use drain_filter but its unstable */
-        let mut stks = stks.par_iter().enumerate().filter(|(i,x)| {
+    pub fn valicreate(key: &Scalar, location: &u64, leader: &CompressedRistretto, mut txs: Vec<PolynomialTransaction>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, bloom: &BloomFile, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &Vec<(CompressedRistretto,u64)>) -> NextBlock {
+        let mut stks = txs.par_iter().filter(|x| 
+            if x.inputs.last() == Some(&1) {
+                x.verifystk(&stkstate).is_ok()
+            } else {
+                false
+            }
+        ).cloned().collect::<Vec<PolynomialTransaction>>(); /* i would use drain_filter but its unstable */
+        stks = stks.par_iter().enumerate().filter(|(i,x)| {
             x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>().par_iter().all(|&x|
                 !stks[..*i].par_iter().flat_map(|x| x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>()).collect::<Vec<u64>>()
+                .contains(&x)
+            )
+        }).map(|x| x.1.to_owned()).collect::<Vec<_>>();
+        let mut nonanons = txs.par_iter().filter(|x| 
+            if x.inputs.last() == Some(&2) {
+                x.verifystk(&nonanony).is_ok()
+            } else {
+                false
+            }
+        ).cloned().collect::<Vec<PolynomialTransaction>>(); /* i would use drain_filter but its unstable */
+        nonanons = nonanons.par_iter().enumerate().filter(|(i,x)| {
+            x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>().par_iter().all(|&x|
+                !nonanons[..*i].par_iter().flat_map(|x| x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>()).collect::<Vec<u64>>()
                 .contains(&x)
             )
         }).map(|x| x.1.to_owned()).collect::<Vec<_>>();
@@ -331,10 +408,10 @@ impl NextBlock {
         
         
         
-        let mut txs =
+        txs =
             txs.par_iter().enumerate().filter_map(|(i,x)| {
                 if 
-                x.tags.par_iter().all(|&x| !txs[..i].iter().flat_map(|x| x.tags.clone()).collect::<HashSet<CompressedRistretto>>().contains(&x))
+                x.tags.par_iter().all(|&x| !txs.iter().take(i).flat_map(|x| x.tags.clone()).collect::<HashSet<CompressedRistretto>>().contains(&x))
                 &&
                 x.tags.iter().all(|y| {!bloom.contains(&y.to_bytes())})
                 &&
@@ -347,6 +424,7 @@ impl NextBlock {
                 else {None}
         }).collect::<Vec<PolynomialTransaction>>();
         txs.append(&mut stks);
+        txs.append(&mut nonanons);
 
 
         let m = vec![leader.to_bytes().to_vec(),bincode::serialize(&vec![pool]).unwrap(),Syncedtx::to_sign(&txs),bnum.to_le_bytes().to_vec(), last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
@@ -673,6 +751,11 @@ impl LightningSyncBlock {
     pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, netinfo: &mut HashMap<CompressedRistretto, (u64, Option<SocketAddr>)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
         if save_history {History::append(&self.info.txout)};
 
+
+        // println!("valinfo {:?}",valinfo);
+
+
+
         let winners: Vec<usize>;
         let masochists: Vec<usize>;
         let lucky: Vec<usize>;
@@ -717,6 +800,8 @@ impl LightningSyncBlock {
                 netinfo.get_mut(x).unwrap().0 -= 1;
             });
             valinfo.remove(*x as usize);
+
+            
             *queue = queue.into_par_iter().map(|y| {
                 let z = y.into_par_iter().filter_map(|z|
                     if *z > *x as usize {Some(*z - 1)}
@@ -755,45 +840,7 @@ impl LightningSyncBlock {
             }).collect::<Vec<_>>();
         }
 
-        queue.par_iter_mut().for_each(|x| {
-            let mut s = Sha3_512::new();
-            s.update(&bincode::serialize(&x).unwrap());
-            let mut v = Scalar::from_hash(s.clone()).as_bytes().to_vec();
-            s.update(&bincode::serialize(&x).unwrap());
-            v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-            s.update(&bincode::serialize(&x).unwrap());
-            v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-            s.update(&bincode::serialize(&x).unwrap());
-            v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-            let mut y = (0..QUEUE_LENGTH-x.len()).map(|i| x[v[i] as usize%x.len()]).collect::<VecDeque<usize>>();
-            x.append(&mut y);
-        });
-        exitqueue.par_iter_mut().for_each(|x| {
-            let mut s = Sha3_512::new();
-            s.update(&bincode::serialize(&x).unwrap());
-            let mut v = Scalar::from_hash(s.clone()).as_bytes().to_vec();
-            s.update(&bincode::serialize(&x).unwrap());
-            v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-            s.update(&bincode::serialize(&x).unwrap());
-            v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-            s.update(&bincode::serialize(&x).unwrap());
-            v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-            let mut y = (0..QUEUE_LENGTH-x.len()).map(|i| x[v[i] as usize%x.len()]).collect::<VecDeque<usize>>();
-            x.append(&mut y);
-        });
-        comittee.par_iter_mut().for_each(|x| {
-            let mut s = Sha3_512::new();
-            s.update(&bincode::serialize(&x).unwrap());
-            let mut v = Scalar::from_hash(s.clone()).as_bytes().to_vec();
-            s.update(&bincode::serialize(&x).unwrap());
-            v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-            s.update(&bincode::serialize(&x).unwrap());
-            v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-            s.update(&bincode::serialize(&x).unwrap());
-            v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-            let mut y = (0..NUMBER_OF_VALIDATORS-x.len()).map(|i| x[v[i] as usize%x.len()]).collect::<Vec<usize>>();
-            x.append(&mut y);
-        });
+        refill(queue, exitqueue, comittee);
 
 
         let realstkin = self.info.stkin.iter().filter(|x| {
@@ -816,6 +863,9 @@ impl LightningSyncBlock {
                 *val = v;
             }
         }
+
+        // println!("valinfo {:?}",valinfo);
+        // println!("valinfo {:?}",self.info.stkin);
 
     }
 
@@ -850,11 +900,11 @@ impl LightningSyncBlock {
     }
 
     /// scans the block for any transactions sent to you or any rewards and punishments you recieved. it additionally updates the height of stakers. returns if your money changed then if your index changed
-    pub fn scanstk(&self, me: &Account, mine: &mut Option<[u64;2]>, height: &mut u64, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &Vec<(CompressedRistretto,u64)>) -> (bool,bool) {
+    pub fn scanstk(&self, me: &Account, mine: &mut Option<[u64;2]>, maybesome: bool, height: &mut u64, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &Vec<(CompressedRistretto,u64)>) -> (bool,bool) {
 
         // let t = std::time::Instant::now();
 
-
+        // println!("mine:---------------------------------\n{:?}",mine);
         let mut benone = false;
         let changed = mine.clone();
         let nonetosome = mine.is_none();
@@ -901,12 +951,7 @@ impl LightningSyncBlock {
                     mine[1] += punishments;
                 }
             }
-    
-    
-        
-    
-    
-    
+
             if self.info.stkout.contains(&mine[0]) {
                 benone = true;
             }
@@ -932,9 +977,79 @@ impl LightningSyncBlock {
             
             *height += self.info.stkin.len() as u64;
 
+        } else if maybesome {
+            *height -= self.info.stkout.len() as u64;
+            let stkcr = me.pk.compress();
+            for (i,x) in self.info.stkin.iter().enumerate() {
+                if stkcr == x.0 {
+                    *mine = Some([i as u64+*height,x.1]);
+                    benone = false;
+                    break
+                }
+            }
+            *height += self.info.stkin.len() as u64;
         } else {
             *height -= self.info.stkout.len() as u64;
             *height += self.info.stkin.len() as u64;
+        }
+
+        // println!("mine:---------------------------------\n{:?}",mine);
+        if benone {
+            *mine = None;
+        }
+        // println!("{}",t.elapsed().as_millis());
+
+        // println!("mine:---------------------------------\n{:?}",mine);
+        (changed != *mine, nonetosome && mine.is_some())
+
+
+    }
+
+    /// scans the block for any transactions sent to you or any rewards and punishments you recieved. it additionally updates the height of stakers. returns if your money changed then if your index changed
+    pub fn scannonanony(&self, me: &Account, mine: &mut Option<[u64;2]>, height: &mut u64) -> bool {
+
+        // let t = std::time::Instant::now();
+
+        let mut benone = false;
+        let changed = mine.clone();
+        if let Some(mine) = mine {
+
+            if self.info.nonanonyout.contains(&mine[0]) {
+                benone = true;
+            }
+            *height -= self.info.nonanonyout.len() as u64;
+            
+            let nonanonycr = me.pk.compress();
+            if benone {
+                for (i,x) in self.info.nonanonyin.iter().enumerate() {
+                    if nonanonycr == x.0 {
+                        *mine = [i as u64+*height,x.1];
+                        benone = false;
+                        break
+                    }
+                }
+            } else {
+                for x in self.info.nonanonyin.iter() {
+                    if nonanonycr == x.0 {
+                        mine[1] += x.1;
+                        break
+                    }
+                }
+            }
+            
+            *height += self.info.nonanonyin.len() as u64;
+
+        } else {
+            *height -= self.info.nonanonyout.len() as u64;
+            let nonanonycr = me.stake_acc().derive_stk_ot(&Scalar::from(2u8)).pk.compress();
+            for (i,x) in self.info.nonanonyin.iter().enumerate() {
+                if nonanonycr == x.0 {
+                    *mine = Some([i as u64+*height,x.1]);
+                    benone = false;
+                    break
+                }
+            }
+            *height += self.info.nonanonyin.len() as u64;
         }
 
         if benone {
@@ -942,7 +1057,7 @@ impl LightningSyncBlock {
         }
         // println!("{}",t.elapsed().as_millis());
 
-        (changed != *mine, nonetosome && mine.is_some())
+        changed != *mine
 
 
     }
@@ -1014,7 +1129,7 @@ impl LightningSyncBlock {
 
 /// selects the stakers who get to validate the queue and exit_queue
 pub fn select_stakers(block: &Vec<u8>, bnum: &u64, shard: &u128, queue: &mut VecDeque<usize>, exitqueue: &mut VecDeque<usize>, comittee: &mut Vec<usize>, stkstate: &Vec<(CompressedRistretto,u64)>) {
-    let (_pool,y): (Vec<CompressedRistretto>,Vec<u128>) = stkstate.into_iter().map(|(x,y)| (x.to_owned(),*y as u128)).unzip();
+    let y = stkstate.into_iter().map(|(_,y)| *y as u128).collect::<Vec<_>>();
     let tot_stk: u128 = y.iter().sum(); /* initial queue will be 0 for all non0 shards... */
 
     let bnum = bnum.to_le_bytes();
@@ -1056,7 +1171,49 @@ pub fn select_stakers(block: &Vec<u8>, bnum: &u64, shard: &u128, queue: &mut Vec
     }
 }
 
+pub fn refill(queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>) {
 
+    queue.par_iter_mut().for_each(|x| {
+        let mut s = Sha3_512::new();
+        s.update(&bincode::serialize(&x).unwrap());
+        let mut v = Scalar::from_hash(s.clone()).as_bytes().to_vec();
+        s.update(&bincode::serialize(&x).unwrap());
+        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
+        s.update(&bincode::serialize(&x).unwrap());
+        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
+        s.update(&bincode::serialize(&x).unwrap());
+        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
+        let mut y = (0..QUEUE_LENGTH-x.len()).map(|i| x[v[i] as usize%x.len()]).collect::<VecDeque<usize>>();
+        x.append(&mut y);
+    });
+    exitqueue.par_iter_mut().for_each(|x| {
+        let mut s = Sha3_512::new();
+        s.update(&bincode::serialize(&x).unwrap());
+        let mut v = Scalar::from_hash(s.clone()).as_bytes().to_vec();
+        s.update(&bincode::serialize(&x).unwrap());
+        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
+        s.update(&bincode::serialize(&x).unwrap());
+        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
+        s.update(&bincode::serialize(&x).unwrap());
+        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
+        let mut y = (0..QUEUE_LENGTH-x.len()).map(|i| x[v[i] as usize%x.len()]).collect::<VecDeque<usize>>();
+        x.append(&mut y);
+    });
+    comittee.par_iter_mut().for_each(|x| {
+        let mut s = Sha3_512::new();
+        s.update(&bincode::serialize(&x).unwrap());
+        let mut v = Scalar::from_hash(s.clone()).as_bytes().to_vec();
+        s.update(&bincode::serialize(&x).unwrap());
+        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
+        s.update(&bincode::serialize(&x).unwrap());
+        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
+        s.update(&bincode::serialize(&x).unwrap());
+        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
+        let mut y = (0..NUMBER_OF_VALIDATORS-x.len()).map(|i| x[v[i] as usize%x.len()]).collect::<Vec<usize>>();
+        x.append(&mut y);
+    });
+
+}
 
 
 

@@ -5,8 +5,7 @@ extern crate trackable;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll};
-use khora::bloom::BloomFile;
-use khora::seal::BETA;
+// use khora::seal::BETA;
 use rand::prelude::SliceRandom;
 use std::{cmp, thread};
 use std::fs::File;
@@ -31,7 +30,7 @@ use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
 use khora::validation::{
     NUMBER_OF_VALIDATORS, QUEUE_LENGTH, PERSON0,
-    ACCOUNT_COMBINE,
+    ACCOUNT_COMBINE, READ_TIMEOUT, WRITE_TIMEOUT,
     reward, blocktime,
 };
 use colored::Colorize;
@@ -361,7 +360,7 @@ impl KhoraNode {
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
                     // let t = Instant::now();
-                    lastlightning.scanstk(&self.me, &mut None::<[u64; 2]>, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
+                    lastlightning.scanstk(&self.me, &mut None::<[u64; 2]>, false, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
                     // println!("{}",format!("scan stake: {}",t.elapsed().as_millis()).yellow());
                     // let t = Instant::now();
                     let guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);
@@ -442,6 +441,8 @@ impl KhoraNode {
         let mut dead = HashSet::<SocketAddr>::new();
         let responces = self.sendview[..cmp::min(recipients,self.sendview.len())].iter().filter_map(|socket| {
             if let Ok(mut stream) =  TcpStream::connect(socket) {
+                stream.set_read_timeout(READ_TIMEOUT);
+                stream.set_write_timeout(WRITE_TIMEOUT);
                 println!("connected...");
                 if stream.write_all(&message).is_ok() {
                     println!("request made...");
@@ -490,6 +491,8 @@ impl KhoraNode {
                 self.sendview.shuffle(&mut rng);
                 let mut memloc = 0usize;
                 if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
+                    stream.set_read_timeout(READ_TIMEOUT);
+                    stream.set_write_timeout(WRITE_TIMEOUT);
                     println!("connected...");
                     if stream.write_all(&rname).is_ok() {
                         println!("request made...");
@@ -523,6 +526,8 @@ impl KhoraNode {
         self.sendview.shuffle(&mut rng);
         println!("attempting sync...");
         if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
+            stream.set_read_timeout(READ_TIMEOUT);
+            stream.set_write_timeout(WRITE_TIMEOUT);
             println!("connected...");
             let mut m = self.bnum.to_le_bytes().to_vec();
             m.push(121);
@@ -667,13 +672,14 @@ impl Future for KhoraNode {
                                 if let Ok(x) = m.drain(..8).collect::<Vec<_>>().try_into() {
                                     let x = u64::from_le_bytes(x);
                                     println!("amounts {:?}",x);
-                                    let y = x/2u64.pow(BETA as u32) + 1;
-                                    println!("need to split this up into {} txses!",y);
+                                    // let y = x/2u64.pow(BETA as u32) + 1;
+                                    // println!("need to split this up into {} txses!",y);
                                     let recv = Account::from_pks(&pks[0], &pks[1], &pks[2]);
-                                    for _ in 0..y {
-                                        let amnt = Scalar::from(x/y);
-                                        outs.push((recv,amnt));
-                                    }
+                                    // for _ in 0..y {
+                                    //     let amnt = Scalar::from(x/y);
+                                    //     outs.push((recv,amnt));
+                                    // }
+                                    outs.push((recv,Scalar::from(x)));
                                 } else {
                                     let recv = Account::from_pks(&pks[0], &pks[1], &pks[2]);
                                     let amnt = Scalar::zero();
@@ -801,15 +807,16 @@ impl Future for KhoraNode {
                             
 
                             let mut outs = vec![];
-                            let y = amnt/2u64.pow(BETA as u32);
-                            let mut tot = 0u64;
-                            for _ in 0..y {
-                                tot += amnt/y;
-                                let amnt = Scalar::from(amnt/y);
-                                outs.push((&newacc,amnt));
-                            }
-                            let amnt = Scalar::from(tot - amnt); // prob that this is less than 0 is crazy small for reasonable fee
-                            outs.push((&newacc,amnt));
+                            // let y = amnt/2u64.pow(BETA as u32);
+                            // let mut tot = 0u64;
+                            // for _ in 0..y {
+                            //     tot += amnt/y;
+                            //     let amnt = Scalar::from(amnt/y);
+                            //     outs.push((&newacc,amnt));
+                            // }
+                            // let amnt = Scalar::from(tot - amnt); // prob that this is less than 0 is crazy small for reasonable fee
+                            // outs.push((&newacc,amnt));
+                            outs.push((&newacc,Scalar::from(amnt)));
 
                             let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (x.0,&x.1)).collect());
 

@@ -46,7 +46,8 @@ pub enum SealError{
 }
 
 
-pub const BETA: usize = 43; // pretty sure i got this right
+// pub const BETA: usize = 43; // pretty sure i got this right
+pub const BETA: usize = 64;
 
 trait BinRep {
     fn to_binary(&self) -> Vec<Scalar>;

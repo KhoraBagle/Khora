@@ -5,7 +5,7 @@ extern crate trackable;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
-use khora::seal::BETA;
+// use khora::seal::BETA;
 use parking_lot::{RwLock, Mutex};
 use plumcast::node::{LocalNodeId, Node, NodeBuilder, NodeId, SerialLocalNodeIdGenerator};
 use plumcast::service::ServiceBuilder;
@@ -39,6 +39,7 @@ use serde::{Serialize, Deserialize};
 use khora::validation::{
     NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0,
     STAKER_BLOOM_NAME, STAKER_BLOOM_SIZE, STAKER_BLOOM_HASHES,
+    READ_TIMEOUT, WRITE_TIMEOUT,
     reward, blocktime
 };
 
@@ -100,6 +101,8 @@ fn main() -> Result<(), MainError> {
         for stream in outerlistener.incoming() {
             match stream {
                 Ok(stream) => {
+                    stream.set_read_timeout(READ_TIMEOUT);
+                    stream.set_write_timeout(WRITE_TIMEOUT);
                     sendtcp.send(stream).unwrap();
                 }
                 Err(_) => {
@@ -148,11 +151,14 @@ fn main() -> Result<(), MainError> {
                 outerlister: channel::unbounded().1,
                 allnetwork,
                 lasttags: vec![],
+                nonanony: vec![],
                 lastspot: None,
                 me,
                 mine: HashMap::new(),
                 reversemine: HashMap::new(),
                 smine: smine.clone(), // [location, amount]
+                nmine: None,
+                nheight: 0,
                 key,
                 keylocation,
                 leader: PERSON0,
@@ -193,6 +199,7 @@ fn main() -> Result<(), MainError> {
                 gui_timer: Instant::now(),
                 clients: Arc::new(RwLock::new(0)),
                 maxcli: 10,
+                spammers: HashSet::new(),
             };
             node.save();
 
@@ -200,6 +207,7 @@ fn main() -> Result<(), MainError> {
                 vec![
                 bincode::serialize(&node.me.name()).expect("should work"),
                 bincode::serialize(&node.me.stake_acc().name()).expect("should work"),
+                bincode::serialize(&node.me.nonanony_acc().name()).expect("should work"),
                 bincode::serialize(&node.me.sk.as_bytes().to_vec()).expect("should work"),
                 bincode::serialize(&node.me.vsk.as_bytes().to_vec()).expect("should work"),
                 bincode::serialize(&node.me.ask.as_bytes().to_vec()).expect("should work"),
@@ -212,6 +220,7 @@ fn main() -> Result<(), MainError> {
             let node = KhoraNode::load(frontnode, backnode, usend, urecv,recvtcp);
             let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
             mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+            mymoney.extend(node.nmine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
             mymoney.push(0);
             println!("my money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
             node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
@@ -228,6 +237,7 @@ fn main() -> Result<(), MainError> {
             ui_sender,
             "".to_string(),
             "".to_string(),
+            "".to_string(),
             vec![],
             vec![],
             vec![],
@@ -239,8 +249,9 @@ fn main() -> Result<(), MainError> {
         let mut node = KhoraNode::load(frontnode, backnode, usend, urecv,recvtcp);
         let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
         mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+        mymoney.extend(node.nmine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
         mymoney.push(0);
-        println!("my money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
+        println!("my staked money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
         node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
 
         let app = gui::staker::KhoraStakerGUI::new(
@@ -248,6 +259,7 @@ fn main() -> Result<(), MainError> {
             ui_sender,
             node.me.name(),
             node.me.stake_acc().name(),
+            node.me.nonanony_acc().name(),
             node.me.sk.as_bytes().to_vec(),
             node.me.vsk.as_bytes().to_vec(),
             node.me.ask.as_bytes().to_vec(),
@@ -281,6 +293,8 @@ struct SavedNode {
     mine: HashMap<u64, OTAccount>,
     reversemine: HashMap<CompressedRistretto, u64>,
     smine: Option<[u64; 2]>, // [location, amount]
+    nmine: Option<[u64; 2]>, // [location, amount]
+    nheight: u64,
     allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     key: Scalar,
     keylocation: Option<u64>,
@@ -288,6 +302,7 @@ struct SavedNode {
     overthrown: HashSet<CompressedRistretto>,
     votes: Vec<i32>,
     stkinfo: Vec<(CompressedRistretto,u64)>,
+    nonanony: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
     exitqueue: Vec<VecDeque<usize>>,
     comittee: Vec<Vec<usize>>,
@@ -327,12 +342,15 @@ struct KhoraNode {
     mine: HashMap<u64, OTAccount>,
     reversemine: HashMap<CompressedRistretto, u64>,
     smine: Option<[u64; 2]>, // [location, amount]
+    nmine: Option<[u64; 2]>, // [location, amount]
+    nheight: u64,
     key: Scalar,
     keylocation: Option<u64>,
     leader: CompressedRistretto, // would they ever even reach consensus on this for new people when a dishonest person is eliminated???
     overthrown: HashSet<CompressedRistretto>,
     votes: Vec<i32>,
     stkinfo: Vec<(CompressedRistretto,u64)>,
+    nonanony: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
     exitqueue: Vec<VecDeque<usize>>,
     comittee: Vec<Vec<usize>>,
@@ -367,6 +385,7 @@ struct KhoraNode {
     lastspot: Option<u64>,
     clients: Arc<RwLock<u8>>,
     maxcli: u8,
+    spammers: HashSet<SocketAddr>,
 }
 
 impl KhoraNode {
@@ -380,6 +399,8 @@ impl KhoraNode {
                 mine: self.mine.clone(),
                 reversemine: self.reversemine.clone(),
                 smine: self.smine.clone(), // [location, amount]
+                nheight: self.nheight,
+                nmine: self.nmine.clone(), // [location, amount]
                 allnetwork: self.allnetwork.clone(),
                 key: self.key,
                 keylocation: self.keylocation.clone(),
@@ -410,6 +431,7 @@ impl KhoraNode {
                 av: self.outer.hyparview_node.active_view.clone(),
                 pv: self.outer.hyparview_node.passive_view.clone(),
                 maxcli: self.maxcli,
+                nonanony: self.nonanony.clone(),
             }; // just redo initial conditions on the rest
             let mut sn = bincode::serialize(&sn).unwrap();
             let mut f = File::create("myNode").unwrap();
@@ -466,6 +488,8 @@ impl KhoraNode {
             mine: sn.mine.clone(),
             reversemine: sn.reversemine.clone(),
             smine: sn.smine.clone(), // [location, amount]
+            nheight: sn.nheight,
+            nmine: sn.nmine.clone(), // [location, amount]
             key: sn.key,
             keylocation: sn.keylocation.clone(),
             leader: sn.leader.clone(),
@@ -496,6 +520,8 @@ impl KhoraNode {
             ringsize: sn.ringsize,
             clients: Arc::new(RwLock::new(0)),
             maxcli: sn.maxcli,
+            spammers: HashSet::new(),
+            nonanony: sn.nonanony.clone(),
         }
     }
 
@@ -592,13 +618,14 @@ impl KhoraNode {
                 }
 
 
-                println!("none time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
+                // println!("none time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
                 // calculate the reward for this block as a function of the current time and scan either the block or an empty block based on conditions
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
-                    let (mut guitruster, new) = lastlightning.scanstk(&self.me, &mut self.smine, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
-                    guitruster = !(lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever) || guitruster);
-                    self.gui_sender.send(vec![guitruster as u8,1]).expect("there's a problem communicating to the gui!");
+                    let (mut guitruster, new) = lastlightning.scanstk(&self.me, &mut self.smine, true, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
+                    guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever) || guitruster;
+                    guitruster = lastlightning.scannonanony(&self.me, &mut self.nmine, &mut self.nheight) || guitruster;
+                    self.gui_sender.send(vec![!guitruster as u8,1]).expect("there's a problem communicating to the gui!");
 
                     if new {
                         let message = bincode::serialize(&self.outer.plumtree_node().id().address().ip()).unwrap();
@@ -632,7 +659,7 @@ impl KhoraNode {
                     }
                     LightningSyncBlock::save(&vec![]);
                 }
-                println!("some time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
+                // println!("some time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
 
                 self.votes[self.exitqueue[self.headshard][0]] = 0; self.votes[self.exitqueue[self.headshard][1]] = 0;
                 self.newest = self.queue[self.headshard][0] as u64;
@@ -648,7 +675,7 @@ impl KhoraNode {
 
                 
 
-                println!("midd time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
+                // println!("midd time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
                 
                 let s = &self.stkinfo;
                 let o = &self.overthrown;
@@ -668,6 +695,7 @@ impl KhoraNode {
                 // send info to the gui
                 let mut mymoney = self.mine.par_iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
                 mymoney.extend(self.smine.unwrap_or_default()[1].to_le_bytes());
+                mymoney.extend(self.nmine.unwrap_or_default()[1].to_le_bytes());
                 mymoney.push(0);
                 self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
 
@@ -683,18 +711,23 @@ impl KhoraNode {
                 }
                 // if you save the history, the txses you know about matter; otherwise, they don't (becuase you're not involved in block creation)
                 let s = self.stkinfo.borrow();
+                let n = self.nonanony.borrow();
                 let bloom = self.bloom.borrow();
                 println!("{}",format!("had {} tx",self.txses.len()).magenta());
                 println!("{}",format!("block had {} stkin, {} stkout, {} otain",lastlightning.info.stkin.len(),lastlightning.info.stkin.len(),lastlightning.info.txout.len()).magenta());
-                println!("late time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
-                self.txses = self.txses.par_iter().filter(|x| {
-                    if x.inputs.last() == Some(&1) {
-                        x.verifystk(s).is_ok()
+                // println!("late time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
+                self.txses = self.txses.par_iter().filter(|t| {
+                    if t.inputs.last() == Some(&0u8) {
+                        t.tags.par_iter().all(|y| !bloom.contains(y.as_bytes()))
+                    } else if t.inputs.last() == Some(&1u8) {
+                        t.verifystk(s).is_ok()
+                    } else if t.inputs.last() == Some(&2u8) {
+                        t.verifystk(n).is_ok()
                     } else {
-                        x.tags.par_iter().all(|x| !bloom.contains(x.as_bytes()))
+                        false
                     }
                 }).cloned().collect();
-                println!("most time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
+                // println!("most time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
 
                 println!("{}",format!("have {} tx",self.txses.len()).magenta());
                 // runs any operations needed for the panic button to function
@@ -744,13 +777,11 @@ impl KhoraNode {
                 // this section tells you if you're on the comittee or not
                 // if you're on the comittee you need to pull on your inner node
                 // if you're not you need to poll on your user node
-                self.is_node = true;
                 self.is_validator = false;
                 if let Some(keylocation) = self.keylocation {
                     let keylocation = keylocation as usize;
                     self.is_validator = self.comittee[self.headshard].par_iter().any(|x| *x == keylocation);
                     self.gui_sender.send(vec![self.is_validator as u8,3]).unwrap();
-
 
                     if self.queue[self.headshard].par_iter().take(REPLACERATE).any(|&x| x == keylocation) {
                         // announce yourself to the comittee because it's about to be your turn
@@ -759,10 +790,9 @@ impl KhoraNode {
                         for n in self.comittee[self.headshard].par_iter().filter_map(|&x| nw.get(&si[x].0).unwrap().1).collect::<Vec<_>>() {
                             self.inner.join(NodeId::new(SocketAddr::from((n.ip(),DEFAULT_PORT)),LocalNodeId::new(1)));
                         }
-                    } else {
-                        self.is_node = false;
                     }
                 }
+                self.is_node = !self.is_validator;
 
 
                 println!("full time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
@@ -782,8 +812,8 @@ impl KhoraNode {
                     if !self.mine.iter().all(|x| x.1.com.amount.unwrap() != Scalar::from(oldstk.2)) {
                         oldstkcheck = true;
                     }
-                    if !(lastlightning.info.stkout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.txout.is_empty()) {
-                        lastlightning.scanstk(&oldstk.0, &mut oldstk.1, &mut self.sheight.clone(), &self.comittee, reward, &self.stkinfo);
+                    if !lastlightning.info.is_empty() {
+                        lastlightning.scanstk(&oldstk.0, &mut oldstk.1, true, &mut self.sheight.clone(), &self.comittee, reward, &self.stkinfo);
                     } else {
                         NextBlock::pay_self_empty(&self.headshard, &self.comittee, &mut oldstk.1, reward);
                     }
@@ -791,15 +821,16 @@ impl KhoraNode {
                     let (loc, amnt): (Vec<u64>,Vec<u64>) = oldstk.1.iter().map(|x|(x[0],x[1])).unzip();
                     let inps = amnt.into_iter().map(|x| oldstk.0.receive_ot(&oldstk.0.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
                     let mut outs = vec![];
-                    let y = oldstk.2/2u64.pow(BETA as u32);
-                    let mut tot = Scalar::zero();
-                    for _ in 0..y {
-                        let amnt = Scalar::from(oldstk.2/y);
-                        tot += amnt;
-                        outs.push((self.me,amnt));
-                    }
-                    let amnt = Scalar::from(oldstk.2) - tot;
-                    outs.push((self.me,amnt));
+                    // let y = oldstk.2/2u64.pow(BETA as u32);
+                    // let mut tot = Scalar::zero();
+                    // for _ in 0..y {
+                    //     let amnt = Scalar::from(oldstk.2/y);
+                    //     tot += amnt;
+                    //     outs.push((self.me,amnt));
+                    // }
+                    // let amnt = Scalar::from(oldstk.2) - tot;
+                    // outs.push((self.me,amnt));
+                    outs.push((self.me,Scalar::from(oldstk.2)));
                     let tx = Transaction::spend_ring(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect());
                     println!("about to verify!");
                     tx.verify().unwrap();
@@ -838,16 +869,21 @@ impl KhoraNode {
     /// returns the responces of each person you sent it to and deletes those who are dead from the view
     fn attempt_sync(&mut self, node: Option<SocketAddr> ) {
 
+        // println!("hi");
         let mut rng = &mut rand::thread_rng();
         let mut sendview = if let Some(x) = node {
             vec![x]
         } else {
-            self.allnetwork.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>()
+            let mut x = self.allnetwork.clone();
+            x.remove(&self.me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress());
+            x.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>()
         };
         
         sendview.shuffle(&mut rng);
         for node in sendview {
             if let Ok(mut stream) =  TcpStream::connect(node) {
+                stream.set_read_timeout(READ_TIMEOUT);
+                stream.set_write_timeout(WRITE_TIMEOUT);
                 if stream.write_all(&[122 - (self.lightning_yielder as u8)]).is_ok() {
                     let mut ok = [0;8];
                     if stream.read_exact(&mut ok).is_ok(){
@@ -888,7 +924,52 @@ impl KhoraNode {
             }
         }
         self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
+    }
 
+    /// returns the responces of each person you sent it to and deletes those who are dead from the view
+    fn get_tx(&mut self) -> (Vec<u8>,usize) {
+
+        if self.txses.len() == 0 {
+            let mut rng = &mut rand::thread_rng();
+            let mut sendview = {
+                let mut x = self.allnetwork.clone();
+                x.remove(&self.me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress());
+                x.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>()
+            };
+            
+            sendview.shuffle(&mut rng);
+            for node in sendview {
+                if let Ok(mut stream) =  TcpStream::connect(node) {
+                    stream.set_read_timeout(READ_TIMEOUT);
+                    stream.set_write_timeout(WRITE_TIMEOUT);
+                    if stream.write_all(&[1]).is_ok() {
+                        let mut txses = vec![];
+                        if stream.read_to_end(&mut txses).is_ok(){
+                            if let Ok(mut x) = bincode::deserialize::<Vec<PolynomialTransaction>>(&txses) {
+                                x.retain(|t| 
+                                    {
+                                        if t.inputs.last() == Some(&1) {
+                                            t.verifystk(&self.stkinfo).is_ok()
+                                        } else {
+                                            let bloom = self.bloom.borrow();
+                                            t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                                        }
+                                    }
+                                );
+
+                                if x.len() > self.txses.len() {
+                                    return (bincode::serialize(&x).unwrap(),x.len())
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    println!("your friend is probably busy or you have none");
+                }
+            }
+        }
+
+        (bincode::serialize(&self.txses.par_iter().collect::<Vec<_>>()).unwrap(),self.txses.len())
     }
 
 
@@ -929,8 +1010,8 @@ impl Future for KhoraNode {
     
                     // if you are the newest member of the comittee you're responcible for choosing the tx that goes into the next block
                     if self.keylocation == Some(self.newest as u64) {
-                        let m = bincode::serialize(&self.txses.par_iter().collect::<Vec<_>>()).unwrap();
-                        println!("{}",format!("sending {} tx as newest",self.txses.len()).red().bold());
+                        let (m,l) = self.get_tx();
+                        println!("{}",format!("sending {} tx as newest",l).red().bold());
 
                         let mut m = Signature::sign_message_nonced(&self.key, &m, &self.newest,&self.bnum);
                         m.push(1u8);
@@ -995,7 +1076,7 @@ impl Future for KhoraNode {
                                     if let Ok(m) = bincode::deserialize::<Vec<PolynomialTransaction>>(&m) {
 
                                         if let Some(keylocation) = &self.keylocation {
-                                            let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, m, &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo);
+                                            let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, m, &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo, &self.nonanony);
                                             let mut m = bincode::serialize(&m).unwrap();
                                             m.push(2);
                                             for _ in self.comittee[self.headshard].iter().filter(|&x|*x as u64 == *keylocation).collect::<Vec<_>>() {
@@ -1007,11 +1088,9 @@ impl Future for KhoraNode {
                                         self.waitingforleaderbool = true;
                                         self.waitingforleadertime = Instant::now();
                                         self.inner.handle_gossip_now(fullmsg, true);
-                                    } else {
-                                        self.inner.handle_gossip_now(fullmsg, false);
+
+                                        continue
                                     }
-                                } else {
-                                    self.inner.handle_gossip_now(fullmsg, false);
                                 }
                             }
                         } else if mtype == 2 /* the signatures you're supposed to process as the leader */ {
@@ -1019,25 +1098,24 @@ impl Future for KhoraNode {
                                 println!("{}","recieved block signature".red());
                                 self.sigs.push(sig);
                                 self.inner.handle_gossip_now(fullmsg, true);
-                            } else {
-                                self.inner.handle_gossip_now(fullmsg, false);
+
+                                continue
                             }
                         } else if mtype == 3 /* the full block that was made */ {
                             if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&m) {
                                 if self.readblock(lastblock, m, true) {
                                     println!("{}","recieved full block".red());
                                     self.inner.handle_gossip_now(fullmsg, true);
-                                } else {
-                                    self.inner.handle_gossip_now(fullmsg, false);
+
+                                    continue;
                                 }
-                            } else {
-                                self.inner.handle_gossip_now(fullmsg, false);
                             }
-                        } else /* spam that you choose not to propegate */ {
-                            // self.inner.kill(&fullmsg.sender);
-                            println!("{}","a validator sent spam".bright_yellow().bold());
-                            self.inner.handle_gossip_now(fullmsg, false);
                         }
+                        /* spam that you choose not to propegate */ 
+                        println!("{}","a validator sent spam".bright_yellow().bold());
+                        self.inner.kill(&fullmsg.sender);
+                        self.inner.handle_gossip_now(fullmsg, false);
+                        
                     }
                     did_something = true;
                 }
@@ -1110,7 +1188,7 @@ impl Future for KhoraNode {
                 if self.waitingforentrybool && (self.waitingforentrytime.elapsed().as_secs() > (0.66*self.blocktime) as u64) {
                     self.waitingforentrybool = false;
                     for keylocation in &self.keylocation {
-                        let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, vec![], &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo);
+                        let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, vec![], &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo, &self.nonanony);
                         println!("{}","ATTEMPTING TO MAKE AN EMPTY BLOCK".red().bold());
                         let mut m = bincode::serialize(&m).unwrap();
                         m.push(2);
@@ -1135,102 +1213,118 @@ impl Future for KhoraNode {
 
                 // jhgfjhfgj
                 while let Ok(mut stream) = self.outerlister.try_recv() {
-                    let mut m = vec![0;100_000]; // maybe choose an upper bound in an actually thoughtful way?
-                    if let Ok(i) = stream.read(&mut m) { // stream must be read before responding btw
-                        m.truncate(i);
-                        if let Some(mtype) = m.pop() {
-                            println!("{}",format!("got a stream of type {}!",mtype).blue());
-                            if mtype == 0 /* transaction someone wants to make */ {
-                                if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
-                                    let ok = {
-                                        let bloom = self.bloom.borrow();
-                                        t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
-                                    };
-                                    if ok {
-                                        println!("{}","a user sent a tx".bright_yellow());
-                                        m.push(0);
-                                        self.outer.broadcast_now(m);
-                                        stream.write_all(&[1u8]);
-                                    }
-                                }
-                            } else if mtype == 101 /* e */ {
-                                println!("{}","someone wants a bunch of ips".blue());
-                                let x = self.allnetwork.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>();
-                                stream.write_all(&bincode::serialize(&x).unwrap());
-                            } else if mtype == 114 /* r */ { // answer their ring question
-                                thread::spawn(move || {
-                                    if let Ok(r) = recieve_ring(&m) {
-                                        println!("{}","someone wants a ring".blue());
-                                        for i in r {
-                                            if stream.write_all(&History::get_raw(&i)).is_err() {
-                                                break
+                    if let Ok(sa) = stream.peer_addr() {
+                        if !self.spammers.contains(&sa) {
+                            let mut m = vec![0;100_000]; // maybe choose an upper bound in an actually thoughtful way?
+                            if let Ok(i) = stream.read(&mut m) { // stream must be read before responding btw
+                                m.truncate(i);
+                                if let Some(mtype) = m.pop() {
+                                    println!("{}",format!("got a stream of type {}!",mtype).blue());
+                                    if mtype == 0 /* transaction someone wants to make */ {
+                                        if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
+                                            let ok = {
+                                                if t.inputs.last() == Some(&0u8) {
+                                                    let bloom = self.bloom.borrow();
+                                                    t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                                                } else if t.inputs.last() == Some(&1u8) {
+                                                    t.verifystk(&self.stkinfo).is_ok()
+                                                } else if t.inputs.last() == Some(&2u8) {
+                                                    t.verifystk(&self.nonanony).is_ok()
+                                                } else {
+                                                    false
+                                                }
+                                            };
+                                            if ok {
+                                                println!("{}","a user sent a tx".blue());
+                                                m.push(0);
+                                                self.outer.broadcast_now(m);
+                                                stream.write_all(&[1u8]);
                                             }
                                         }
-                                    }
-                                });
-                            } else if mtype == 121 /* y */ { // someone sent a sync request
-                                println!("{}","someone wants lightning".blue());
-                                if *self.clients.read() < self.maxcli {
-                                    let bnum = self.bnum;
-                                    *self.clients.write() += 1;
-                                    let cli = self.clients.clone();
-                                    thread::spawn(move || {
-                                        if let Ok(m) = m.try_into() {
-                                            if stream.write_all(&bnum.to_le_bytes()).is_ok() {
-                                                let mut sync_theirnum = u64::from_le_bytes(m);
-                                                println!("{}",format!("syncing them from {}",sync_theirnum).blue());
-                                                loop {
-                                                    if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
-                                                        println!("{}",x.len());
-                                                        if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
-                                                            break
-                                                        }
-                                                        if stream.write_all(&x).is_err() {
-                                                            break
-                                                        }
-                                                    }
-                                                    sync_theirnum += 1;
-                                                    if sync_theirnum == bnum {
+                                    } else if mtype == 1 {
+                                        println!("{}","a validator needs some tx".blue());
+                                        stream.write_all(&bincode::serialize(&self.txses.iter().collect::<Vec<_>>()).unwrap());
+                                    } else if mtype == 101 /* e */ {
+                                        println!("{}","someone wants a bunch of ips".blue());
+                                        let x = self.allnetwork.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>();
+                                        stream.write_all(&bincode::serialize(&x).unwrap());
+                                    } else if mtype == 114 /* r */ { // answer their ring question
+                                        if let Ok(r) = recieve_ring(&m) {
+                                            println!("{}","someone wants a ring".blue());
+                                            thread::spawn(move || {
+                                                for i in r {
+                                                    if stream.write_all(&History::get_raw(&i)).is_err() {
                                                         break
                                                     }
                                                 }
-                                            }
+                                            });
                                         }
-                                        *cli.write() -= 1;
-                                    });
-                                }
-                            } else if mtype == 122 /* z */ { // someone sent a full sync request
-                                println!("{}","someone wants full blocks".blue());
-                                if !self.lightning_yielder && *self.clients.read() < self.maxcli {
-                                    let bnum = self.bnum;
-                                    *self.clients.write() += 1;
-                                    let cli = self.clients.clone();
-                                    thread::spawn(move || {
-                                        if let Ok(m) = m.try_into() {
-                                            if stream.write_all(&bnum.to_le_bytes()).is_ok() {
-                                                let mut sync_theirnum = u64::from_le_bytes(m);
-                                                println!("{}",format!("syncing them from {}",sync_theirnum).blue());
-                                                loop {
-                                                    if let Ok(x) = NextBlock::read(&sync_theirnum) {
-                                                        if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
-                                                            break
-                                                        }
-                                                        if stream.write_all(&x).is_err() {
-                                                            break
+                                    } else if mtype == 121 /* y */ { // someone sent a sync request
+                                        println!("{}","someone wants lightning".blue());
+                                        if *self.clients.read() < self.maxcli {
+                                            let bnum = self.bnum;
+                                            *self.clients.write() += 1;
+                                            let cli = self.clients.clone();
+                                            thread::spawn(move || {
+                                                if let Ok(m) = m.try_into() {
+                                                    if stream.write_all(&bnum.to_le_bytes()).is_ok() {
+                                                        let mut sync_theirnum = u64::from_le_bytes(m);
+                                                        println!("{}",format!("syncing them from {}",sync_theirnum).blue());
+                                                        loop {
+                                                            if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
+                                                                println!("{}",x.len());
+                                                                if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                                    break
+                                                                }
+                                                                if stream.write_all(&x).is_err() {
+                                                                    break
+                                                                }
+                                                            }
+                                                            sync_theirnum += 1;
+                                                            if sync_theirnum == bnum {
+                                                                break
+                                                            }
                                                         }
                                                     }
-                                                    sync_theirnum += 1;
-                                                    if sync_theirnum == bnum {
-                                                        break
-                                                    }
-                                                } 
-                                            }
+                                                }
+                                                *cli.write() -= 1;
+                                            });
                                         }
-                                        *cli.write() -= 1;
-                                    });
+                                    } else if mtype == 122 /* z */ { // someone sent a full sync request
+                                        println!("{}","someone wants full blocks".blue());
+                                        if !self.lightning_yielder && *self.clients.read() < self.maxcli {
+                                            let bnum = self.bnum;
+                                            *self.clients.write() += 1;
+                                            let cli = self.clients.clone();
+                                            thread::spawn(move || {
+                                                if let Ok(m) = m.try_into() {
+                                                    if stream.write_all(&bnum.to_le_bytes()).is_ok() {
+                                                        let mut sync_theirnum = u64::from_le_bytes(m);
+                                                        println!("{}",format!("syncing them from {}",sync_theirnum).blue());
+                                                        loop {
+                                                            if let Ok(x) = NextBlock::read(&sync_theirnum) {
+                                                                if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                                    break
+                                                                }
+                                                                if stream.write_all(&x).is_err() {
+                                                                    break
+                                                                }
+                                                            }
+                                                            sync_theirnum += 1;
+                                                            if sync_theirnum == bnum {
+                                                                break
+                                                            }
+                                                        } 
+                                                    }
+                                                }
+                                                *cli.write() -= 1;
+                                            });
+                                        }
+                                    } else {
+                                        self.spammers.insert(sa);
+                                        println!("{}","the user sent spam".bright_yellow().bold());
+                                    }
                                 }
-                            } else {
-                                println!("{}","the user sent spam".bright_yellow().bold());
                             }
                         }
                     }
@@ -1252,22 +1346,24 @@ impl Future for KhoraNode {
                             if m.len() < 100_000 {
                                 if let Ok(t) = bincode::deserialize::<PolynomialTransaction>(&m) {
                                     let ok = {
-                                        if t.inputs.last() == Some(&1) {
-                                            t.verifystk(&self.stkinfo).is_ok()
-                                        } else {
+                                        if t.inputs.last() == Some(&0u8) {
                                             let bloom = self.bloom.borrow();
                                             t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                                        } else if t.inputs.last() == Some(&1u8) {
+                                            t.verifystk(&self.stkinfo).is_ok()
+                                        } else if t.inputs.last() == Some(&2u8) {
+                                            t.verifystk(&self.nonanony).is_ok()
+                                        } else {
+                                            false
                                         }
                                     };
                                     if ok {
                                         println!("{}","a staker sent a tx".green());
                                         self.txses.insert(t);
                                         self.outer.handle_gossip_now(fullmsg, true);
-                                    } else {
-                                        self.outer.handle_gossip_now(fullmsg, false);
+
+                                        continue
                                     }
-                                } else {
-                                    self.outer.handle_gossip_now(fullmsg, false);
                                 }
                             }
                         } else if mtype == 3 /* recieved a full block */ {
@@ -1278,27 +1374,24 @@ impl Future for KhoraNode {
                                     self.gui_sender.send(vec![8]);
                                 }
                                 println!("{}","you have recieved a full block".green());
-                            } else {
-                                self.outer.handle_gossip_now(fullmsg, false);
+
+                                continue
                             }
                         } else if mtype == 97 /* a */ {
                             println!("{}","a staker is trying to connect".green());
                             self.outer.plumtree_node.lazy_push_peers.insert(fullmsg.sender);
                             self.outer.dm(bincode::serialize(&self.allnetwork).unwrap().into_iter().chain(vec![98u8]).collect::<Vec<u8>>(), &[fullmsg.sender], false);
+
+                            continue
                         } else if mtype == 98 /* b */ {
                             if self.allnetwork.par_iter().all(|(_,(_,x))| x.is_none()) {
                                 if let Ok(x) = bincode::deserialize(&m) {
                                     println!("{}","you have connected to the network".green());
                                     self.allnetwork = x;
+
+                                    continue
                                 }
                             }
-                        // } else if mtype == 108 /* l */ { // a lightning block
-                        //     if self.lightning_yielder {
-                        //         if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&m) {
-                        //             println!("{}","you have recieved a lightning block".green());
-                        //             self.readlightning(lastblock, m, None); // that whole thing with 3 and 8 makes it super unlikely to get more blocks (expecially for my small thing?)
-                        //         }
-                        //     }
                         } else if mtype == 110 /* n */ {
                             if let Some(who) = Signature::recieve_signed_message2(&mut m) {
                                 if let Ok(m) = bincode::deserialize::<IpAddr>(&m) {
@@ -1307,17 +1400,15 @@ impl Future for KhoraNode {
                                         println!("{}","a staker has announced their ip".green());
                                     }
                                     self.outer.handle_gossip_now(fullmsg, true);
-                                } else {
-                                    self.outer.handle_gossip_now(fullmsg, false);
+
+                                    continue
                                 }
-                            } else {
-                                self.outer.handle_gossip_now(fullmsg, false);
                             }
-                        } else /* spam */ {
-                            println!("{}","the staker sent spam".bright_yellow().bold());
-                            // self.outer.kill(&fullmsg.sender);
-                            self.outer.handle_gossip_now(fullmsg, false);
                         }
+                        /* spam */
+                        println!("{}",format!("a staker ({}) sent spam ({} bytes)",fullmsg.sender,m.len()).bright_yellow().bold());
+                        self.outer.kill(&fullmsg.sender);
+                        self.outer.handle_gossip_now(fullmsg, false);
                     }
                     did_something = true;
                 }
@@ -1382,18 +1473,19 @@ impl Future for KhoraNode {
                             if m.len() >= 8 {
                                 if let Ok(x) = m.drain(..8).collect::<Vec<_>>().try_into() {
                                     let x = u64::from_le_bytes(x);
-                                    // println!("amounts {:?}",x);
-                                    let y = x/2u64.pow(BETA as u32);
-                                    // println!("need to split this up into {} txses!",y);
+                                    // // println!("amounts {:?}",x);
+                                    // let y = x/2u64.pow(BETA as u32);
+                                    // // println!("need to split this up into {} txses!",y);
+                                    // let recv = Account::from_pks(&pks[0], &pks[1], &pks[2]);
+                                    // let mut tot = Scalar::zero();
+                                    // for _ in 0..y {
+                                    //     let amnt = Scalar::from(x/y);
+                                    //     tot += amnt;
+                                    //     outs.push((recv,amnt));
+                                    // }
+                                    // let amnt = Scalar::from(x) - tot;
                                     let recv = Account::from_pks(&pks[0], &pks[1], &pks[2]);
-                                    let mut tot = Scalar::zero();
-                                    for _ in 0..y {
-                                        let amnt = Scalar::from(x/y);
-                                        tot += amnt;
-                                        outs.push((recv,amnt));
-                                    }
-                                    let amnt = Scalar::from(x) - tot;
-                                    outs.push((recv,amnt));
+                                    outs.push((recv,Scalar::from(x)));
                                 } else {
                                     let recv = Account::from_pks(&pks[0], &pks[1], &pks[2]);
                                     let amnt = Scalar::zero();
@@ -1455,6 +1547,26 @@ impl Future for KhoraNode {
                             loc.push(1);
                             let tx = tx.polyform(&loc); // push 0
                             if tx.verifystk(&self.stkinfo).is_ok() {
+                                txbin = bincode::serialize(&tx).unwrap();
+                                self.txses.insert(tx);
+                            } else {
+                                txbin = vec![];
+                                println!("you can't make that transaction!");
+                            }
+                        } else if txtype == 64 /* ?+1 */ { // transaction should be spent with staked money
+                            let m = Scalar::from(self.nmine.unwrap()[1]) - outs.iter().map(|x| x.1).sum::<Scalar>();
+                            let x = outs.len() - 1;
+                            outs[x].1 = m;
+
+                            
+                            let (loc, amnt): (Vec<u64>,Vec<u64>) = self.nmine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
+                            let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
+                            let tx = Transaction::spend_ring(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                            // tx.verify().unwrap();
+                            let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
+                            loc.push(2);
+                            let tx = tx.polyform(&loc); // push 0
+                            if tx.verifystk(&self.nonanony).is_ok() {
                                 txbin = bincode::serialize(&tx).unwrap();
                                 self.txses.insert(tx);
                             } else {
@@ -1555,15 +1667,16 @@ impl Future for KhoraNode {
                             rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
                             
                             let mut outs = vec![];
-                            let y = amnt/2u64.pow(BETA as u32);
-                            let mut tot = Scalar::zero();
-                            for _ in 0..y {
-                                let amnt = Scalar::from(amnt/y);
-                                tot += amnt;
-                                outs.push((&newacc,amnt));
-                            }
-                            let amnt = Scalar::from(stkamnt) - tot;
-                            outs.push((&newacc,amnt));
+                            // let y = amnt/2u64.pow(BETA as u32);
+                            // let mut tot = Scalar::zero();
+                            // for _ in 0..y {
+                            //     let amnt = Scalar::from(amnt/y);
+                            //     tot += amnt;
+                            //     outs.push((&newacc,amnt));
+                            // }
+                            // let amnt = Scalar::from(stkamnt) - tot;
+                            // outs.push((&newacc,amnt));
+                            outs.push((&newacc,Scalar::from(amnt)));
                             let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (x.0,&x.1)).collect());
 
                             println!("{:?}",rlring.iter().map(|x| x.com.amount).collect::<Vec<_>>());
@@ -1589,15 +1702,16 @@ impl Future for KhoraNode {
 
 
                             let mut outs = vec![];
-                            let y = stkamnt/2u64.pow(BETA as u32);
-                            let mut tot = 0u64;
-                            for _ in 0..y {
-                                let stkamnt = Scalar::from(stkamnt/y);
-                                tot += amnt;
-                                outs.push((&newacc,stkamnt));
-                            }
-                            let amnt = Scalar::from(stkamnt) - Scalar::from(tot);
-                            outs.push((&newacc,amnt));
+                            // let y = stkamnt/2u64.pow(BETA as u32);
+                            // let mut tot = 0u64;
+                            // for _ in 0..y {
+                            //     let stkamnt = Scalar::from(stkamnt/y);
+                            //     tot += amnt;
+                            //     outs.push((&newacc,stkamnt));
+                            // }
+                            // let amnt = Scalar::from(stkamnt) - Scalar::from(tot);
+                            // outs.push((&newacc,amnt));
+                            outs.push((&newacc,Scalar::from(stkamnt)));
 
                             
                             let tx = Transaction::spend_ring(&vec![inps], &outs.iter().map(|x| (x.0,&x.1)).collect());
@@ -1633,6 +1747,7 @@ impl Future for KhoraNode {
                             vec![
                                 bincode::serialize(&self.me.name()).expect("should work"),
                                 bincode::serialize(&self.me.stake_acc().name()).expect("should work"),
+                                bincode::serialize(&self.me.nonanony_acc().name()).expect("should work"),
                                 bincode::serialize(&self.me.sk.as_bytes().to_vec()).expect("should work"),
                                 bincode::serialize(&self.me.vsk.as_bytes().to_vec()).expect("should work"),
                                 bincode::serialize(&self.me.ask.as_bytes().to_vec()).expect("should work"),

@@ -196,22 +196,24 @@ impl PolynomialTransaction {
     //     }
     // }
 
+    /// verifies that a non staker transaction is valid
+    /// this does check that it is labeled as non staker
     pub fn verify(&self) -> Result<(), TransactionError> {
         let mut tr = Transcript::new(b"seal tx");
         let tags: Vec<&Tag> = self.tags.iter().map(|a| a).collect();
 
-        if self.outputs.iter().all(|y| {
-                if let Ok(z) = stakereader_acc().read_ot(y) {
-                    if let Some(a) = &z.com.amount {
-                        u64::from_le_bytes(a.as_bytes()[..8].try_into().unwrap()) >= MINSTK
+        if let Ok(i) = recieve_ring(&self.inputs) {
+            if self.outputs.iter().all(|y| {
+                    if let Ok(z) = stakereader_acc().read_ot(y) {
+                        if let Some(a) = &z.com.amount {
+                            u64::from_le_bytes(a.as_bytes()[..8].try_into().unwrap()) >= MINSTK
+                        } else {
+                            false
+                        }
                     } else {
-                        false
+                        true
                     }
-                } else {
-                    true
-                }
-            }) {
-                if let Ok(i) = recieve_ring(&self.inputs) {
+                }) {
                     let inputs = i.iter().map(|x| OTAccount::summon_ota(&History::get(x))).collect::<Vec<OTAccount>>();        
                     let mut outputs = self.outputs.clone();
                     outputs.push(fee_ota(&Scalar::from(self.fee)));
@@ -227,37 +229,36 @@ impl PolynomialTransaction {
         Err(TransactionError::InvalidTransaction)
     }
 
+    /// checks if a staker tx is valid given the history.
+    /// WARNING: this does not check if it is labeled as a staker transaction
     pub fn verifystk(&self,history:&Vec<(CompressedRistretto,u64)>) -> Result<(), TransactionError> {
+        let mut i = self.inputs.clone();
+        i.pop();
         let mut tr = Transcript::new(b"seal tx");
         let tags: Vec<&Tag> = self.tags.iter().map(|a| a).collect();
-        let mut i = self.inputs.clone();
-        if i.pop() == Some(1) {
-            let places = i.chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap()) as usize).collect::<Vec<_>>();
-            if !places[1..].iter().enumerate().all(|(i,&x)| x > places[i]) {
-                return Err(TransactionError::InvalidTransaction)
-            }
-            let mut input = vec![];
-            for i in places {
-                let (pk,amnt) = match history.get(i) {
-                    Some(x) => x,
-                    None => return Err(TransactionError::InvalidTransaction),
-                };
-                let com = Commitment::commit(&Scalar::from(*amnt),&Scalar::zero());
-                input.push(OTAccount{pk: pk.decompress().unwrap(),com,..Default::default()});
-            }
+        let places = i.chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap()) as usize).collect::<Vec<_>>();
+        if !places[1..].iter().enumerate().all(|(i,&x)| x > places[i]) {
+            return Err(TransactionError::InvalidTransaction)
+        }
+        let mut input = vec![];
+        for i in places {
+            let (pk,amnt) = match history.get(i) {
+                Some(x) => x,
+                None => return Err(TransactionError::InvalidTransaction),
+            };
+            let com = Commitment::commit(&Scalar::from(*amnt),&Scalar::zero());
+            input.push(OTAccount{pk: pk.decompress().unwrap(),com,..Default::default()});
+        }
 
-            let mut outputs = self.outputs.clone();
-            outputs.push(fee_ota(&Scalar::from(self.fee)));
-            let outputs: Vec<&OTAccount> = outputs.iter().map(|a|a).collect();
-            
-            let b = self.seal.verify(&mut tr, &input.iter().collect::<Vec<_>>(), &tags, &outputs);
+        let mut outputs = self.outputs.clone();
+        outputs.push(fee_ota(&Scalar::from(self.fee)));
+        let outputs: Vec<&OTAccount> = outputs.iter().map(|a|a).collect();
+        
+        let b = self.seal.verify(&mut tr, &input.iter().collect::<Vec<_>>(), &tags, &outputs);
 
-            match b {
-                Ok(()) => Ok(()),
-                Err(_) => Err(TransactionError::InvalidTransaction)
-            }
-        } else {
-            Err(TransactionError::InvalidTransaction)
+        match b {
+            Ok(()) => Ok(()),
+            Err(_) => Err(TransactionError::InvalidTransaction)
         }
     }
 

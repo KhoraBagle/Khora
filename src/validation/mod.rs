@@ -153,14 +153,23 @@ impl Syncedtx {
             if let Some(z) = nonanonyinfo.par_iter().enumerate().find_first(|y| {
                 y.1.0 == x.0
             }) {
-                (None,Some((z.0,x.1)))
+                (None,Some((z.0 as u64,x.1)))
             } else {
                 (Some(x),None)
             }
         }).unzip();
-        let nonanonyin = nonanonyin.par_iter().filter_map(|x|x).collect::<Vec<_>>();
-        let nonanonygrow = nonanonygrow.par_iter().filter_map(|x|x).collect::<Vec<_>>();
+        let mut nonanonyin = nonanonyin.par_iter().filter_map(|x|x.as_ref()).copied().copied().collect::<Vec<_>>();
+        let mut nonanonygrow = nonanonygrow.par_iter().filter_map(|x|x.as_ref()).copied().collect::<Vec<_>>();
 
+
+        nonanonygrow.retain(|x| {
+            if nonanonyout.par_iter().find_first(|&&y| y == x.0).is_some() {
+                nonanonyin.push((nonanonyinfo[x.0 as usize].0,x.1));
+                false
+            } else {
+                true
+            }
+        });
 
         let txout = txs.into_par_iter().map(|x|
             x.outputs.to_owned().into_iter().filter(|x| stakereader_acc().read_ot(x).is_err()).collect::<Vec<_>>()
@@ -175,8 +184,8 @@ impl Syncedtx {
     }
 
     /// the message block creaters sign so even lightning blocks can be verified
-    pub fn to_sign(txs: &Vec<PolynomialTransaction>)->Vec<u8> {
-        bincode::serialize(&Syncedtx::from(txs)).unwrap()
+    pub fn to_sign(txs: &Vec<PolynomialTransaction>,nonanonyinfo:&Vec<(CompressedRistretto, u64)>)->Vec<u8> {
+        bincode::serialize(&Syncedtx::from(txs, nonanonyinfo)).unwrap()
     }
 
     /// checks the info is empty
@@ -446,7 +455,7 @@ impl NextBlock {
         txs.append(&mut nonanons);
 
 
-        let m = vec![leader.to_bytes().to_vec(),bincode::serialize(&vec![pool]).unwrap(),Syncedtx::to_sign(&txs),bnum.to_le_bytes().to_vec(), last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
+        let m = vec![leader.to_bytes().to_vec(),bincode::serialize(&vec![pool]).unwrap(),Syncedtx::to_sign(&txs,nonanony),bnum.to_le_bytes().to_vec(), last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
         let mut s = Sha3_512::new();
         s.update(&m);
         NextBlock {
@@ -460,7 +469,7 @@ impl NextBlock {
     }
 
     /// creates a full block from a collection of signatures in the comittee
-    pub fn finish(key: &Scalar, location: &u64, sigs: &Vec<NextBlock>, validator_pool: &Vec<u64>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>) -> Result<NextBlock,&'static str> { // <----do i need to reference previous block explicitly?
+    pub fn finish(key: &Scalar, location: &u64, sigs: &Vec<NextBlock>, validator_pool: &Vec<u64>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &Vec<(CompressedRistretto,u64)>) -> Result<NextBlock,&'static str> { // <----do i need to reference previous block explicitly?
         let leader = (key*PEDERSEN_H()).compress().as_bytes().to_vec();
         let mut sigs = sigs.into_par_iter().filter(|x| !validator_pool.into_par_iter().all(|y| x.leader.pk != *y)).map(|x| x.to_owned()).collect::<Vec<NextBlock>>();
         let mut sigfinale: Vec<NextBlock>;
@@ -471,7 +480,7 @@ impl NextBlock {
                 sigfinale.push(b);
                 // println!("they agree on tx in block validation");
                 let sigfinale = sigfinale.par_iter().enumerate().filter_map(|(i,x)| if sigs[..i].par_iter().all(|y| x.leader.pk != y.leader.pk) {Some(x.to_owned())} else {None}).collect::<Vec<NextBlock>>();
-                let m = vec![leader.clone(),bincode::serialize(&vec![pool]).unwrap(),Syncedtx::to_sign(&sigfinale[0].txs),bnum.to_le_bytes().to_vec(), last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
+                let m = vec![leader.clone(),bincode::serialize(&vec![pool]).unwrap(),Syncedtx::to_sign(&sigfinale[0].txs,nonanony),bnum.to_le_bytes().to_vec(), last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
                 let mut s = Sha3_512::new();
                 s.update(&m);
                 let sigfinale = sigfinale.into_par_iter().filter(|x| Signature::verify(&x.leader, &mut s.clone(),&stkstate)).map(|x| x.to_owned()).collect::<Vec<NextBlock>>();
@@ -505,10 +514,10 @@ impl NextBlock {
 
     /// creates the final block from the collection of subblocks and signatures from the main shard
     /// WARNING:: MUST MAKE SURE blks[0] IS THE ONE YOU MADE YOURSELF
-    pub fn valimerge(key: &Scalar, location: &u64, leader: &CompressedRistretto, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, _mypoolnum: &u16) -> Signature {
+    pub fn valimerge(key: &Scalar, location: &u64, leader: &CompressedRistretto, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &Vec<(CompressedRistretto,u64)>, _mypoolnum: &u16) -> Signature {
         
         
-        let mut blks: Vec<NextBlock> = blks.par_iter().zip(val_pools).filter_map(|(x,y)| if x.verify(&y,&stkstate).is_ok() {Some(x.to_owned())} else {None}).collect();
+        let mut blks: Vec<NextBlock> = blks.par_iter().zip(val_pools).filter_map(|(x,y)| if x.verify(&y,&stkstate,nonanony).is_ok() {Some(x.to_owned())} else {None}).collect();
         let mut blk = blks.remove(0); // their own shard should be this one! (main shard should be contributing as a shard while waiting)
         let mut tags = blk.txs.par_iter().map(|x| x.tags.clone()).flatten().collect::<HashSet<Tag>>();
         for mut b in blks {
@@ -527,16 +536,16 @@ impl NextBlock {
         }
 
 
-        let m = vec![leader.to_bytes().to_vec(),bincode::serialize(&blk.shards).unwrap(),Syncedtx::to_sign(&blk.txs),bnum.to_le_bytes().to_vec(), last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
+        let m = vec![leader.to_bytes().to_vec(),bincode::serialize(&blk.shards).unwrap(),Syncedtx::to_sign(&blk.txs,nonanony),bnum.to_le_bytes().to_vec(), last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
         let mut s = Sha3_512::new();
         s.update(&m);
         Signature::sign(&key,&mut s, &location)
     }
 
     /// verifies a full block (that the comittee acted as they should)
-    pub fn finishmerge(key: &Scalar, location: &u64, sigs: &Vec<Signature>, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, headpool: &Vec<u64>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, _mypoolnum: &u16) -> NextBlock {
+    pub fn finishmerge(key: &Scalar, location: &u64, sigs: &Vec<Signature>, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, headpool: &Vec<u64>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>,nonanony:&Vec<(CompressedRistretto,u64)> , _mypoolnum: &u16) -> NextBlock {
         let headpool = headpool.into_par_iter().map(|x|stkstate[*x as usize].0).collect::<Vec<CompressedRistretto>>();
-        let mut blks: Vec<NextBlock> = blks.par_iter().zip(val_pools).filter_map(|(x,y)| if x.verify(&y, &stkstate).is_ok() {Some(x.to_owned())} else {None}).collect();
+        let mut blks: Vec<NextBlock> = blks.par_iter().zip(val_pools).filter_map(|(x,y)| if x.verify(&y, &stkstate,nonanony).is_ok() {Some(x.to_owned())} else {None}).collect();
         let mut blk = blks.remove(0);
         
         let mut tags = blk.txs.par_iter().map(|x| x.tags.clone()).flatten().collect::<HashSet<Tag>>();
@@ -554,7 +563,7 @@ impl NextBlock {
         }
         
         let leader = (key*PEDERSEN_H()).compress().as_bytes().to_vec();
-        let m = vec![leader.clone(),bincode::serialize(&blk.shards).unwrap(),Syncedtx::to_sign(&blk.txs),bnum.to_le_bytes().to_vec(),last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
+        let m = vec![leader.clone(),bincode::serialize(&blk.shards).unwrap(),Syncedtx::to_sign(&blk.txs,nonanony),bnum.to_le_bytes().to_vec(),last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
         let mut s = Sha3_512::new();
         s.update(&m);
         let sigs = sigs.into_par_iter().filter(|x|
@@ -575,7 +584,7 @@ impl NextBlock {
     }
 
     /// verifies a full block (that the comittee acted as they should)
-    pub fn verify(&self, validator_pool: &Vec<u64>, stkstate: &Vec<(CompressedRistretto,u64)>) -> Result<bool, &'static str> {
+    pub fn verify(&self, validator_pool: &Vec<u64>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony:&Vec<(CompressedRistretto, u64)>) -> Result<bool, &'static str> {
         let mut s = Sha3_512::new();
         s.update(&bincode::serialize(&self.validators).unwrap().to_vec());
         let c = s.finalize();
@@ -586,7 +595,7 @@ impl NextBlock {
         if !self.leader.verify(&mut s, &stkstate) {
             return Err("leader is fake")
         }
-        let m = vec![stkstate[self.leader.pk as usize].0.as_bytes().to_vec().clone(),bincode::serialize(&self.shards).unwrap(),Syncedtx::to_sign(&self.txs),self.bnum.to_le_bytes().to_vec(), self.last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
+        let m = vec![stkstate[self.leader.pk as usize].0.as_bytes().to_vec().clone(),bincode::serialize(&self.shards).unwrap(),Syncedtx::to_sign(&self.txs,nonanony),self.bnum.to_le_bytes().to_vec(), self.last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
         let mut h = Sha3_512::new();
         h.update(&m);
         if !self.validators.par_iter().all(|x| x.verify(&mut h.clone(), &stkstate)) {
@@ -683,11 +692,11 @@ impl NextBlock {
     }
 
     /// converts a full block into lightning block
-    pub fn tolightning(&self) -> LightningSyncBlock {
+    pub fn tolightning(&self,nonanony: &Vec<(CompressedRistretto, u64)>) -> LightningSyncBlock {
         LightningSyncBlock {
             validators: self.validators.to_owned(),
             leader: self.leader.to_owned(),
-            info: Syncedtx::from(&self.txs),
+            info: Syncedtx::from(&self.txs,nonanony),
             shards: self.shards.to_owned(),
             bnum: self.bnum.to_owned(),
             last_name: self.last_name.to_owned(),
@@ -886,16 +895,11 @@ impl LightningSyncBlock {
 
         if dononanony {
 
+            self.info.nonanonygrow.iter().for_each(|x| nonanony[x.1 as usize].1 += x.1);
             for x in self.info.nonanonyout.iter().rev() {
                 nonanony.remove(*x as usize);
             }
-            self.info.nonanonyin.iter().for_each(|x| {
-                if let Some(z) = nonanony.par_iter_mut().find_first(|y| x.0 == y.0) {
-                    z.1 += x.1;
-                } else {
-                    nonanony.push(*x);
-                }
-            });
+            nonanony.par_extend(&self.info.nonanonyin);
     
         }
 
@@ -1041,7 +1045,7 @@ impl LightningSyncBlock {
 
     }
 
-    /// scans the block for any transactions sent to you or any rewards and punishments you recieved. it additionally updates the height of stakers. returns if your money changed then if your index changed
+    /// scans the block for any transactions sent to or from you. it additionally updates the height of nonanonys. returns if your money changed
     pub fn scannonanony(&self, me: &Account, mine: &mut Option<[u64;2]>, height: &mut u64) -> bool {
 
         // let t = std::time::Instant::now();
@@ -1050,11 +1054,20 @@ impl LightningSyncBlock {
         let changed = mine.clone();
         if let Some(mine) = mine {
 
+            *height -= self.info.nonanonyout.len() as u64;
             if self.info.nonanonyout.contains(&mine[0]) {
                 benone = true;
             }
-            *height -= self.info.nonanonyout.len() as u64;
-            
+            // blocks never contain pointers to accounts that are leaving so i dont need to worry about that
+            mine[1] += self.info.nonanonygrow.par_iter().filter_map(|x| {
+                if x.0 == mine[0] {
+                    Some(x.1)
+                } else {
+                    None
+                }
+            }).sum::<u64>();
+            mine[0] -= self.info.nonanonyout.par_iter().filter(|&&x| x < mine[0]).count() as u64;
+
             let nonanonycr = me.nonanony_acc().derive_stk_ot(&Scalar::one()).pk.compress();
             if benone {
                 for (i,x) in self.info.nonanonyin.iter().enumerate() {
@@ -1086,13 +1099,17 @@ impl LightningSyncBlock {
                 }
             }
             *height += self.info.nonanonyin.len() as u64;
-            if self.bnum%10 == 0 {
-                println!("ideal: {:?}",nonanonycr);
-                println!("real: {:?}",self.info.nonanonyin);
-                println!("staker reference: {:?}",self.info.stkin);
-                println!("random: {:?}",self.info.txout.iter().map(|x| x.pk.compress()).collect::<Vec<_>>());
-            }
         }
+
+
+        
+        if self.bnum%10 == 0 {
+            println!("ideal: {:?}",me.nonanony_acc().derive_stk_ot(&Scalar::one()).pk.compress());
+            println!("real: {:?}",self.info.nonanonyin);
+            println!("staker reference: {:?}",self.info.stkin);
+            println!("random: {:?}",self.info.txout.iter().map(|x| x.pk.compress()).collect::<Vec<_>>());
+        }
+
 
         println!("height {}",height);
         println!("out {}",self.info.nonanonyout.len());

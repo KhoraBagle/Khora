@@ -99,7 +99,6 @@ fn main() -> Result<(), MainError> {
                 bnum: 0u64,
                 lastbnum: 0u64,
                 height: 0u64,
-                sheight: 1u64,
                 alltagsever: HashSet::new(),
                 headshard: 0,
                 rmems: HashMap::new(),
@@ -198,7 +197,6 @@ struct SavedNode {
     bnum: u64,
     lastbnum: u64,
     height: u64,
-    sheight: u64,
     alltagsever: HashSet<CompressedRistretto>,
     headshard: usize,
     rname: Vec<u8>,
@@ -227,7 +225,6 @@ struct KhoraNode {
     nmine: Option<[u64; 2]>, // [location, amount]
     nheight: u64,
     height: u64,
-    sheight: u64,
     mine: HashMap<u64, OTAccount>,
     reversemine: HashMap<CompressedRistretto, u64>,
     alltagsever: HashSet<CompressedRistretto>,
@@ -263,7 +260,6 @@ impl KhoraNode {
                 bnum: self.bnum,
                 lastbnum: self.lastbnum,
                 height: self.height,
-                sheight: self.sheight,
                 alltagsever: self.alltagsever.clone(),
                 headshard: self.headshard.clone(),
                 rname: self.rname.clone(),
@@ -306,7 +302,6 @@ impl KhoraNode {
             bnum: sn.bnum,
             lastbnum: sn.lastbnum,
             height: sn.height,
-            sheight: sn.sheight,
             alltagsever:sn.alltagsever.clone(),
             headshard: sn.headshard.clone(),
             rmems: HashMap::new(),
@@ -367,8 +362,6 @@ impl KhoraNode {
                 let reward = reward(self.cumtime,self.blocktime);
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
                     // let t = Instant::now();
-                    // lastlightning.scanstk(&self.me, &mut None::<[u64; 2]>, false, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
-                    self.sheight = self.stkinfo.len() as u64;
                     // println!("{}",format!("scan stake: {}",t.elapsed().as_millis()).yellow());
                     // let t = Instant::now();
                     let mut guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);

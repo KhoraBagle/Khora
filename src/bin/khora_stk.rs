@@ -527,7 +527,7 @@ impl KhoraNode {
 
     /// reads a full block (by converting it to lightning then reading that)
     fn readblock(&mut self, lastblock: NextBlock, m: Vec<u8>, save: bool) -> bool {
-        let lastlightning = lastblock.tolightning();
+        let lastlightning = lastblock.tolightning(&self.nonanony);
         let l = bincode::serialize(&lastlightning).unwrap();
         self.readlightning(lastlightning,l,Some(m.clone()), save)
     }
@@ -1153,9 +1153,9 @@ impl Future for KhoraNode {
                 // if you are the leader, run these block creation commands
                 if self.me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress() == self.leader {
                     if (self.sigs.len() > SIGNING_CUTOFF) && (self.timekeeper.elapsed().as_secs() > (0.25*self.blocktime) as u64) {
-                        if let Ok(lastblock) = NextBlock::finish(&self.key, &self.keylocation.iter().next().unwrap(), &self.sigs, &self.comittee[self.headshard].par_iter().map(|x|*x as u64).collect::<Vec<u64>>(), &(self.headshard as u16), &self.bnum, &self.lastname, &self.stkinfo) {
+                        if let Ok(lastblock) = NextBlock::finish(&self.key, &self.keylocation.iter().next().unwrap(), &self.sigs, &self.comittee[self.headshard].par_iter().map(|x|*x as u64).collect::<Vec<u64>>(), &(self.headshard as u16), &self.bnum, &self.lastname, &self.stkinfo,&self.nonanony) {
                             
-                            lastblock.verify(&self.comittee[self.headshard].iter().map(|&x| x as u64).collect::<Vec<_>>(), &self.stkinfo).unwrap();
+                            lastblock.verify(&self.comittee[self.headshard].iter().map(|&x| x as u64).collect::<Vec<_>>(), &self.stkinfo,&self.nonanony).unwrap();
     
                             let mut m = bincode::serialize(&lastblock).unwrap();
                             m.push(3u8);
@@ -1177,8 +1177,9 @@ impl Future for KhoraNode {
                             let c = self.bnum.to_le_bytes().to_vec();
                             let d = self.lastname.clone();
                             let e = &self.stkinfo;
+                            let f = &self.nonanony;
                             self.sigs.retain(|x| {
-                                let m = vec![a.clone(),b.clone(),Syncedtx::to_sign(&x.txs),c.clone(),d.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
+                                let m = vec![a.clone(),b.clone(),Syncedtx::to_sign(&x.txs,f),c.clone(),d.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
                                 let mut s = Sha3_512::new();
                                 s.update(&m);
                                 Signature::verify(&x.leader, &mut s.clone(),&e)

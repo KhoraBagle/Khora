@@ -77,6 +77,7 @@ pub struct Syncedtx{
     pub stkout: Vec<u64>,
     pub stkin: Vec<(CompressedRistretto,u64)>,
     pub nonanonyout: Vec<u64>,
+    pub nonanonygrow: Vec<(u64,u64)>,
     pub nonanonyin: Vec<(CompressedRistretto,u64)>,
     pub txout: Vec<OTAccount>,
     pub tags: Vec<CompressedRistretto>,
@@ -91,7 +92,7 @@ impl PartialEq for Syncedtx {
 
 impl Syncedtx {
     /// distills the important information from a group of transactions
-    pub fn from(txs: &Vec<PolynomialTransaction>)->Syncedtx {
+    pub fn from(txs: &Vec<PolynomialTransaction>, nonanonyinfo: &Vec<(CompressedRistretto,u64)>)->Syncedtx {
         let stkout = txs.par_iter().filter_map(|x|
             if x.inputs.last() == Some(&1) {Some(x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>())} else {None}
         ).flatten().collect::<Vec<u64>>();
@@ -147,6 +148,20 @@ impl Syncedtx {
         }).collect();
 
 
+        
+        let (nonanonyin, nonanonygrow): (Vec<_>,Vec<_>) = nonanonyin.par_iter().map(|x| {
+            if let Some(z) = nonanonyinfo.par_iter().enumerate().find_first(|y| {
+                y.1.0 == x.0
+            }) {
+                (None,Some((z.0,x.1)))
+            } else {
+                (Some(x),None)
+            }
+        }).unzip();
+        let nonanonyin = nonanonyin.par_iter().filter_map(|x|x).collect::<Vec<_>>();
+        let nonanonygrow = nonanonygrow.par_iter().filter_map(|x|x).collect::<Vec<_>>();
+
+
         let txout = txs.into_par_iter().map(|x|
             x.outputs.to_owned().into_iter().filter(|x| stakereader_acc().read_ot(x).is_err()).collect::<Vec<_>>()
         ).flatten().collect::<Vec<OTAccount>>();
@@ -154,7 +169,9 @@ impl Syncedtx {
             if x.inputs.last() != Some(&1) {Some(x.tags.clone())} else {None}
         ).flatten().collect::<Vec<CompressedRistretto>>();
         let fees = txs.par_iter().map(|x|x.fee).sum::<u64>();
-        Syncedtx{stkout,stkin,nonanonyout,nonanonyin,txout,tags,fees}
+
+
+        Syncedtx{stkout,stkin,nonanonyout,nonanonygrow,nonanonyin,txout,tags,fees}
     }
 
     /// the message block creaters sign so even lightning blocks can be verified

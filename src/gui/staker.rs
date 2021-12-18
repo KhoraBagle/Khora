@@ -695,7 +695,6 @@ impl epi::App for KhoraStakerGUI {
                             send_addr.push("".to_string());
                             send_amnt.push("".to_string());
                         }
-                        ui.end_row();
                         ui.add(Label::new("Name").heading());
                         ui.add(Label::new("Wallet Address").heading());
                         ui.add(Label::new("Amount").heading());

@@ -895,7 +895,7 @@ impl LightningSyncBlock {
 
         if dononanony {
 
-            self.info.nonanonygrow.iter().for_each(|x| nonanony[x.1 as usize].1 += x.1);
+            self.info.nonanonygrow.iter().for_each(|x| nonanony[x.0 as usize].1 += x.1);
             for x in self.info.nonanonyout.iter().rev() {
                 nonanony.remove(*x as usize);
             }

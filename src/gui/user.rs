@@ -93,6 +93,9 @@ pub struct KhoraUserGUI {
     save_extra: bool,
     transaction_processing: bool,
     transaction_processed: bool,
+    transaction_processingn: bool,
+    transaction_processedn: bool,
+    tx_failed: bool,
     nonanony: u64,
     nonanonyaddr: String,
     txtype: TxInput,
@@ -175,6 +178,9 @@ impl Default for KhoraUserGUI {
             logout_window: false,
             transaction_processing: false,
             transaction_processed: true,
+            transaction_processingn: false,
+            transaction_processedn: true,
+            tx_failed: false,
             nextblock: 0,
             nonanony: 0,
             nonanonyaddr: "".to_string(),
@@ -275,6 +281,11 @@ impl epi::App for KhoraUserGUI {
                 let mut m = retain_numeric(self.fee.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec();
                 m.push(2);
                 self.sender.send(m);
+            } else if modification == 9 {
+                self.transaction_processedn = true;
+            } else if modification == 10 {
+                self.transaction_processedn = true;
+                self.tx_failed = true;
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();
@@ -296,6 +307,9 @@ impl epi::App for KhoraUserGUI {
             reciever: _,
             transaction_processing,
             transaction_processed,
+            transaction_processingn,
+            transaction_processedn,
+            tx_failed,
             sender,
             unstaked,
             friends,
@@ -628,13 +642,21 @@ impl epi::App for KhoraUserGUI {
                                         m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
                                         m.push(*ringsize);
                                         m.push(33);
+                                        if !*you_cant_do_that {
+                                            *transaction_processing = true;
+                                            *transaction_processed = false;
+                                        }
                                     }
                                     TxInput::Visible => {
                                         *you_cant_do_that = (*nonanony as i128) < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
 
                                         m.extend(str::to_ascii_lowercase(&nonanonyaddr).as_bytes());
                                         m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
-                                        m.push(64); // 63?
+                                        m.push(64);
+                                        if !*you_cant_do_that {
+                                            *transaction_processingn = true;
+                                            *transaction_processedn = false;
+                                        }
                                     }
                                 }
 ;                                if !*you_cant_do_that {
@@ -643,8 +665,6 @@ impl epi::App for KhoraUserGUI {
                                     *send_name = vec!["".to_string()];
                                     *send_addr = vec!["".to_string()];
                                     *send_amnt = vec!["".to_string()];
-                                    *transaction_processing = true;
-                                    *transaction_processed = false;
                                 }
                             }
                         }
@@ -675,14 +695,32 @@ impl epi::App for KhoraUserGUI {
         if *transaction_processing {
             egui::Window::new("Processing").show(ctx, |ui| {
                 if *transaction_processed {
-                    ui.add(Label::new("The transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                    ui.add(Label::new("The anony transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
                     if ui.button("Close").clicked() {
                         *transaction_processing = false;
                         *transaction_processed = false;
                     }
                 } else {
-                    ui.add(Label::new("The transaction is being processed.").text_color(egui::Color32::RED));
+                    ui.add(Label::new("The anony transaction is being processed.").text_color(egui::Color32::RED));
                 } 
+            });
+        }
+        if *transaction_processingn {
+            egui::Window::new("Processing").show(ctx, |ui| {
+                if *transaction_processedn {
+                    if *tx_failed {
+                        ui.add(Label::new("The transaction did not go through.\nPlease resend it if you would still like to make it.").text_color(egui::Color32::YELLOW));
+                    } else {
+                        ui.add(Label::new("The nonanony transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                    }
+                    if ui.button("Close").clicked() {
+                        *transaction_processingn = false;
+                        *transaction_processedn = false;
+                        *tx_failed = false;
+                    }
+                } else {
+                    ui.add(Label::new("The nonanony transaction is being processed.").text_color(egui::Color32::RED));
+                }
             });
         }
         if  pswd_guess0 == password0 || *setup {

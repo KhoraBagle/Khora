@@ -110,6 +110,7 @@ fn main() -> Result<(), MainError> {
                 blocktime: blocktime(0.0),
                 ringsize: 5,
                 gui_timer: Instant::now(),
+                lastnonanony: None,
             };
             node.save();
 
@@ -205,6 +206,7 @@ struct SavedNode {
     blocktime: f64,
     ringsize: u8,
     lasttags: Vec<PolynomialTransaction>,
+    lastnonanony: Option<u64>,
 }
 
 /// the node used to run all the networking
@@ -237,6 +239,7 @@ struct KhoraNode {
     gui_timer: Instant,
     ringsize: u8,
     lasttags: Vec<PolynomialTransaction>,
+    lastnonanony: Option<u64>,
 }
 
 impl KhoraNode {
@@ -267,6 +270,7 @@ impl KhoraNode {
                 cumtime: self.cumtime,
                 blocktime: self.blocktime,
                 ringsize: self.ringsize,
+                lastnonanony: self.lastnonanony,
             }; // just redo initial conditions on the rest
             let mut sn = bincode::serialize(&sn).unwrap();
             let mut f = File::create("myUsr").unwrap();
@@ -312,6 +316,7 @@ impl KhoraNode {
             gui_timer: Instant::now(),
             ringsize: sn.ringsize,
             lasttags: sn.lasttags.clone(),
+            lastnonanony: sn.lastnonanony,
         }
     }
 
@@ -399,8 +404,24 @@ impl KhoraNode {
                 self.lasttags.clone().into_iter().for_each(|x| {
                     if lastlightning.info.tags.contains(&x.tags[0]) {
                         self.lasttags = vec![];
-                    }    
+                    }
                 });
+                if let Some(x) = self.lastnonanony {
+                    if lastlightning.info.nonanonyout.contains(&x) {
+                        self.lastnonanony = None;
+                    }
+                }
+                self.lastnonanony.iter_mut().for_each(|x| {
+                    *x -= lastlightning.info.nonanonyout.iter().filter(|&&y| {
+                        y < *x
+                    }).count() as u64;
+                });
+                
+                if self.lastnonanony.is_some() && (self.bnum%NONCEYNESS == 0 || self.lastnonanony.iter().all(|x| {
+                    lastlightning.info.nonanonygrow.iter().any(|y| y.0 == *x)
+                })) {
+                    self.gui_sender.send(vec![10]).expect("something's wrong with the communication to the gui");
+                }
 
                 self.cumtime += self.blocktime;
                 self.blocktime = blocktime(self.cumtime);
@@ -580,6 +601,9 @@ impl KhoraNode {
         if self.lasttags.is_empty() {
             self.gui_sender.send(vec![5]).expect("something's wrong with the communication to the gui");
         }
+        if self.lastnonanony.is_none() {
+            self.gui_sender.send(vec![9]).expect("something's wrong with the communication to the gui");
+        }
         self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
         if self.mine.len() >= ACCOUNT_COMBINE {
             self.gui_sender.send(vec![8]);
@@ -748,26 +772,30 @@ impl Future for KhoraNode {
                                 println!("{}","TRANSACTION INVALID".red().bold());
                             }
                         } else if txtype ==  64 /* ?+1 */ {
-                            let m = Scalar::from(self.nmine.unwrap()[1]) - outs.iter().map(|x| x.1).sum::<Scalar>();
-                            let x = outs.len() - 1;
-                            outs[x].1 = m;
-
-                            
-                            let (loc, amnt): (Vec<u64>,Vec<u64>) = self.nmine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
-                            let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
-                            let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
-                            if tx.verify_nonce(self.bnum/NONCEYNESS).is_ok() {
-                                let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
-                                loc.push(2);
-                                let tx = tx.polyform(&loc);
-
-                                let mut txbin = bincode::serialize(&tx).unwrap();
-                                txbin.push(0);
-                                self.lasttags.push(tx);
-                                self.send_message(txbin,TRANSACTION_SEND_TO);
-                                println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
+                            if let Some(nmine) = self.nmine {
+                                let m = Scalar::from(nmine[1]) - outs.iter().map(|x| x.1).sum::<Scalar>();
+                                let x = outs.len() - 1;
+                                outs[x].1 = m;
+    
+                                
+                                let (loc, amnt): (Vec<u64>,Vec<u64>) = vec![nmine].iter().map(|x|(x[0],x[1])).unzip();
+                                let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
+                                let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
+                                if tx.verify_nonce(self.bnum/NONCEYNESS).is_ok() {
+                                    let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
+                                    loc.push(2);
+                                    let tx = tx.polyform(&loc);
+    
+                                    let mut txbin = bincode::serialize(&tx).unwrap();
+                                    txbin.push(0);
+                                    self.lastnonanony = Some(nmine[0]);
+                                    self.send_message(txbin,TRANSACTION_SEND_TO);
+                                    println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
+                                } else {
+                                    println!("{}","TRANSACTION INVALID".red().bold());
+                                }
                             } else {
-                                println!("{}","TRANSACTION INVALID".red().bold());
+                                println!("{}","YOU HAVE NO NONANONY MONEY".red().bold())
                             }
                         }
                     } else if istx == 2 /* divide accounts so you can make faster tx */ {

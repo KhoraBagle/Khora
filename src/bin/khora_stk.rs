@@ -151,6 +151,7 @@ fn main() -> Result<(), MainError> {
                 outerlister: channel::unbounded().1,
                 allnetwork,
                 lasttags: vec![],
+                lastnonanony: None,
                 nonanony: vec![],
                 lastspot: None,
                 me,
@@ -328,6 +329,7 @@ struct SavedNode {
     lasttags: Vec<CompressedRistretto>,
     lastspot: Option<u64>,
     maxcli: u8,
+    lastnonanony: Option<u64>,
 }
 
 /// the node used to run all the networking
@@ -386,6 +388,7 @@ struct KhoraNode {
     clients: Arc<RwLock<u8>>,
     maxcli: u8,
     spammers: HashSet<SocketAddr>,
+    lastnonanony: Option<u64>,
 }
 
 impl KhoraNode {
@@ -432,6 +435,7 @@ impl KhoraNode {
                 pv: self.outer.hyparview_node.passive_view.clone(),
                 maxcli: self.maxcli,
                 nonanony: self.nonanony.clone(),
+                lastnonanony: self.lastnonanony,
             }; // just redo initial conditions on the rest
             let mut sn = bincode::serialize(&sn).unwrap();
             let mut f = File::create("myNode").unwrap();
@@ -522,6 +526,7 @@ impl KhoraNode {
             maxcli: sn.maxcli,
             spammers: HashSet::new(),
             nonanony: sn.nonanony.clone(),
+            lastnonanony: sn.lastnonanony,
         }
     }
 
@@ -748,8 +753,23 @@ impl KhoraNode {
                     self.lasttags = vec![];
                     self.gui_sender.send(vec![5]);
                 }
-
-
+                if let Some(x) = self.lastnonanony {
+                    if lastlightning.info.nonanonyout.contains(&x) {
+                        self.gui_sender.send(vec![9]).expect("something's wrong with the communication to the gui");
+                        self.lastnonanony = None;
+                    }
+                }
+                self.lastnonanony.iter_mut().for_each(|x| {
+                    *x -= lastlightning.info.nonanonyout.iter().filter(|&&y| {
+                        y < *x
+                    }).count() as u64;
+                });
+                
+                if self.lastnonanony.is_some() && (self.bnum%NONCEYNESS == 0 || self.lastnonanony.iter().all(|x| {
+                    lastlightning.info.nonanonygrow.iter().any(|y| y.0 == *x)
+                })) {
+                    self.gui_sender.send(vec![10]).expect("something's wrong with the communication to the gui");
+                }
 
                 self.cumtime += self.blocktime;
                 self.blocktime = blocktime(self.cumtime);
@@ -1565,25 +1585,31 @@ impl Future for KhoraNode {
                                 println!("you can't make that transaction!");
                             }
                         } else if txtype == 64 /* ?+1 */ { // transaction should be spent with nonanony money
-                            let m = Scalar::from(self.nmine.unwrap()[1]) - outs.iter().map(|x| x.1).sum::<Scalar>();
-                            let x = outs.len() - 1;
-                            outs[x].1 = m;
-
-                            
-                            let (loc, amnt): (Vec<u64>,Vec<u64>) = self.nmine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
-                            let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
-                            let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
-                            tx.verify_nonce(self.bnum/NONCEYNESS).unwrap();
-                            let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
-                            loc.push(2);
-                            let tx = tx.polyform(&loc); // push 0
-                            println!("{:?}",self.nonanony);
-                            if tx.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok() {
-                                txbin = bincode::serialize(&tx).unwrap();
-                                self.txses.insert(tx);
+                            if let Some(nmine) = self.nmine {
+                                let m = Scalar::from(nmine[1]) - outs.iter().map(|x| x.1).sum::<Scalar>();
+                                let x = outs.len() - 1;
+                                outs[x].1 = m;
+    
+                                
+                                let (loc, amnt): (Vec<u64>,Vec<u64>) = self.nmine.iter().map(|x|(x[0],x[1])).unzip();
+                                let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
+                                let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
+                                tx.verify_nonce(self.bnum/NONCEYNESS).unwrap();
+                                let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
+                                loc.push(2);
+                                let tx = tx.polyform(&loc); // push 0
+                                println!("{:?}",self.nonanony);
+                                if tx.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok() {
+                                    txbin = bincode::serialize(&tx).unwrap();
+                                    self.lastnonanony = Some(nmine[0]);
+                                    self.txses.insert(tx);
+                                } else {
+                                    txbin = vec![];
+                                    println!("you can't make that transaction!");
+                                }
                             } else {
                                 txbin = vec![];
-                                println!("you can't make that transaction!");
+                                println!("you have non nonanony money!");
                             }
                         } else {
                             txbin = vec![];

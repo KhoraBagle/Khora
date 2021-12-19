@@ -7,7 +7,7 @@ use separator::Separatable;
 use getrandom::getrandom;
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_512};
-use crate::validation::{VERSION, MINSTK, STAKER_BLOOM_NAME};
+use crate::validation::{VERSION, MINSTK, STAKER_BLOOM_NAME, blocktime};
 
 /*
 cargo run --bin full_staker --release 9876 pig
@@ -102,6 +102,9 @@ pub struct KhoraStakerGUI {
     transaction_processing: bool,
     transaction_processeds: bool,
     transaction_processings: bool,
+    transaction_processingn: bool,
+    transaction_processedn: bool,
+    tx_failed: bool,
     txtype: TxInput,
 
     #[cfg_attr(feature = "persistence", serde(skip))]
@@ -174,7 +177,7 @@ impl Default for KhoraStakerGUI {
             txtype: TxInput::Invisable,
             show_reset: false,
             you_cant_do_that: false,
-            eta: 60,
+            eta: blocktime(0.0) as i8,
             timekeeper: Instant::now(),
             setup: false,
             send_name: vec!["".to_string()],
@@ -193,6 +196,9 @@ impl Default for KhoraStakerGUI {
             transaction_processed: true,
             transaction_processings: false,
             transaction_processeds: true,
+            transaction_processingn: false,
+            transaction_processedn: true,
+            tx_failed: false,
             nextblock: 0,
             maxcli: 10,
         }
@@ -342,6 +348,11 @@ impl epi::App for KhoraStakerGUI {
                 let mut m = retain_numeric(self.fee.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec();
                 m.push(2);
                 self.sender.send(m);
+            } else if modification == 9 {
+                self.transaction_processedn = true;
+            } else if modification == 10 {
+                self.transaction_processedn = true;
+                self.tx_failed = true;
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();
@@ -366,6 +377,9 @@ impl epi::App for KhoraStakerGUI {
             transaction_processed,
             transaction_processings,
             transaction_processeds,
+            transaction_processingn,
+            transaction_processedn,
+            tx_failed,
             nonanonyaddr,
             nonanony,
             sender,
@@ -748,11 +762,14 @@ impl epi::App for KhoraStakerGUI {
                                     TxInput::Stake => {
                                         let x = tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
                                         *you_cant_do_that = (*staked as i128) < MINSTK as i128 + x || *staked as i128 == x;
-                                        if x > 0 {
-                                            m.extend(str::to_ascii_lowercase(&stkaddr).as_bytes());
-                                            m.extend((x as u64).to_le_bytes());
-                                        }
+                                        m.extend(str::to_ascii_lowercase(&stkaddr).as_bytes());
+                                        m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
                                         m.push(63);
+
+                                        if !*you_cant_do_that {
+                                            *transaction_processings = true;
+                                            *transaction_processeds = false;
+                                        }
                                     }
                                     TxInput::Invisable => {
                                         *you_cant_do_that = (*unstaked as i128) < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
@@ -761,6 +778,11 @@ impl epi::App for KhoraStakerGUI {
                                         m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
                                         m.push(*ringsize);
                                         m.push(33);
+
+                                        if !*you_cant_do_that {
+                                            *transaction_processing = true;
+                                            *transaction_processed = false;
+                                        }
                                     }
                                     TxInput::Visible => {
                                         *you_cant_do_that = (*nonanony as i128) < tot + retain_numeric(fee.to_string()).parse::<i128>().unwrap();
@@ -768,6 +790,11 @@ impl epi::App for KhoraStakerGUI {
                                         m.extend(str::to_ascii_lowercase(&nonanonyaddr).as_bytes());
                                         m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
                                         m.push(64); // 63?
+
+                                        if !*you_cant_do_that {
+                                            *transaction_processingn = true;
+                                            *transaction_processedn = false;
+                                        }
                                     }
                                 }
 ;                               if !*you_cant_do_that {
@@ -809,13 +836,13 @@ impl epi::App for KhoraStakerGUI {
         if *transaction_processing {
             egui::Window::new("Processing").show(ctx, |ui| {
                 if *transaction_processed {
-                    ui.add(Label::new("The non staking transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                    ui.add(Label::new("The non staking nonanonymous transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
                     if ui.button("Close").clicked() {
                         *transaction_processing = false;
                         *transaction_processed = false;
                     }
                 } else {
-                    ui.add(Label::new("The non staking transaction is being processed. If you make another transaction (including panicing), only 1 will go through").text_color(egui::Color32::RED));
+                    ui.add(Label::new("The non staking nonanonymous transaction is being processed. If you make another transaction (including panicing), only 1 will go through").text_color(egui::Color32::RED));
                 } 
             });
         }
@@ -830,6 +857,24 @@ impl epi::App for KhoraStakerGUI {
                 } else {
                     ui.add(Label::new("The staking transaction is being processed. If you make another transaction (including panicing), only 1 will go through").text_color(egui::Color32::RED));
                 } 
+            });
+        }
+        if *transaction_processingn {
+            egui::Window::new("Processing").show(ctx, |ui| {
+                if *transaction_processedn {
+                    if *tx_failed {
+                        ui.add(Label::new("The transaction did not go through.\nPlease resend it if you would still like to make it.").text_color(egui::Color32::YELLOW));
+                    } else {
+                        ui.add(Label::new("The non staking nonanonymous transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                    }
+                    if ui.button("Close").clicked() {
+                        *transaction_processingn = false;
+                        *transaction_processedn = false;
+                        *tx_failed = false;
+                    }
+                } else {
+                    ui.add(Label::new("The non staking nonanonymous transaction is being processed.").text_color(egui::Color32::RED));
+                }
             });
         }
         if  pswd_guess0 == password0 || *setup { // add warning to not panic 2ce in a row

@@ -175,7 +175,7 @@ impl Syncedtx {
             x.outputs.to_owned().into_iter().filter(|x| stakereader_acc().read_ot(x).is_err()).collect::<Vec<_>>()
         ).flatten().collect::<Vec<OTAccount>>();
         let tags = txs.par_iter().filter_map(|x|
-            if x.inputs.last() != Some(&1) {Some(x.tags.clone())} else {None}
+            if x.inputs.last() == Some(&0) {Some(x.tags.clone())} else {None}
         ).flatten().collect::<Vec<CompressedRistretto>>();
         let fees = txs.par_iter().map(|x|x.fee).sum::<u64>();
 
@@ -1105,7 +1105,8 @@ impl LightningSyncBlock {
         
         if self.bnum%10 == 0 {
             println!("ideal: {:?}",me.nonanony_acc().derive_stk_ot(&Scalar::one()).pk.compress());
-            println!("real: {:?}",self.info.nonanonyin);
+            println!("in: {:?}",self.info.nonanonyin);
+            println!("grow: {:?}",self.info.nonanonygrow);
             println!("staker reference: {:?}",self.info.stkin);
             println!("random: {:?}",self.info.txout.iter().map(|x| x.pk.compress()).collect::<Vec<_>>());
         }

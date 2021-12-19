@@ -304,7 +304,7 @@ impl epi::App for KhoraStakerGUI {
                     self.sender.send(m).expect("something's wrong with communication from the gui");
                 }
     
-                if self.block_number%10 == 0 {
+                if self.block_number%10 == 0 || self.block_number < 10 {
                     let mut m = vec![];
                     let x = 10_000_000u64;
                     m.extend(b"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklbkjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklb");

@@ -93,62 +93,74 @@ impl PartialEq for Syncedtx {
 impl Syncedtx {
     /// distills the important information from a group of transactions
     pub fn from(txs: &Vec<PolynomialTransaction>, nonanonyinfo: &Vec<(CompressedRistretto,u64)>)->Syncedtx {
-        let stkout = txs.par_iter().filter_map(|x|
-            if x.inputs.last() == Some(&1) {Some(x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>())} else {None}
-        ).flatten().collect::<Vec<u64>>();
-        let mut stkin = txs.par_iter().map(|x|
-            x.outputs.iter().filter_map(|y| 
-                if let Ok(z) = stakereader_acc().read_ot(y) {Some((z.pk.compress(),u64::from_le_bytes(z.com.amount.unwrap().as_bytes()[..8].try_into().unwrap())))} else {None}
-            ).collect::<Vec<_>>()
-        ).flatten().collect::<Vec<(CompressedRistretto,u64)>>();
-        
-        stkin = stkin.par_iter().enumerate().map(|(i,x)| {
-            (x.0,stkin.par_iter().take(i+1).filter_map(|y| {
+
+        let ((tags,fees), (inputs, outputs)): ((Vec<_>,Vec<_>),(Vec<_>,Vec<Vec<_>>)) = txs.into_par_iter().map(|x|
+            ((if x.inputs.last() == Some(&0) {Some(x.tags.clone())} else {None},x.fee),(x.inputs.clone(),x.outputs.clone()))
+        ).unzip();
+        let tags = tags.into_par_iter().filter_map(|x|x).flatten().collect::<Vec<_>>();
+        let outputs = outputs.into_par_iter().flatten().collect::<Vec<_>>();
+        let fees = fees.into_par_iter().sum::<u64>();
+
+        let (txout, (stkin,nonanonyin)): (Vec<_>,(Vec<_>,Vec<_>)) = outputs.into_par_iter().map(|x| {
+            if let Ok(z) = stakereader_acc().read_ot(&x) {
+                (None,(Some((z.pk.compress(),u64::from_le_bytes(z.com.amount.unwrap().as_bytes()[..8].try_into().unwrap()))),None))
+            } else if let Ok(z) = nonanonyreader_acc().read_ot(&x) {
+                (None,(None,Some((z.pk.compress(),u64::from_le_bytes(z.com.amount.unwrap().as_bytes()[..8].try_into().unwrap())))))
+            } else {
+                (Some(x),(None,None))
+            }
+        }).unzip();
+        let txout = txout.into_par_iter().filter_map(|x|x).collect::<Vec<_>>();
+        let mut stkin = stkin.into_par_iter().filter_map(|x|x).collect::<Vec<_>>();
+        let mut nonanonyin = nonanonyin.into_par_iter().filter_map(|x|x).collect::<Vec<_>>();
+
+        let (stkout,nonanonyout): (Vec<_>,Vec<_>) = inputs.into_par_iter().filter_map(|x| {
+            if x.last() == Some(&1) {
+                Some((Some(x.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>()),None))
+            } else if x.last() == Some(&2) {
+                Some((None,Some(x.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>())))
+            } else {None}
+        }).unzip();
+        let stkout = stkout.into_par_iter().filter_map(|x|x).flatten().collect::<Vec<_>>();
+        let nonanonyout = nonanonyout.into_par_iter().filter_map(|x|x).flatten().collect::<Vec<_>>();
+
+
+        let s = stkin.clone();
+        stkin.par_iter_mut().enumerate().for_each(|(i,x)| {
+            x.1 += s.par_iter().take(i).filter_map(|y| {
                 if y.0 == x.0 {
                     Some(y.1)
                 } else {
                     None
                 }
-            }).sum::<u64>())
-        }).collect();
+            }).sum::<u64>();
+        });
         stkin = stkin.par_iter().rev().enumerate().filter_map(|(i,&x)| {
-            if stkin.par_iter().take(i).all(|y| y.0 != x.0) {
+            if s.par_iter().take(i).all(|y| y.0 != x.0) {
                 Some(x)
             } else {
                 None
             }
         }).collect();
 
-        // println!("stkin{:?}",stkin);
-
-        let nonanonyout = txs.par_iter().filter_map(|x|
-            if x.inputs.last() == Some(&2) {Some(x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>())} else {None}
-        ).flatten().collect::<Vec<u64>>();
-        let mut nonanonyin = txs.par_iter().map(|x|
-            x.outputs.iter().filter_map(|y| 
-                if let Ok(z) = nonanonyreader_acc().read_ot(y) {Some((z.pk.compress(),u64::from_le_bytes(z.com.amount.unwrap().as_bytes()[..8].try_into().unwrap())))} else {None}
-            ).collect::<Vec<_>>()
-        ).flatten().collect::<Vec<(CompressedRistretto,u64)>>();
-
-        nonanonyin = nonanonyin.par_iter().enumerate().map(|(i,x)| {
-            (x.0,nonanonyin.par_iter().take(i+1).filter_map(|y| {
+        let s = nonanonyin.clone();
+        nonanonyin.par_iter_mut().enumerate().for_each(|(i,x)| {
+            x.1 += s.par_iter().take(i).filter_map(|y| {
                 if y.0 == x.0 {
                     Some(y.1)
                 } else {
                     None
                 }
-            }).sum::<u64>())
-        }).collect();
+            }).sum::<u64>();
+        });
         nonanonyin = nonanonyin.par_iter().rev().enumerate().filter_map(|(i,&x)| {
-            if nonanonyin.par_iter().take(i).all(|y| y.0 != x.0) {
+            if s.par_iter().take(i).all(|y| y.0 != x.0) {
                 Some(x)
             } else {
                 None
             }
         }).collect();
 
-
-        
         let (nonanonyin, nonanonygrow): (Vec<_>,Vec<_>) = nonanonyin.par_iter().map(|x| {
             if let Some(z) = nonanonyinfo.par_iter().enumerate().find_first(|y| {
                 y.1.0 == x.0
@@ -161,7 +173,6 @@ impl Syncedtx {
         let mut nonanonyin = nonanonyin.par_iter().filter_map(|x|x.as_ref()).copied().copied().collect::<Vec<_>>();
         let mut nonanonygrow = nonanonygrow.par_iter().filter_map(|x|x.as_ref()).copied().collect::<Vec<_>>();
 
-
         nonanonygrow.retain(|x| {
             if nonanonyout.par_iter().find_first(|&&y| y == x.0).is_some() {
                 nonanonyin.push((nonanonyinfo[x.0 as usize].0,x.1));
@@ -171,13 +182,91 @@ impl Syncedtx {
             }
         });
 
-        let txout = txs.into_par_iter().map(|x|
-            x.outputs.to_owned().into_iter().filter(|x| stakereader_acc().read_ot(x).is_err()).collect::<Vec<_>>()
-        ).flatten().collect::<Vec<OTAccount>>();
-        let tags = txs.par_iter().filter_map(|x|
-            if x.inputs.last() == Some(&0) {Some(x.tags.clone())} else {None}
-        ).flatten().collect::<Vec<CompressedRistretto>>();
-        let fees = txs.par_iter().map(|x|x.fee).sum::<u64>();
+
+        // let stkout = txs.par_iter().filter_map(|x|
+        //     if x.inputs.last() == Some(&1) {Some(x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>())} else {None}
+        // ).flatten().collect::<Vec<u64>>();
+        // let mut stkin = txs.par_iter().map(|x|
+        //     x.outputs.iter().filter_map(|y| 
+        //         if let Ok(z) = stakereader_acc().read_ot(y) {Some((z.pk.compress(),u64::from_le_bytes(z.com.amount.unwrap().as_bytes()[..8].try_into().unwrap())))} else {None}
+        //     ).collect::<Vec<_>>()
+        // ).flatten().collect::<Vec<(CompressedRistretto,u64)>>();
+        
+        // stkin = stkin.par_iter().enumerate().map(|(i,x)| {
+        //     (x.0,stkin.par_iter().take(i+1).filter_map(|y| {
+        //         if y.0 == x.0 {
+        //             Some(y.1)
+        //         } else {
+        //             None
+        //         }
+        //     }).sum::<u64>())
+        // }).collect();
+        // stkin = stkin.par_iter().rev().enumerate().filter_map(|(i,&x)| {
+        //     if stkin.par_iter().take(i).all(|y| y.0 != x.0) {
+        //         Some(x)
+        //     } else {
+        //         None
+        //     }
+        // }).collect();
+
+
+        // let nonanonyout = txs.par_iter().filter_map(|x|
+        //     if x.inputs.last() == Some(&2) {Some(x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>())} else {None}
+        // ).flatten().collect::<Vec<u64>>();
+        // let mut nonanonyin = txs.par_iter().map(|x|
+        //     x.outputs.iter().filter_map(|y| 
+        //         if let Ok(z) = nonanonyreader_acc().read_ot(y) {Some((z.pk.compress(),u64::from_le_bytes(z.com.amount.unwrap().as_bytes()[..8].try_into().unwrap())))} else {None}
+        //     ).collect::<Vec<_>>()
+        // ).flatten().collect::<Vec<(CompressedRistretto,u64)>>();
+
+        // nonanonyin = nonanonyin.par_iter().enumerate().map(|(i,x)| {
+        //     (x.0,nonanonyin.par_iter().take(i+1).filter_map(|y| {
+        //         if y.0 == x.0 {
+        //             Some(y.1)
+        //         } else {
+        //             None
+        //         }
+        //     }).sum::<u64>())
+        // }).collect();
+        // nonanonyin = nonanonyin.par_iter().rev().enumerate().filter_map(|(i,&x)| {
+        //     if nonanonyin.par_iter().take(i).all(|y| y.0 != x.0) {
+        //         Some(x)
+        //     } else {
+        //         None
+        //     }
+        // }).collect();
+
+
+        
+        // let (nonanonyin, nonanonygrow): (Vec<_>,Vec<_>) = nonanonyin.par_iter().map(|x| {
+        //     if let Some(z) = nonanonyinfo.par_iter().enumerate().find_first(|y| {
+        //         y.1.0 == x.0
+        //     }) {
+        //         (None,Some((z.0 as u64,x.1)))
+        //     } else {
+        //         (Some(x),None)
+        //     }
+        // }).unzip();
+        // let mut nonanonyin = nonanonyin.par_iter().filter_map(|x|x.as_ref()).copied().copied().collect::<Vec<_>>();
+        // let mut nonanonygrow = nonanonygrow.par_iter().filter_map(|x|x.as_ref()).copied().collect::<Vec<_>>();
+
+
+        // nonanonygrow.retain(|x| {
+        //     if nonanonyout.par_iter().find_first(|&&y| y == x.0).is_some() {
+        //         nonanonyin.push((nonanonyinfo[x.0 as usize].0,x.1));
+        //         false
+        //     } else {
+        //         true
+        //     }
+        // });
+
+        // let txout = txs.into_par_iter().map(|x|
+        //     x.outputs.to_owned().into_iter().filter(|x| stakereader_acc().read_ot(x).is_err()&&nonanonyreader_acc().read_ot(x).is_err()).collect::<Vec<_>>()
+        // ).flatten().collect::<Vec<OTAccount>>();
+        // let tags = txs.par_iter().filter_map(|x|
+        //     if x.inputs.last() == Some(&0) {Some(x.tags.clone())} else {None}
+        // ).flatten().collect::<Vec<CompressedRistretto>>();
+        // let fees = txs.par_iter().map(|x|x.fee).sum::<u64>();
 
 
         Syncedtx{stkout,stkin,nonanonyout,nonanonygrow,nonanonyin,txout,tags,fees}

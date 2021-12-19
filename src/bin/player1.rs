@@ -36,7 +36,6 @@ fn main() {
     let leader = Account::new(&person1).name();
     println!("{:?}",leader);
 
-    let person1 = get_pswrd(&"4321".to_string(),&"7654321".to_string(),&"54321".to_string());
     let leader = Account::new(&person1).nonanony_acc().name();
     println!("nonanony: {:?}",leader);
 
@@ -45,7 +44,6 @@ fn main() {
     let leader = Account::new(&person2).name();
     println!("{:?}",leader);
 
-    let person2 = get_pswrd(&"4321".to_string(),&"1234567".to_string(),&"12345".to_string());
     let leader = Account::new(&person2).nonanony_acc().name();
     println!("nonanony: {:?}",leader);
 

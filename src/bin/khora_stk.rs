@@ -1550,7 +1550,7 @@ impl Future for KhoraNode {
                             outs[x].1 = m;
 
                             
-                            let (loc, amnt): (Vec<u64>,Vec<u64>) = self.smine.iter().map(|x|(x[0] as u64,x[1].clone())).unzip();
+                            let (loc, amnt): (Vec<u64>,Vec<u64>) = self.smine.iter().map(|x|(x[0],x[1])).unzip();
                             let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
                             let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
                             // tx.verify().unwrap();

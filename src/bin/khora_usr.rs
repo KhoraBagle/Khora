@@ -702,7 +702,6 @@ impl Future for KhoraNode {
                             }
                         }
                         if txtype == 33 /* ! */ {
-                            self.ringsize = m.pop().unwrap();
 
                             // if you need help with ring generation
                             if self.mine.len() > 0 && validtx && outs.len() > 1 {

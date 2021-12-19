@@ -89,9 +89,18 @@ impl Transaction {
         let fee_amount = inamnt.into_iter().sum::<Scalar>() - recipients.iter().map(|(_,&y)| y).sum::<Scalar>();
         let mut outputs = recipients.into_iter().filter_map(|(rcpt,amout)|
             if **amout == Scalar::from(0u8) {None}
-            else if rcpt.vpk == RISTRETTO_BASEPOINT_POINT {Some(rcpt.derive_stk_ot(amout))}
-            else if rcpt.vpk == RISTRETTO_BASEPOINT_POINT*Scalar::from(2u8) {Some(rcpt.derive_stk_ot(amout))}
-            else {Some(rcpt.derive_ot(amout))}
+            else if rcpt.vpk == RISTRETTO_BASEPOINT_POINT {
+                println!("stake");
+                Some(rcpt.derive_stk_ot(amout))
+            }
+            else if rcpt.vpk == RISTRETTO_BASEPOINT_POINT*Scalar::from(2u8) {
+                println!("nonanony");
+                Some(rcpt.derive_stk_ot(amout))
+            }
+            else {
+                println!("anony");
+                Some(rcpt.derive_ot(amout))
+            }
         ).collect::<Vec<OTAccount>>();
         outputs.push(fee_ota(&fee_amount));
 
@@ -126,9 +135,18 @@ impl Transaction {
         let fee_amount = inamnt.into_iter().sum::<Scalar>() - recipients.iter().map(|(_,&y)| y).sum::<Scalar>();
         let mut outputs = recipients.into_iter().filter_map(|(rcpt,amout)|
             if **amout == Scalar::from(0u8) {None}
-            else if rcpt.vpk == RISTRETTO_BASEPOINT_POINT {Some(rcpt.derive_stk_ot(amout))}
-            else if rcpt.vpk == RISTRETTO_BASEPOINT_POINT*Scalar::from(2u8) {Some(rcpt.derive_stk_ot(amout))}
-            else {Some(rcpt.derive_ot(amout))}
+            else if rcpt.vpk == RISTRETTO_BASEPOINT_POINT {
+                println!("stake");
+                Some(rcpt.derive_stk_ot(amout))
+            }
+            else if rcpt.vpk == RISTRETTO_BASEPOINT_POINT*Scalar::from(2u8) {
+                println!("nonanony");
+                Some(rcpt.derive_stk_ot(amout))
+            }
+            else {
+                println!("anony");
+                Some(rcpt.derive_ot(amout))
+            }
         ).collect::<Vec<OTAccount>>();
         outputs.push(fee_ota(&fee_amount));
 

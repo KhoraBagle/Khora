@@ -1271,6 +1271,7 @@ impl Future for KhoraNode {
                                             let bnum = self.bnum;
                                             *self.clients.write() += 1;
                                             let cli = self.clients.clone();
+                                            println!("{:?}",m);
                                             thread::spawn(move || {
                                                 if let Ok(m) = m.try_into() {
                                                     if stream.write_all(&bnum.to_le_bytes()).is_ok() {
@@ -1278,7 +1279,7 @@ impl Future for KhoraNode {
                                                         println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                         loop {
                                                             if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
-                                                                println!("{}",x.len());
+                                                                // println!("{}",x.len());
                                                                 if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
                                                                     break
                                                                 }
@@ -1516,27 +1517,31 @@ impl Future for KhoraNode {
 
 
                             let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
-                            let ring = recieve_ring(&rname).expect("shouldn't fail");
-                            // println!("ring: {:?}",ring);
-                            // println!("mine: {:?}",acc.iter().map(|x|x.pk.compress()).collect::<Vec<_>>());
-                            // println!("ring: {:?}",ring.iter().map(|x|OTAccount::summon_ota(&History::get(&x)).pk.compress()).collect::<Vec<_>>());
-                            let rlring = ring.into_iter().map(|x| {
-                                if let Some(x) = self.mine.get(&x) {
-                                    x.clone()
+                            if let Ok(ring) = recieve_ring(&rname) {
+                                // println!("ring: {:?}",ring);
+                                // println!("mine: {:?}",acc.iter().map(|x|x.pk.compress()).collect::<Vec<_>>());
+                                // println!("ring: {:?}",ring.iter().map(|x|OTAccount::summon_ota(&History::get(&x)).pk.compress()).collect::<Vec<_>>());
+                                let rlring = ring.into_iter().map(|x| {
+                                    if let Some(x) = self.mine.get(&x) {
+                                        x.clone()
+                                    } else {
+                                        OTAccount::summon_ota(&History::get(&x))
+                                    }
+                                }).collect::<Vec<OTAccount>>();
+                                // println!("ring len: {:?}",rlring.len());
+                                let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
+                                let tx = tx.polyform(&rname);
+                                if tx.verify().is_ok() {
+                                    self.lasttags.push(tx.tags[0]);
+                                    txbin = bincode::serialize(&tx).unwrap();
+                                    self.txses.insert(tx);
                                 } else {
-                                    OTAccount::summon_ota(&History::get(&x))
+                                    txbin = vec![];
+                                    println!("you can't make that transaction!");
                                 }
-                            }).collect::<Vec<OTAccount>>();
-                            // println!("ring len: {:?}",rlring.len());
-                            let tx = Transaction::spend_ring(&rlring, &outs.par_iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
-                            let tx = tx.polyform(&rname);
-                            if tx.verify().is_ok() {
-                                self.lasttags.push(tx.tags[0]);
-                                txbin = bincode::serialize(&tx).unwrap();
-                                self.txses.insert(tx);
                             } else {
                                 txbin = vec![];
-                                println!("you can't make that transaction!");
+                                println!("you aren't allowed to use a ring that big!");
                             }
                             
                         } else if txtype == 63 /* ? */ { // transaction should be spent with staked money

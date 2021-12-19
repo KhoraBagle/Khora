@@ -768,7 +768,7 @@ impl Future for KhoraNode {
                                 self.send_message(txbin,TRANSACTION_SEND_TO);
                                 println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
                             } else {
-                                println!("{}","YOU DIDNT GET THE RING".red().bold());
+                                println!("{}","TRANSACTION INVALID".red().bold());
                             }
                         }
                     } else if istx == 2 /* divide accounts so you can make faster tx */ {

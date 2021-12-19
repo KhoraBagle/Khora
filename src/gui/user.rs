@@ -634,7 +634,7 @@ impl epi::App for KhoraUserGUI {
 
                                         m.extend(str::to_ascii_lowercase(&nonanonyaddr).as_bytes());
                                         m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
-                                        m.push(63); // 63?
+                                        m.push(64); // 63?
                                     }
                                 }
 ;                                if !*you_cant_do_that {

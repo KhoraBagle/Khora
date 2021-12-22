@@ -353,7 +353,7 @@ struct KhoraNode {
     overthrown: HashSet<CompressedRistretto>,
     votes: Vec<i32>,
     stkinfo: Vec<(CompressedRistretto,u64)>,
-    nonanony: VecHashMap<(CompressedRistretto,u64)>,
+    nonanony: VecHashMap<CompressedRistretto,u64>,
     queue: Vec<VecDeque<usize>>,
     exitqueue: Vec<VecDeque<usize>>,
     comittee: Vec<Vec<usize>>,
@@ -553,7 +553,7 @@ impl KhoraNode {
                 false
             };
             if v  {
-                println!("{}","=========================================================\ngot a block!".magenta());
+                println!("{}",format!("=========================================================\ngot a block at {}!",self.bnum).magenta());
                 if save {
                     // saves your current information BEFORE reading the new block. It's possible a leader is trying to cause a fork which can only be determined 1 block later based on what the comittee thinks is real
                     self.save();

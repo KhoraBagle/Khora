@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::hash::Hash;
+use clap::Values;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator, IntoParallelIterator};
 use serde::{Serialize, Serializer, Deserialize, ser::SerializeSeq};
 use std::cmp::Eq;
@@ -18,19 +19,19 @@ use std::cmp::Eq;
 /// or their index (which can be specified by 8 bytes)
 /// there's also a follow function to say where an index goes given what leaves and the height without knowing what's actually stored
 /// (so users dont need to store the data structure)
-pub struct VecHashMap<T> {
+pub struct VecHashMap<K,V> {
     /// the vector of the VecHashMap
-    pub vec: Vec<T>,// maybe i should make this Vec<(K,V)> and HashMap<K,usize> so I can store extra info in K?
+    pub vec: Vec<(K,V)>,// maybe i should make this Vec<(K,V)> and HashMap<K,usize> so I can store extra info in K?
     /// the HashMap of the VecHashMap
-    pub hashmap: HashMap<T,usize>,
+    pub hashmap: HashMap<K,usize>,
 }
 
-impl<T> VecHashMap<T> {
+impl<K,V> VecHashMap<K,V> {
     /// returns an empty VecHashMap
     pub fn new() -> Self {
         VecHashMap {
-            vec: Vec::<T>::new(),
-            hashmap: HashMap::<T,usize>::new(),
+            vec: Vec::<(K,V)>::new(),
+            hashmap: HashMap::<K,usize>::new(),
         }
     }
     /// returns the number of elements held
@@ -39,32 +40,36 @@ impl<T> VecHashMap<T> {
     }
 }
 
-impl<T: Eq + Clone + Hash> VecHashMap<T> {
+impl<K: Eq + Clone + Hash, V: Clone> VecHashMap<K,V> {
     /// makes a vechashmap pair from a vec
-    pub fn from(vec: Vec<T>) -> Self {
+    pub fn from(vec: Vec<(K,V)>) -> Self {
         Self {
             vec: vec.clone(),
-            hashmap: vec.into_iter().enumerate().map(|(v,k)| (k,v)).collect(),
+            hashmap: vec.into_iter().enumerate().map(|(v,k)| (k.0,v)).collect(),
         }
-        
     }
-    /// attempt to change an element
-    /// returns if it was able to find that element
-    pub fn change(&mut self, element: &T, newelement: T) -> bool {
-        if let Some(x) = self.hashmap.remove(element) {
-            self.hashmap.insert(newelement.clone(),x);
-            self.vec[x] = newelement;
-            true
-        } else {
-            false
-        }
+    /// attempt to change a value given a key
+    pub fn mut_value_from_key(&mut self, key: &K) -> &mut V {
+        &mut self.vec[self.hashmap[key]].1
+    }
+    /// attempt to change a value given a key
+    pub fn mut_value_from_index(&mut self, index: usize) -> &mut V {
+        &mut self.vec[index].1
+    }
+    /// attempt to change a value given a key
+    pub fn change_value_from_key(&mut self, key: &K, newvalue: V) {
+        self.vec[self.hashmap[key]].1 = newvalue;
+    }
+    /// attempt to change a value given a key
+    pub fn change_value_from_index(&mut self, index: usize, newvalue: V) {
+        self.vec[index].1 = newvalue;
     }
     /// returns if the vec contains that element
-    pub fn contains(&self, element: &T) -> Option<usize> {
+    pub fn contains(&self, element: &K) -> Option<usize> {
         self.hashmap.get(element).copied()
     }
-    /// returns if the element at the vec contains that element's index
-    pub fn get_by_index(&self, index: usize) -> &T {
+    /// returns the key value pair of the index's element
+    pub fn get_by_index(&self, index: usize) -> &(K,V) {
         &self.vec[index]
     }
     /// removes an element from the vec and hashmap
@@ -73,13 +78,13 @@ impl<T: Eq + Clone + Hash> VecHashMap<T> {
         // assert!(is_aesending(gone));
 
         gone.iter().for_each(|&x| {
-            self.hashmap.remove(&self.vec[x]);
+            self.hashmap.remove(&self.vec[x].0);
         });
 
         let vlen = self.vec.len();
         let dlen = gone.len();
         for (i,&e) in gone.into_iter().rev().enumerate() {
-            if let Some(i) = self.hashmap.get_mut(&self.vec[vlen-i-1]) {
+            if let Some(i) = self.hashmap.get_mut(&self.vec[vlen-i-1].0) {
                 *i = e;
             };
             self.vec.swap(e,vlen-i-1)
@@ -88,16 +93,16 @@ impl<T: Eq + Clone + Hash> VecHashMap<T> {
         
     }
     /// inserts an element in the vec and hashmap
-    pub fn insert(&mut self, enter: T) {
+    pub fn insert(&mut self, key: K, value: V) {
 
-        self.hashmap.insert(enter.clone(),self.vec.len());
-        self.vec.push(enter);
+        self.hashmap.insert(key.clone(),self.vec.len());
+        self.vec.push((key,value));
         
     }
     /// inserts an element in the vec and hashmap
-    pub fn insert_all(&mut self, enter: &[T]) {
-        for e in enter {
-            self.insert(e.to_owned());
+    pub fn insert_all(&mut self, elements: &[(K,V)]) {
+        for (k,v) in elements {
+            self.insert(k.clone(),v.clone());
         }
     }
 }
@@ -136,22 +141,22 @@ pub fn follow(me: usize, gone: &Vec<usize>, height: usize) -> Option<usize> {
 
 
 
-fn is_aesending<T>(data: &[T]) -> bool
+fn is_aesending<K>(data: &[K]) -> bool
 where
-    T: Ord,
+    K: Ord,
 {
     data.windows(2).all(|w| w[0] < w[1])
 }
 
 #[test]
 fn check_and_time() {
-    let mut x = VecHashMap::<u64>::new();
+    let mut x = VecHashMap::<u64,bool>::new();
 
 
 
     let mut rng = rand::thread_rng();
     (0..100000).for_each(|_| {
-        x.insert(rand::Rng::gen(&mut rng));
+        x.insert(rand::Rng::gen(&mut rng),true);
     });
     // println!("{:#?}",x);
     let y = x.clone();
@@ -176,22 +181,9 @@ fn check_and_time() {
     (0..xlen).for_each(|i| {
         let me = follow(i,&remove, xlen);
         // println!("{:?},{:?}",x.hashmap.get(&y.vec[i]).copied(), me);
-        assert!(x.hashmap.get(&y.vec[i]).copied() == me)
+        assert!(x.hashmap.get(&y.vec[i].0).copied() == me)
     });
     println!("follow time: {}ms for {} removals",runtime.elapsed().as_millis()/xlen as u128,remove.len());
-
-
-
-    let changes: u64 = 1000;
-    let runtime = std::time::Instant::now();
-    (0..changes).for_each(|y| {
-        let i = y as usize;
-        assert!(x.vec[i] != y);
-        x.change(&x.vec[i].clone(),y);
-        assert!(x.vec[i] == y);
-    });
-    println!("change element time: {}ms for {} changes",runtime.elapsed().as_millis()/xlen as u128,changes);
-
 
 
 

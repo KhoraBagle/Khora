@@ -94,7 +94,7 @@ impl PartialEq for Syncedtx {
 
 impl Syncedtx {
     /// distills the important information from a group of transactions
-    pub fn from(txs: &Vec<PolynomialTransaction>, nonanonyinfo: &VecHashMap<(CompressedRistretto,u64)>)->Syncedtx {
+    pub fn from(txs: &Vec<PolynomialTransaction>, nonanonyinfo: &VecHashMap<CompressedRistretto,u64>)->Syncedtx {
 
         let ((tags,fees), (inputs, outputs)): ((Vec<_>,Vec<_>),(Vec<_>,Vec<Vec<_>>)) = txs.into_par_iter().map(|x|
             ((if x.inputs.last() == Some(&0) {Some(x.tags.clone())} else {None},x.fee),(x.inputs.clone(),x.outputs.clone()))
@@ -164,7 +164,7 @@ impl Syncedtx {
         }).collect();
 
         let (nonanonynew, nonanonyin): (Vec<_>,Vec<_>) = nonanonyin.par_iter().map(|x| {
-            if let Some(z) = nonanonyinfo.contains(x) {
+            if let Some(z) = nonanonyinfo.contains(&x.0) {
                 (None,Some((z,x.1)))
             } else {
                 (Some(x),None)
@@ -175,7 +175,7 @@ impl Syncedtx {
 
         nonanonyin.retain(|x| {
             if nonanonyout.par_iter().find_first(|&&y| y == x.0).is_some() {
-                nonanonynew.push((nonanonyinfo.get_by_index(x.0 as usize).0,x.1));
+                nonanonynew.push((nonanonyinfo.get_by_index(x.0).0,x.1));
                 false
             } else {
                 true
@@ -188,7 +188,7 @@ impl Syncedtx {
     }
 
     /// the message block creaters sign so even lightning blocks can be verified
-    pub fn to_sign(txs: &Vec<PolynomialTransaction>,nonanonyinfo:&VecHashMap<(CompressedRistretto, u64)>)->Vec<u8> {
+    pub fn to_sign(txs: &Vec<PolynomialTransaction>,nonanonyinfo:&VecHashMap<CompressedRistretto, u64>)->Vec<u8> {
         bincode::serialize(&Syncedtx::from(txs, nonanonyinfo)).unwrap()
     }
 
@@ -409,7 +409,7 @@ impl PartialEq for NextBlock {
 }
 impl NextBlock {
     /// selects the transactions that are valid (as a member of the comittee in block generation)
-    pub fn valicreate(key: &Scalar, location: &u64, leader: &CompressedRistretto, mut txs: Vec<PolynomialTransaction>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, bloom: &BloomFile, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<(CompressedRistretto,u64)>) -> NextBlock {
+    pub fn valicreate(key: &Scalar, location: &u64, leader: &CompressedRistretto, mut txs: Vec<PolynomialTransaction>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, bloom: &BloomFile, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<CompressedRistretto,u64>) -> NextBlock {
         let mut stks = txs.par_iter().filter(|x| 
             if x.inputs.last() == Some(&1) {
                 x.verifystk(&stkstate,bnum/NONCEYNESS).is_ok()
@@ -473,7 +473,7 @@ impl NextBlock {
     }
 
     /// creates a full block from a collection of signatures in the comittee
-    pub fn finish(key: &Scalar, location: &u64, sigs: &Vec<NextBlock>, validator_pool: &Vec<u64>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<(CompressedRistretto,u64)>) -> Result<NextBlock,&'static str> { // <----do i need to reference previous block explicitly?
+    pub fn finish(key: &Scalar, location: &u64, sigs: &Vec<NextBlock>, validator_pool: &Vec<u64>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<CompressedRistretto,u64>) -> Result<NextBlock,&'static str> { // <----do i need to reference previous block explicitly?
         let leader = (key*PEDERSEN_H()).compress().as_bytes().to_vec();
         let mut sigs = sigs.into_par_iter().filter(|x| !validator_pool.into_par_iter().all(|y| x.leader.pk != *y)).map(|x| x.to_owned()).collect::<Vec<NextBlock>>();
         let mut sigfinale: Vec<NextBlock>;
@@ -518,7 +518,7 @@ impl NextBlock {
 
     /// creates the final block from the collection of subblocks and signatures from the main shard
     /// WARNING:: MUST MAKE SURE blks[0] IS THE ONE YOU MADE YOURSELF
-    pub fn valimerge(key: &Scalar, location: &u64, leader: &CompressedRistretto, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<(CompressedRistretto,u64)>, _mypoolnum: &u16) -> Signature {
+    pub fn valimerge(key: &Scalar, location: &u64, leader: &CompressedRistretto, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<CompressedRistretto,u64>, _mypoolnum: &u16) -> Signature {
         
         
         let mut blks: Vec<NextBlock> = blks.par_iter().zip(val_pools).filter_map(|(x,y)| if x.verify(&y,&stkstate,nonanony).is_ok() {Some(x.to_owned())} else {None}).collect();
@@ -547,7 +547,7 @@ impl NextBlock {
     }
 
     /// verifies a full block (that the comittee acted as they should)
-    pub fn finishmerge(key: &Scalar, location: &u64, sigs: &Vec<Signature>, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, headpool: &Vec<u64>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>,nonanony:&VecHashMap<(CompressedRistretto,u64)> , _mypoolnum: &u16) -> NextBlock {
+    pub fn finishmerge(key: &Scalar, location: &u64, sigs: &Vec<Signature>, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, headpool: &Vec<u64>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>,nonanony:&VecHashMap<CompressedRistretto,u64> , _mypoolnum: &u16) -> NextBlock {
         let headpool = headpool.into_par_iter().map(|x|stkstate[*x as usize].0).collect::<Vec<CompressedRistretto>>();
         let mut blks: Vec<NextBlock> = blks.par_iter().zip(val_pools).filter_map(|(x,y)| if x.verify(&y, &stkstate,nonanony).is_ok() {Some(x.to_owned())} else {None}).collect();
         let mut blk = blks.remove(0);
@@ -588,7 +588,7 @@ impl NextBlock {
     }
 
     /// verifies a full block (that the comittee acted as they should)
-    pub fn verify(&self, validator_pool: &Vec<u64>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony:&VecHashMap<(CompressedRistretto, u64)>) -> Result<bool, &'static str> {
+    pub fn verify(&self, validator_pool: &Vec<u64>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony:&VecHashMap<CompressedRistretto, u64>) -> Result<bool, &'static str> {
         let mut s = Sha3_512::new();
         s.update(&bincode::serialize(&self.validators).unwrap().to_vec());
         let c = s.finalize();
@@ -696,7 +696,7 @@ impl NextBlock {
     }
 
     /// converts a full block into lightning block
-    pub fn tolightning(&self,nonanony: &VecHashMap<(CompressedRistretto, u64)>) -> LightningSyncBlock {
+    pub fn tolightning(&self,nonanony: &VecHashMap<CompressedRistretto, u64>) -> LightningSyncBlock {
         LightningSyncBlock {
             validators: self.validators.to_owned(),
             leader: self.leader.to_owned(),
@@ -780,7 +780,7 @@ impl LightningSyncBlock {
     }
 
     /// updates the staker state by dulling out punishments and gifting rewards. also updates the queue, exitqueue, and comittee if stakers left
-    pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, nonanony: &mut VecHashMap<(CompressedRistretto,u64)>, dononanony: bool, netinfo: &mut HashMap<CompressedRistretto, (u64, Option<SocketAddr>)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
+    pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, nonanony: &mut VecHashMap<CompressedRistretto,u64>, dononanony: bool, netinfo: &mut HashMap<CompressedRistretto, (u64, Option<SocketAddr>)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
         if save_history {History::append(&self.info.txout)};
 
 
@@ -900,9 +900,8 @@ impl LightningSyncBlock {
         if dononanony {
 
             self.info.nonanonyin.iter().for_each(|x| {
-                let y = nonanony.get_by_index(x.0).clone();
-                let z = (y.0,y.1 + x.1);
-                nonanony.change(&y,z);
+                let y = nonanony.mut_value_from_index(x.0);
+                *y += x.1;
             });
             nonanony.remove_all(&self.info.nonanonyout);
             nonanony.insert_all(&self.info.nonanonynew);
@@ -1057,16 +1056,11 @@ impl LightningSyncBlock {
         // let t = std::time::Instant::now();
 
         let changed = mine.clone();
-        if let Some(m) = &mine {
-            if self.info.nonanonyout.contains(&m.0) {
-                *mine = None;
-            }
-        }
         if let Some(m) = mine {
             if let Some(x) = self.info.nonanonyin.par_iter().find_first(|x| x.0 == m.0) {
                 m.1 += x.1;
                 println!("=================================================================================================");
-                println!("someone sent me money!");
+                println!("someone sent me more money! at {:?}",m);
                 println!("=================================================================================================");
             }
         }
@@ -1077,9 +1071,12 @@ impl LightningSyncBlock {
         }
 
         let cr = me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
-
         if let Some(x) = self.info.nonanonynew.par_iter().enumerate().find_first(|x| x.1.0 == cr) {
-            *mine = Some((*height + x.0,x.1.1))
+            println!("=================================================================================================");
+            println!("someone sent me new money! at {:?}",(*height + x.0,x.1.1));
+            println!("=================================================================================================");
+
+            *mine = Some((*height + x.0,x.1.1));
         }
         *height += self.info.nonanonynew.len();
 
@@ -1095,6 +1092,7 @@ impl LightningSyncBlock {
         }
 
 
+        println!("nmine {:?}",mine);
         println!("height {}",height);
         println!("out {:?}",self.info.nonanonyout);
         println!("in {:?}",self.info.nonanonyin);

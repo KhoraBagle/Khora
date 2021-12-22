@@ -35,6 +35,7 @@ use rayon::prelude::*;
 use khora::bloom::*;
 use khora::validation::*;
 use khora::ringmaker::*;
+use khora::vechashmap::*;
 use serde::{Serialize, Deserialize};
 use khora::validation::{
     NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0,
@@ -152,7 +153,7 @@ fn main() -> Result<(), MainError> {
                 allnetwork,
                 lasttags: vec![],
                 lastnonanony: None,
-                nonanony: vec![],
+                nonanony: VecHashMap::new(),
                 lastspot: None,
                 me,
                 mine: HashMap::new(),
@@ -221,7 +222,7 @@ fn main() -> Result<(), MainError> {
             let node = KhoraNode::load(frontnode, backnode, usend, urecv,recvtcp);
             let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
             mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
-            mymoney.extend(node.nmine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+            mymoney.extend(node.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
             mymoney.push(0);
             println!("my money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
             node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
@@ -250,7 +251,7 @@ fn main() -> Result<(), MainError> {
         let mut node = KhoraNode::load(frontnode, backnode, usend, urecv,recvtcp);
         let mut mymoney = node.mine.iter().map(|x| node.me.receive_ot(&x.1).unwrap().com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
         mymoney.extend(node.smine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
-        mymoney.extend(node.nmine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+        mymoney.extend(node.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
         mymoney.push(0);
         println!("my staked money: {:?}",node.smine.iter().map(|x| x[1]).sum::<u64>());
         node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
@@ -294,8 +295,8 @@ struct SavedNode {
     mine: HashMap<u64, OTAccount>,
     reversemine: HashMap<CompressedRistretto, u64>,
     smine: Option<[u64; 2]>, // [location, amount]
-    nmine: Option<[u64; 2]>, // [location, amount]
-    nheight: u64,
+    nmine: Option<(usize,u64)>, // [location, amount]
+    nheight: usize,
     allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     key: Scalar,
     keylocation: Option<u64>,
@@ -329,7 +330,7 @@ struct SavedNode {
     lasttags: Vec<CompressedRistretto>,
     lastspot: Option<u64>,
     maxcli: u8,
-    lastnonanony: Option<u64>,
+    lastnonanony: Option<usize>,
 }
 
 /// the node used to run all the networking
@@ -344,15 +345,15 @@ struct KhoraNode {
     mine: HashMap<u64, OTAccount>,
     reversemine: HashMap<CompressedRistretto, u64>,
     smine: Option<[u64; 2]>, // [location, amount]
-    nmine: Option<[u64; 2]>, // [location, amount]
-    nheight: u64,
+    nmine: Option<(usize,u64)>, // [location, amount]
+    nheight: usize,
     key: Scalar,
     keylocation: Option<u64>,
     leader: CompressedRistretto, // would they ever even reach consensus on this for new people when a dishonest person is eliminated???
     overthrown: HashSet<CompressedRistretto>,
     votes: Vec<i32>,
     stkinfo: Vec<(CompressedRistretto,u64)>,
-    nonanony: Vec<(CompressedRistretto,u64)>,
+    nonanony: VecHashMap<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
     exitqueue: Vec<VecDeque<usize>>,
     comittee: Vec<Vec<usize>>,
@@ -388,7 +389,7 @@ struct KhoraNode {
     clients: Arc<RwLock<u8>>,
     maxcli: u8,
     spammers: HashSet<SocketAddr>,
-    lastnonanony: Option<u64>,
+    lastnonanony: Option<usize>,
 }
 
 impl KhoraNode {
@@ -434,7 +435,7 @@ impl KhoraNode {
                 av: self.outer.hyparview_node.active_view.clone(),
                 pv: self.outer.hyparview_node.passive_view.clone(),
                 maxcli: self.maxcli,
-                nonanony: self.nonanony.clone(),
+                nonanony: self.nonanony.vec.clone(),
                 lastnonanony: self.lastnonanony,
             }; // just redo initial conditions on the rest
             let mut sn = bincode::serialize(&sn).unwrap();
@@ -525,7 +526,7 @@ impl KhoraNode {
             clients: Arc::new(RwLock::new(0)),
             maxcli: sn.maxcli,
             spammers: HashSet::new(),
-            nonanony: sn.nonanony.clone(),
+            nonanony: VecHashMap::from(sn.nonanony.clone()),
             lastnonanony: sn.lastnonanony,
         }
     }
@@ -629,6 +630,14 @@ impl KhoraNode {
                 if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
                     let (mut guitruster, new) = lastlightning.scanstk(&self.me, &mut self.smine, true, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
                     guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever) || guitruster;
+                    
+                    let lastnonanonyissome = self.lastnonanony.is_some();
+                    if let Some(x) = self.lastnonanony.borrow() {
+                        self.lastnonanony = follow(*x,&lastlightning.info.nonanonyout,self.nheight);
+                    }
+                    if lastnonanonyissome && self.lastnonanony.is_none() {
+                        self.gui_sender.send(vec![9]).expect("something's wrong with the communication to the gui");
+                    }
                     guitruster = lastlightning.scannonanony(&self.me, &mut self.nmine, &mut self.nheight) || guitruster;
                     self.gui_sender.send(vec![!guitruster as u8,1]).expect("there's a problem communicating to the gui!");
 
@@ -700,7 +709,7 @@ impl KhoraNode {
                 // send info to the gui
                 let mut mymoney = self.mine.par_iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
                 mymoney.extend(self.smine.unwrap_or_default()[1].to_le_bytes());
-                mymoney.extend(self.nmine.unwrap_or_default()[1].to_le_bytes());
+                mymoney.extend(self.nmine.unwrap_or_default().1.to_le_bytes());
                 mymoney.push(0);
                 self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
 
@@ -728,7 +737,7 @@ impl KhoraNode {
                     } else if t.inputs.last() == Some(&1u8) {
                         t.verifystk(s,b).is_ok()
                     } else if t.inputs.last() == Some(&2u8) {
-                        t.verifystk(n,b).is_ok()
+                        t.verifystk(&n.vec,b).is_ok()
                     } else {
                         false
                     }
@@ -753,20 +762,8 @@ impl KhoraNode {
                     self.lasttags = vec![];
                     self.gui_sender.send(vec![5]);
                 }
-                if let Some(x) = self.lastnonanony {
-                    if lastlightning.info.nonanonyout.contains(&x) {
-                        self.gui_sender.send(vec![9]).expect("something's wrong with the communication to the gui");
-                        self.lastnonanony = None;
-                    }
-                }
-                self.lastnonanony.iter_mut().for_each(|x| {
-                    *x -= lastlightning.info.nonanonyout.iter().filter(|&&y| {
-                        y < *x
-                    }).count() as u64;
-                });
-                
-                if self.lastnonanony.is_some() && (self.bnum%NONCEYNESS == 0 || self.lastnonanony.iter().all(|x| {
-                    lastlightning.info.nonanonygrow.iter().any(|y| y.0 == *x)
+                if self.lastnonanony.is_some() && (self.bnum%NONCEYNESS == 0 || self.lastnonanony.iter().all(|&x| {
+                    lastlightning.info.nonanonyin.iter().any(|y| y.0 == x)
                 })) {
                     self.gui_sender.send(vec![10]).expect("something's wrong with the communication to the gui");
                 }
@@ -974,7 +971,7 @@ impl KhoraNode {
                                         if t.inputs.last() == Some(&1) {
                                             t.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok()
                                         } else if t.inputs.last() == Some(&2) {
-                                            t.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok()
+                                            t.verifystk(&self.nonanony.vec,self.bnum/NONCEYNESS).is_ok()
                                         } else {
                                             let bloom = self.bloom.borrow();
                                             t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
@@ -1255,7 +1252,7 @@ impl Future for KhoraNode {
                                                 } else if t.inputs.last() == Some(&1u8) {
                                                     t.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok()
                                                 } else if t.inputs.last() == Some(&2u8) {
-                                                    t.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok()
+                                                    t.verifystk(&self.nonanony.vec,self.bnum/NONCEYNESS).is_ok()
                                                 } else {
                                                     false
                                                 }
@@ -1379,7 +1376,7 @@ impl Future for KhoraNode {
                                         } else if t.inputs.last() == Some(&1u8) {
                                             t.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok()
                                         } else if t.inputs.last() == Some(&2u8) {
-                                            t.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok()
+                                            t.verifystk(&self.nonanony.vec,self.bnum/NONCEYNESS).is_ok()
                                         } else {
                                             false
                                         }
@@ -1586,12 +1583,12 @@ impl Future for KhoraNode {
                             }
                         } else if txtype == 64 /* ?+1 */ { // transaction should be spent with nonanony money
                             if let Some(nmine) = self.nmine {
-                                let m = Scalar::from(nmine[1]) - outs.iter().map(|x| x.1).sum::<Scalar>();
+                                let m = Scalar::from(nmine.1) - outs.iter().map(|x| x.1).sum::<Scalar>();
                                 let x = outs.len() - 1;
                                 outs[x].1 = m;
     
                                 
-                                let (loc, amnt): (Vec<u64>,Vec<u64>) = self.nmine.iter().map(|x|(x[0],x[1])).unzip();
+                                let (loc, amnt): (Vec<usize>,Vec<u64>) = self.nmine.iter().map(|&x|x).unzip();
                                 let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
                                 let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
                                 tx.verify_nonce(self.bnum/NONCEYNESS).unwrap();
@@ -1599,9 +1596,9 @@ impl Future for KhoraNode {
                                 loc.push(2);
                                 let tx = tx.polyform(&loc); // push 0
                                 println!("{:?}",self.nonanony);
-                                if tx.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok() {
+                                if tx.verifystk(&self.nonanony.vec,self.bnum/NONCEYNESS).is_ok() {
                                     txbin = bincode::serialize(&tx).unwrap();
-                                    self.lastnonanony = Some(nmine[0]);
+                                    self.lastnonanony = Some(nmine.0);
                                     self.txses.insert(tx);
                                 } else {
                                     txbin = vec![];
@@ -1690,7 +1687,7 @@ impl Future for KhoraNode {
                         if stkamnt >= fee {
                             stkamnt -= fee;
                         }
-                        let mut nonanony = self.nmine.iter().map(|x| x[1]).sum::<u64>();
+                        let mut nonanony = self.nmine.iter().map(|x| x.1).sum::<u64>();
                         if nonanony >= fee {
                             nonanony -= fee;
                         }
@@ -1777,8 +1774,8 @@ impl Future for KhoraNode {
 
                         // send staked money
                         if let Some(nmine) = &self.nmine {
-                            let (loc, amnt) = (nmine[0],nmine[1]);
-                            let inps = self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(amnt))).unwrap();
+                            let (loc, amnt) = nmine;
+                            let inps = self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(*amnt))).unwrap();
 
 
                             let mut outs = vec![];
@@ -1801,7 +1798,7 @@ impl Future for KhoraNode {
                             let mut loc = loc.to_le_bytes().to_vec();
                             loc.push(2);
                             let tx = tx.polyform(&loc); // push 0
-                            if tx.verifystk(&self.nonanony,self.bnum/NONCEYNESS).is_ok() {
+                            if tx.verifystk(&self.nonanony.vec,self.bnum/NONCEYNESS).is_ok() {
                                 let mut txbin = bincode::serialize(&tx).unwrap();
                                 self.txses.insert(tx);
                                 txbin.push(0);

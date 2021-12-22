@@ -1,6 +1,7 @@
 use curve25519_dalek::ristretto::{CompressedRistretto};
 use curve25519_dalek::scalar::Scalar;
 use crate::account::*;
+use crate::vechashmap::{VecHashMap, follow};
 use rayon::prelude::*;
 use crate::transaction::*;
 use std::borrow::Borrow;
@@ -19,7 +20,7 @@ use std::hash::Hasher;
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use crate::constants::PEDERSEN_H;
-use crate::datastructure::*;
+use crate::vechashmap::*;
 use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
 use std::time::Duration;
 
@@ -77,9 +78,9 @@ pub fn blocktime(cumtime: f64) -> f64 {
 pub struct Syncedtx{
     pub stkout: Vec<u64>,
     pub stkin: Vec<(CompressedRistretto,u64)>,
-    pub nonanonyout: Vec<u64>,
-    pub nonanonygrow: Vec<(u64,u64)>,
-    pub nonanonyin: Vec<(CompressedRistretto,u64)>,
+    pub nonanonyout: Vec<usize>,
+    pub nonanonyin: Vec<(usize,u64)>,
+    pub nonanonynew: Vec<(CompressedRistretto,u64)>,
     pub txout: Vec<OTAccount>,
     pub tags: Vec<CompressedRistretto>,
     pub fees: u64,
@@ -87,13 +88,13 @@ pub struct Syncedtx{
 
 impl PartialEq for Syncedtx {
     fn eq(&self, other: &Self) -> bool {
-        self.stkout == other.stkout && self.stkin == other.stkin && self.txout == other.txout && self.tags == other.tags && self.fees == other.fees
+        self.stkout == other.stkout && self.stkin == other.stkin && self.txout == other.txout && self.tags == other.tags && self.fees == other.fees && self.nonanonyin == other.nonanonyin && self.nonanonyout == other.nonanonyout && self.nonanonynew == other.nonanonynew
     }
 }
 
 impl Syncedtx {
     /// distills the important information from a group of transactions
-    pub fn from(txs: &Vec<PolynomialTransaction>, nonanonyinfo: &Vec<(CompressedRistretto,u64)>)->Syncedtx {
+    pub fn from(txs: &Vec<PolynomialTransaction>, nonanonyinfo: &VecHashMap<(CompressedRistretto,u64)>)->Syncedtx {
 
         let ((tags,fees), (inputs, outputs)): ((Vec<_>,Vec<_>),(Vec<_>,Vec<Vec<_>>)) = txs.into_par_iter().map(|x|
             ((if x.inputs.last() == Some(&0) {Some(x.tags.clone())} else {None},x.fee),(x.inputs.clone(),x.outputs.clone()))
@@ -119,7 +120,7 @@ impl Syncedtx {
             if x.last() == Some(&1) {
                 Some((Some(x.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>()),None))
             } else if x.last() == Some(&2) {
-                Some((None,Some(x.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>())))
+                Some((None,Some(x.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap()) as usize).collect::<Vec<_>>())))
             } else {None}
         }).unzip();
         let stkout = stkout.into_par_iter().filter_map(|x|x).flatten().collect::<Vec<_>>();
@@ -162,21 +163,19 @@ impl Syncedtx {
             }
         }).collect();
 
-        let (nonanonyin, nonanonygrow): (Vec<_>,Vec<_>) = nonanonyin.par_iter().map(|x| {
-            if let Some(z) = nonanonyinfo.par_iter().enumerate().find_first(|y| {
-                y.1.0 == x.0
-            }) {
-                (None,Some((z.0 as u64,x.1)))
+        let (nonanonynew, nonanonyin): (Vec<_>,Vec<_>) = nonanonyin.par_iter().map(|x| {
+            if let Some(z) = nonanonyinfo.contains(x) {
+                (None,Some((z,x.1)))
             } else {
                 (Some(x),None)
             }
         }).unzip();
-        let mut nonanonyin = nonanonyin.par_iter().filter_map(|x|x.as_ref()).copied().copied().collect::<Vec<_>>();
-        let mut nonanonygrow = nonanonygrow.par_iter().filter_map(|x|x.as_ref()).copied().collect::<Vec<_>>();
+        let mut nonanonyin = nonanonyin.par_iter().filter_map(|x|x.as_ref()).copied().collect::<Vec<_>>();
+        let mut nonanonynew = nonanonynew.par_iter().filter_map(|x|x.copied()).collect::<Vec<_>>();
 
-        nonanonygrow.retain(|x| {
+        nonanonyin.retain(|x| {
             if nonanonyout.par_iter().find_first(|&&y| y == x.0).is_some() {
-                nonanonyin.push((nonanonyinfo[x.0 as usize].0,x.1));
+                nonanonynew.push((nonanonyinfo.get_by_index(x.0 as usize).0,x.1));
                 false
             } else {
                 true
@@ -184,97 +183,12 @@ impl Syncedtx {
         });
 
 
-        // let stkout = txs.par_iter().filter_map(|x|
-        //     if x.inputs.last() == Some(&1) {Some(x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>())} else {None}
-        // ).flatten().collect::<Vec<u64>>();
-        // let mut stkin = txs.par_iter().map(|x|
-        //     x.outputs.iter().filter_map(|y| 
-        //         if let Ok(z) = stakereader_acc().read_ot(y) {Some((z.pk.compress(),u64::from_le_bytes(z.com.amount.unwrap().as_bytes()[..8].try_into().unwrap())))} else {None}
-        //     ).collect::<Vec<_>>()
-        // ).flatten().collect::<Vec<(CompressedRistretto,u64)>>();
-        
-        // stkin = stkin.par_iter().enumerate().map(|(i,x)| {
-        //     (x.0,stkin.par_iter().take(i+1).filter_map(|y| {
-        //         if y.0 == x.0 {
-        //             Some(y.1)
-        //         } else {
-        //             None
-        //         }
-        //     }).sum::<u64>())
-        // }).collect();
-        // stkin = stkin.par_iter().rev().enumerate().filter_map(|(i,&x)| {
-        //     if stkin.par_iter().take(i).all(|y| y.0 != x.0) {
-        //         Some(x)
-        //     } else {
-        //         None
-        //     }
-        // }).collect();
 
-
-        // let nonanonyout = txs.par_iter().filter_map(|x|
-        //     if x.inputs.last() == Some(&2) {Some(x.inputs.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>())} else {None}
-        // ).flatten().collect::<Vec<u64>>();
-        // let mut nonanonyin = txs.par_iter().map(|x|
-        //     x.outputs.iter().filter_map(|y| 
-        //         if let Ok(z) = nonanonyreader_acc().read_ot(y) {Some((z.pk.compress(),u64::from_le_bytes(z.com.amount.unwrap().as_bytes()[..8].try_into().unwrap())))} else {None}
-        //     ).collect::<Vec<_>>()
-        // ).flatten().collect::<Vec<(CompressedRistretto,u64)>>();
-
-        // nonanonyin = nonanonyin.par_iter().enumerate().map(|(i,x)| {
-        //     (x.0,nonanonyin.par_iter().take(i+1).filter_map(|y| {
-        //         if y.0 == x.0 {
-        //             Some(y.1)
-        //         } else {
-        //             None
-        //         }
-        //     }).sum::<u64>())
-        // }).collect();
-        // nonanonyin = nonanonyin.par_iter().rev().enumerate().filter_map(|(i,&x)| {
-        //     if nonanonyin.par_iter().take(i).all(|y| y.0 != x.0) {
-        //         Some(x)
-        //     } else {
-        //         None
-        //     }
-        // }).collect();
-
-
-        
-        // let (nonanonyin, nonanonygrow): (Vec<_>,Vec<_>) = nonanonyin.par_iter().map(|x| {
-        //     if let Some(z) = nonanonyinfo.par_iter().enumerate().find_first(|y| {
-        //         y.1.0 == x.0
-        //     }) {
-        //         (None,Some((z.0 as u64,x.1)))
-        //     } else {
-        //         (Some(x),None)
-        //     }
-        // }).unzip();
-        // let mut nonanonyin = nonanonyin.par_iter().filter_map(|x|x.as_ref()).copied().copied().collect::<Vec<_>>();
-        // let mut nonanonygrow = nonanonygrow.par_iter().filter_map(|x|x.as_ref()).copied().collect::<Vec<_>>();
-
-
-        // nonanonygrow.retain(|x| {
-        //     if nonanonyout.par_iter().find_first(|&&y| y == x.0).is_some() {
-        //         nonanonyin.push((nonanonyinfo[x.0 as usize].0,x.1));
-        //         false
-        //     } else {
-        //         true
-        //     }
-        // });
-
-        // let txout = txs.into_par_iter().map(|x|
-        //     x.outputs.to_owned().into_iter().filter(|x| stakereader_acc().read_ot(x).is_err()&&nonanonyreader_acc().read_ot(x).is_err()).collect::<Vec<_>>()
-        // ).flatten().collect::<Vec<OTAccount>>();
-        // let tags = txs.par_iter().filter_map(|x|
-        //     if x.inputs.last() == Some(&0) {Some(x.tags.clone())} else {None}
-        // ).flatten().collect::<Vec<CompressedRistretto>>();
-        // let fees = txs.par_iter().map(|x|x.fee).sum::<u64>();
-
-
-        Syncedtx{stkout,stkin,nonanonyout,nonanonygrow,nonanonyin,txout,tags,fees}
+        Syncedtx{stkout,stkin,nonanonyout,nonanonynew,nonanonyin,txout,tags,fees}
     }
 
     /// the message block creaters sign so even lightning blocks can be verified
-    pub fn to_sign(txs: &Vec<PolynomialTransaction>,nonanonyinfo:&Vec<(CompressedRistretto, u64)>)->Vec<u8> {
+    pub fn to_sign(txs: &Vec<PolynomialTransaction>,nonanonyinfo:&VecHashMap<(CompressedRistretto, u64)>)->Vec<u8> {
         bincode::serialize(&Syncedtx::from(txs, nonanonyinfo)).unwrap()
     }
 
@@ -495,7 +409,7 @@ impl PartialEq for NextBlock {
 }
 impl NextBlock {
     /// selects the transactions that are valid (as a member of the comittee in block generation)
-    pub fn valicreate(key: &Scalar, location: &u64, leader: &CompressedRistretto, mut txs: Vec<PolynomialTransaction>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, bloom: &BloomFile, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &Vec<(CompressedRistretto,u64)>) -> NextBlock {
+    pub fn valicreate(key: &Scalar, location: &u64, leader: &CompressedRistretto, mut txs: Vec<PolynomialTransaction>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, bloom: &BloomFile, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<(CompressedRistretto,u64)>) -> NextBlock {
         let mut stks = txs.par_iter().filter(|x| 
             if x.inputs.last() == Some(&1) {
                 x.verifystk(&stkstate,bnum/NONCEYNESS).is_ok()
@@ -511,7 +425,7 @@ impl NextBlock {
         }).map(|x| x.1.to_owned()).collect::<Vec<_>>();
         let mut nonanons = txs.par_iter().filter(|x| 
             if x.inputs.last() == Some(&2) {
-                x.verifystk(&nonanony,bnum/NONCEYNESS).is_ok()
+                x.verifystk(&nonanony.vec,bnum/NONCEYNESS).is_ok()
             } else {
                 false
             }
@@ -559,7 +473,7 @@ impl NextBlock {
     }
 
     /// creates a full block from a collection of signatures in the comittee
-    pub fn finish(key: &Scalar, location: &u64, sigs: &Vec<NextBlock>, validator_pool: &Vec<u64>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &Vec<(CompressedRistretto,u64)>) -> Result<NextBlock,&'static str> { // <----do i need to reference previous block explicitly?
+    pub fn finish(key: &Scalar, location: &u64, sigs: &Vec<NextBlock>, validator_pool: &Vec<u64>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<(CompressedRistretto,u64)>) -> Result<NextBlock,&'static str> { // <----do i need to reference previous block explicitly?
         let leader = (key*PEDERSEN_H()).compress().as_bytes().to_vec();
         let mut sigs = sigs.into_par_iter().filter(|x| !validator_pool.into_par_iter().all(|y| x.leader.pk != *y)).map(|x| x.to_owned()).collect::<Vec<NextBlock>>();
         let mut sigfinale: Vec<NextBlock>;
@@ -604,7 +518,7 @@ impl NextBlock {
 
     /// creates the final block from the collection of subblocks and signatures from the main shard
     /// WARNING:: MUST MAKE SURE blks[0] IS THE ONE YOU MADE YOURSELF
-    pub fn valimerge(key: &Scalar, location: &u64, leader: &CompressedRistretto, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &Vec<(CompressedRistretto,u64)>, _mypoolnum: &u16) -> Signature {
+    pub fn valimerge(key: &Scalar, location: &u64, leader: &CompressedRistretto, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<(CompressedRistretto,u64)>, _mypoolnum: &u16) -> Signature {
         
         
         let mut blks: Vec<NextBlock> = blks.par_iter().zip(val_pools).filter_map(|(x,y)| if x.verify(&y,&stkstate,nonanony).is_ok() {Some(x.to_owned())} else {None}).collect();
@@ -633,7 +547,7 @@ impl NextBlock {
     }
 
     /// verifies a full block (that the comittee acted as they should)
-    pub fn finishmerge(key: &Scalar, location: &u64, sigs: &Vec<Signature>, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, headpool: &Vec<u64>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>,nonanony:&Vec<(CompressedRistretto,u64)> , _mypoolnum: &u16) -> NextBlock {
+    pub fn finishmerge(key: &Scalar, location: &u64, sigs: &Vec<Signature>, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, headpool: &Vec<u64>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>,nonanony:&VecHashMap<(CompressedRistretto,u64)> , _mypoolnum: &u16) -> NextBlock {
         let headpool = headpool.into_par_iter().map(|x|stkstate[*x as usize].0).collect::<Vec<CompressedRistretto>>();
         let mut blks: Vec<NextBlock> = blks.par_iter().zip(val_pools).filter_map(|(x,y)| if x.verify(&y, &stkstate,nonanony).is_ok() {Some(x.to_owned())} else {None}).collect();
         let mut blk = blks.remove(0);
@@ -674,7 +588,7 @@ impl NextBlock {
     }
 
     /// verifies a full block (that the comittee acted as they should)
-    pub fn verify(&self, validator_pool: &Vec<u64>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony:&Vec<(CompressedRistretto, u64)>) -> Result<bool, &'static str> {
+    pub fn verify(&self, validator_pool: &Vec<u64>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony:&VecHashMap<(CompressedRistretto, u64)>) -> Result<bool, &'static str> {
         let mut s = Sha3_512::new();
         s.update(&bincode::serialize(&self.validators).unwrap().to_vec());
         let c = s.finalize();
@@ -782,7 +696,7 @@ impl NextBlock {
     }
 
     /// converts a full block into lightning block
-    pub fn tolightning(&self,nonanony: &Vec<(CompressedRistretto, u64)>) -> LightningSyncBlock {
+    pub fn tolightning(&self,nonanony: &VecHashMap<(CompressedRistretto, u64)>) -> LightningSyncBlock {
         LightningSyncBlock {
             validators: self.validators.to_owned(),
             leader: self.leader.to_owned(),
@@ -866,7 +780,7 @@ impl LightningSyncBlock {
     }
 
     /// updates the staker state by dulling out punishments and gifting rewards. also updates the queue, exitqueue, and comittee if stakers left
-    pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, nonanony: &mut Vec<(CompressedRistretto,u64)>, dononanony: bool, netinfo: &mut HashMap<CompressedRistretto, (u64, Option<SocketAddr>)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
+    pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, nonanony: &mut VecHashMap<(CompressedRistretto,u64)>, dononanony: bool, netinfo: &mut HashMap<CompressedRistretto, (u64, Option<SocketAddr>)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
         if save_history {History::append(&self.info.txout)};
 
 
@@ -985,11 +899,13 @@ impl LightningSyncBlock {
 
         if dononanony {
 
-            self.info.nonanonygrow.iter().for_each(|x| nonanony[x.0 as usize].1 += x.1);
-            for x in self.info.nonanonyout.iter().rev() {
-                nonanony.remove(*x as usize);
-            }
-            nonanony.par_extend(&self.info.nonanonyin);
+            self.info.nonanonyin.iter().for_each(|x| {
+                let y = nonanony.get_by_index(x.0).clone();
+                let z = (y.0,y.1 + x.1);
+                nonanony.change(&y,z);
+            });
+            nonanony.remove_all(&self.info.nonanonyout);
+            nonanony.insert_all(&self.info.nonanonynew);
     
         }
 
@@ -1136,78 +1052,45 @@ impl LightningSyncBlock {
     }
 
     /// scans the block for any transactions sent to or from you. it additionally updates the height of nonanonys. returns if your money changed
-    pub fn scannonanony(&self, me: &Account, mine: &mut Option<[u64;2]>, height: &mut u64) -> bool {
+    pub fn scannonanony(&self, me: &Account, mine: &mut Option<(usize,u64)>, height: &mut usize) -> bool {
 
         // let t = std::time::Instant::now();
 
         let mut benone = false;
         let changed = mine.clone();
-        if let Some(mine) = mine {
-
-            *height -= self.info.nonanonyout.len() as u64;
-            if self.info.nonanonyout.contains(&mine[0]) {
-                benone = true;
+        if let Some(m) = &mine {
+            if self.info.nonanonyout.contains(&m.0) {
+                *mine = None;
             }
-            // blocks never contain pointers to accounts that are leaving so i dont need to worry about that
-            mine[1] += self.info.nonanonygrow.par_iter().filter_map(|x| {
-                if x.0 == mine[0] {
-                    Some(x.1)
-                } else {
-                    None
-                }
-            }).sum::<u64>();
-            mine[0] -= self.info.nonanonyout.par_iter().filter(|&&x| x < mine[0]).count() as u64;
-
-            let nonanonycr = me.nonanony_acc().derive_stk_ot(&Scalar::one()).pk.compress();
-            if benone {
-                for (i,x) in self.info.nonanonyin.iter().enumerate() {
-                    if nonanonycr == x.0 {
-                        *mine = [i as u64+*height,x.1];
-                        benone = false;
-                        break
-                    }
-                }
-            } else {
-                for x in self.info.nonanonyin.iter() {
-                    if nonanonycr == x.0 {
-                        mine[1] += x.1;
-                        break
-                    }
-                }
-            }
-            
-            *height += self.info.nonanonyin.len() as u64;
-
-        } else {
-            *height -= self.info.nonanonyout.len() as u64;
-            let nonanonycr = me.nonanony_acc().derive_stk_ot(&Scalar::one()).pk.compress();
-            for (i,x) in self.info.nonanonyin.iter().enumerate() {
-                if nonanonycr == x.0 {
-                    *mine = Some([i as u64+*height,x.1]);
-                    benone = false;
-                    break
-                }
-            }
-            *height += self.info.nonanonyin.len() as u64;
         }
+        if let Some(m) = mine {
+            if let Some(x) = self.info.nonanonyin.par_iter().find_first(|x| x.0 == m.0) {
+                m.1 += x.1;
+            }
+        }
+        *height += self.info.nonanonynew.len();
+
+        if let Some(x) = &mine {
+            *mine = follow(x.0,&self.info.nonanonyout,*height).map(|y| (y,x.1));
+        }
+        *height -= self.info.nonanonyout.len();
 
 
-        
+
+
         if self.bnum%10 == 0 {
             println!("ideal: {:?}",me.nonanony_acc().derive_stk_ot(&Scalar::one()).pk.compress());
             println!("in: {:?}",self.info.nonanonyin);
-            println!("grow: {:?}",self.info.nonanonygrow);
+            println!("grow: {:?}",self.info.nonanonynew);
             println!("staker reference: {:?}",self.info.stkin);
             println!("random: {:?}",self.info.txout.iter().map(|x| x.pk.compress()).collect::<Vec<_>>());
         }
 
 
-        println!("height {}",height);
-        println!("out {}",self.info.nonanonyout.len());
-        println!("in {}",self.info.nonanonyin.len());
-        if benone {
-            *mine = None;
-        }
+        // println!("height {}",height);
+        // println!("out {}",self.info.nonanonyout.len());
+        // println!("in {}",self.info.nonanonyin.len());
+        
         // println!("{}",t.elapsed().as_millis());
 
         changed != *mine

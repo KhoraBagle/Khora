@@ -5,8 +5,10 @@ extern crate trackable;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll};
+use khora::vechashmap::{VecHashMap, follow};
 // use khora::seal::BETA;
 use rand::prelude::SliceRandom;
+use std::borrow::Borrow;
 use std::{cmp, thread};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -148,7 +150,7 @@ fn main() -> Result<(), MainError> {
     } else {
         let mut node = KhoraNode::load(usend, urecv);
         let mut mymoney = node.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
-        mymoney.extend(node.nmine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+        mymoney.extend(node.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
         mymoney.push(0);
         node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
 
@@ -187,8 +189,8 @@ struct SavedNode {
     save_history: bool, //just testing. in real code this is true; but i need to pretend to be different people on the same computer
     me: Account,
     mine: HashMap<u64, OTAccount>,
-    nmine: Option<[u64; 2]>, // [location, amount]
-    nheight: u64,
+    nmine: Option<(usize,u64)>, // [location, amount]
+    nheight: usize,
     reversemine: HashMap<CompressedRistretto, u64>,
     stkinfo: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
@@ -206,7 +208,7 @@ struct SavedNode {
     blocktime: f64,
     ringsize: u8,
     lasttags: Vec<PolynomialTransaction>,
-    lastnonanony: Option<u64>,
+    lastnonanony: Option<usize>,
 }
 
 /// the node used to run all the networking
@@ -224,8 +226,8 @@ struct KhoraNode {
     lastname: Vec<u8>,
     bnum: u64,
     lastbnum: u64,
-    nmine: Option<[u64; 2]>, // [location, amount]
-    nheight: u64,
+    nmine: Option<(usize,u64)>, // [location, amount]
+    nheight: usize,
     height: u64,
     mine: HashMap<u64, OTAccount>,
     reversemine: HashMap<CompressedRistretto, u64>,
@@ -239,7 +241,7 @@ struct KhoraNode {
     gui_timer: Instant,
     ringsize: u8,
     lasttags: Vec<PolynomialTransaction>,
-    lastnonanony: Option<u64>,
+    lastnonanony: Option<usize>,
 }
 
 impl KhoraNode {
@@ -371,6 +373,13 @@ impl KhoraNode {
                     // let t = Instant::now();
                     let mut guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);
                     // println!("{}",format!("scan: {}",t.elapsed().as_millis()).yellow());
+                    let lastnonanonyissome = self.lastnonanony.is_some();
+                    if let Some(x) = self.lastnonanony.borrow() {
+                        self.lastnonanony = follow(*x,&lastlightning.info.nonanonyout,self.nheight);
+                    }
+                    if lastnonanonyissome && self.lastnonanony.is_none() {
+                        self.gui_sender.send(vec![9]).expect("something's wrong with the communication to the gui");
+                    }
                     guitruster = lastlightning.scannonanony(&self.me, &mut self.nmine, &mut self.nheight) || guitruster;
 
                     if save {
@@ -378,7 +387,7 @@ impl KhoraNode {
                     }
                     
                     // let t = Instant::now();
-                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut vec![], false, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
+                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut VecHashMap::new(), false, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
                     // println!("{}",format!("no one: {}",t.elapsed().as_millis()).yellow());
 
                     self.lastbnum = self.bnum;
@@ -406,19 +415,9 @@ impl KhoraNode {
                         self.lasttags = vec![];
                     }
                 });
-                if let Some(x) = self.lastnonanony {
-                    if lastlightning.info.nonanonyout.contains(&x) {
-                        self.lastnonanony = None;
-                    }
-                }
-                self.lastnonanony.iter_mut().for_each(|x| {
-                    *x -= lastlightning.info.nonanonyout.iter().filter(|&&y| {
-                        y < *x
-                    }).count() as u64;
-                });
                 
-                if self.lastnonanony.is_some() && (self.bnum%NONCEYNESS == 0 || self.lastnonanony.iter().all(|x| {
-                    lastlightning.info.nonanonygrow.iter().any(|y| y.0 == *x)
+                if self.lastnonanony.is_some() && (self.bnum%NONCEYNESS == 0 || self.lastnonanony.iter().all(|&x| {
+                    lastlightning.info.nonanonyin.iter().any(|y| y.0 == x)
                 })) {
                     self.gui_sender.send(vec![10]).expect("something's wrong with the communication to the gui");
                 }
@@ -587,7 +586,7 @@ impl KhoraNode {
                         self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui");
 
                         let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
-                        mymoney.extend(self.nmine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+                        mymoney.extend(self.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
                         mymoney.push(0);
                         self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
 
@@ -665,7 +664,7 @@ impl Future for KhoraNode {
                 if let Some(istx) = m.pop() {
                     if istx == 33 /* ! */ { // a transaction
                         let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
-                        mymoney.extend(self.nmine.iter().map(|x| x[1]).sum::<u64>().to_le_bytes());
+                        mymoney.extend(self.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
                         mymoney.push(0);
                         self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
 
@@ -773,12 +772,12 @@ impl Future for KhoraNode {
                             }
                         } else if txtype ==  64 /* ?+1 */ {
                             if let Some(nmine) = self.nmine {
-                                let m = Scalar::from(nmine[1]) - outs.iter().map(|x| x.1).sum::<Scalar>();
+                                let m = Scalar::from(nmine.1) - outs.iter().map(|x| x.1).sum::<Scalar>();
                                 let x = outs.len() - 1;
                                 outs[x].1 = m;
     
                                 
-                                let (loc, amnt): (Vec<u64>,Vec<u64>) = vec![nmine].iter().map(|x|(x[0],x[1])).unzip();
+                                let (loc, amnt): (Vec<usize>,Vec<u64>) = vec![nmine].iter().map(|&x|x).unzip();
                                 let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
                                 let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
                                 if tx.verify_nonce(self.bnum/NONCEYNESS).is_ok() {
@@ -788,7 +787,7 @@ impl Future for KhoraNode {
     
                                     let mut txbin = bincode::serialize(&tx).unwrap();
                                     txbin.push(0);
-                                    self.lastnonanony = Some(nmine[0]);
+                                    self.lastnonanony = Some(nmine.0);
                                     self.send_message(txbin,TRANSACTION_SEND_TO);
                                     println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
                                 } else {

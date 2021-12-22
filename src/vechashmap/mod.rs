@@ -1,20 +1,14 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator, IntoParallelIterator};
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Serializer, Deserialize, ser::SerializeSeq};
+use std::cmp::Eq;
 
 
 
 
 
 
-
-fn is_aesending<T>(data: &[T]) -> bool
-where
-    T: Ord,
-{
-    data.windows(2).all(|w| w[0] < w[1])
-}
 
 
 
@@ -25,7 +19,7 @@ pub struct VecHashMap<T> {
     pub hashmap: HashMap<T,usize>,
 }
 
-impl<T: std::cmp::Eq + Clone + Hash> VecHashMap<T> {
+impl<T> VecHashMap<T> {
     /// returns an empty VecHashMap
     pub fn new() -> Self {
         VecHashMap {
@@ -37,10 +31,39 @@ impl<T: std::cmp::Eq + Clone + Hash> VecHashMap<T> {
     pub fn len(&self) -> usize {
         self.vec.len()
     }
+}
+
+impl<T: Eq + Clone + Hash> VecHashMap<T> {
+    /// makes a vechashmap pair from a vec
+    pub fn from(vec: Vec<T>) -> Self {
+        Self {
+            vec: vec.clone(),
+            hashmap: vec.into_iter().enumerate().map(|(v,k)| (k,v)).collect(),
+        }
+        
+    }
+    /// attempt to change an element
+    /// returns if it was able to find that element
+    pub fn change(&mut self, element: &T, newelement: T) -> bool {
+        if let Some(x) = self.hashmap.remove(element) {
+            self.hashmap.insert(newelement.clone(),x);
+            self.vec[x] = newelement;
+            true
+        } else {
+            false
+        }
+    }
+    /// returns if the vec contains that element
+    pub fn contains(&self, element: &T) -> Option<usize> {
+        self.hashmap.get(element).copied()
+    }
+    /// returns if the element at the vec contains that element's index
+    pub fn get_by_index(&self, index: usize) -> &T {
+        &self.vec[index]
+    }
     /// removes an element from the vec and hashmap
     /// make sure gone is sorted for this to be used
-    pub fn remove(&mut self, gone: &Vec<usize>) {
-
+    pub fn remove_all(&mut self, gone: &Vec<usize>) {
         // assert!(is_aesending(gone));
 
         gone.iter().for_each(|&x| {
@@ -65,24 +88,30 @@ impl<T: std::cmp::Eq + Clone + Hash> VecHashMap<T> {
         self.vec.push(enter);
         
     }
-}
-/// takes as input an index and moves/deletes it
-/// this function goes with the vechashmap
-/// make sure gone is sorted for this to be used
-pub fn follow(me: &mut Option<usize>, gone: &Vec<usize>, height: usize) {
-    if let Some(x) = &me {
-        if gone.contains(x) {
-            *me = None;
+    /// inserts an element in the vec and hashmap
+    pub fn insert_all(&mut self, enter: &[T]) {
+        for e in enter {
+            self.insert(e.to_owned());
         }
     }
+}
+/// takes as input an index returns where it goes/ if it's deleted
+/// this function goes with the VecHashMap
+/// make sure gone is sorted for this to be used
+pub fn follow(me: usize, gone: &Vec<usize>, height: usize) -> Option<usize> {
+    let mut out = Some(me);
+    if gone.contains(&me) {
+        out = None;
+    }
     let glen = gone.len();
-    if let Some(j) = me {
+    if let Some(j) = &mut out {
         let mut pos = height-1-*j;
         while pos < gone.len() {
             pos = height-1-gone[glen-1-pos];
         }
         *j = height-1-pos;
     }
+    out
 }
 
 
@@ -101,13 +130,15 @@ pub fn follow(me: &mut Option<usize>, gone: &Vec<usize>, height: usize) {
 
 
 
+fn is_aesending<T>(data: &[T]) -> bool
+where
+    T: Ord,
+{
+    data.windows(2).all(|w| w[0] < w[1])
+}
+
 #[test]
 fn check_and_time() {
-    
-
-    
-
-
     let mut x = VecHashMap::<u64>::new();
 
 
@@ -130,19 +161,30 @@ fn check_and_time() {
     let runtime = std::time::Instant::now();
     remove.sort();
     remove.dedup();
-    x.remove(&remove);
+    x.remove_all(&remove);
     println!("remove time: {}ms for {} removals",runtime.elapsed().as_millis(),remove.len());
 
     assert!(is_aesending(&remove));
 
     let runtime = std::time::Instant::now();
     (0..xlen).for_each(|i| {
-        let mut me = Some(i);
-        follow(&mut me,&remove, xlen);
+        let me = follow(i,&remove, xlen);
         // println!("{:?},{:?}",x.hashmap.get(&y.vec[i]).copied(), me);
         assert!(x.hashmap.get(&y.vec[i]).copied() == me)
     });
     println!("follow time: {}ms for {} removals",runtime.elapsed().as_millis()/xlen as u128,remove.len());
+
+
+
+    let changes: u64 = 1000;
+    let runtime = std::time::Instant::now();
+    (0..changes).for_each(|y| {
+        let i = y as usize;
+        assert!(x.vec[i] != y);
+        x.change(&x.vec[i].clone(),y);
+        assert!(x.vec[i] == y);
+    });
+    println!("change element time: {}ms for {} changes",runtime.elapsed().as_millis()/xlen as u128,changes);
 
 
 

@@ -313,9 +313,9 @@ impl epi::App for KhoraStakerGUI {
                 if self.block_number%10 == 0 || self.block_number < 10 {
                     let mut m = vec![];
                     let x = 10_000_000u64;
-                    m.extend(b"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklbkjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklb");
-                    m.extend(x.to_le_bytes().to_vec());
                     m.extend(b"idnalalnbcanbeofcfbpfklbhonfflohoagdgghojhifmppnicbnedhpkmgmjhbckjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklbkjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklb");
+                    m.extend(x.to_le_bytes().to_vec());
+                    m.extend(b"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklbkjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklb");
                     m.extend(x.to_le_bytes().to_vec());
                     let tot = 2*x;
                     if self.unstaked as i128 >= tot as i128 {

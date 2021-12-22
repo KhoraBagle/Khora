@@ -1056,7 +1056,6 @@ impl LightningSyncBlock {
 
         // let t = std::time::Instant::now();
 
-        let mut benone = false;
         let changed = mine.clone();
         if let Some(m) = &mine {
             if self.info.nonanonyout.contains(&m.0) {
@@ -1066,14 +1065,23 @@ impl LightningSyncBlock {
         if let Some(m) = mine {
             if let Some(x) = self.info.nonanonyin.par_iter().find_first(|x| x.0 == m.0) {
                 m.1 += x.1;
+                println!("=================================================================================================");
+                println!("someone sent me money!");
+                println!("=================================================================================================");
             }
         }
-        *height += self.info.nonanonynew.len();
+        *height -= self.info.nonanonyout.len();
 
         if let Some(x) = &mine {
             *mine = follow(x.0,&self.info.nonanonyout,*height).map(|y| (y,x.1));
         }
-        *height -= self.info.nonanonyout.len();
+
+        let cr = me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
+
+        if let Some(x) = self.info.nonanonynew.par_iter().enumerate().find_first(|x| x.1.0 == cr) {
+            *mine = Some((*height + x.0,x.1.1))
+        }
+        *height += self.info.nonanonynew.len();
 
 
 
@@ -1087,9 +1095,10 @@ impl LightningSyncBlock {
         }
 
 
-        // println!("height {}",height);
-        // println!("out {}",self.info.nonanonyout.len());
-        // println!("in {}",self.info.nonanonyin.len());
+        println!("height {}",height);
+        println!("out {:?}",self.info.nonanonyout);
+        println!("in {:?}",self.info.nonanonyin);
+        println!("new {:?}",self.info.nonanonynew);
         
         // println!("{}",t.elapsed().as_millis());
 

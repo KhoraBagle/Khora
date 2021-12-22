@@ -13,9 +13,15 @@ use std::cmp::Eq;
 
 
 #[derive(Default, Clone, Debug)]
-/// a datastructure i may start using
+/// vector that has O(1) lookup, modification, and deletion but does not preserve order...
+/// elements can be accessed and identified by either their contents (group elements and extra info which is many bytes)
+/// or their index (which can be specified by 8 bytes)
+/// there's also a follow function to say where an index goes given what leaves and the height without knowing what's actually stored
+/// (so users dont need to store the data structure)
 pub struct VecHashMap<T> {
-    pub vec: Vec<T>,
+    /// the vector of the VecHashMap
+    pub vec: Vec<T>,// maybe i should make this Vec<(K,V)> and HashMap<K,usize> so I can store extra info in K?
+    /// the HashMap of the VecHashMap
     pub hashmap: HashMap<T,usize>,
 }
 

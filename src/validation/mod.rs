@@ -19,6 +19,7 @@ use std::hash::Hasher;
 use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use crate::constants::PEDERSEN_H;
+use crate::datastructure::*;
 use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
 use std::time::Duration;
 

@@ -90,7 +90,6 @@ pub struct KhoraUserGUI {
     tsk: Vec<u8>,
     ringsize: u8,
     lonely: u64,
-    save_extra: bool,
     transaction_processing: bool,
     transaction_processed: bool,
     transaction_processingn: bool,
@@ -143,7 +142,6 @@ impl Default for KhoraUserGUI {
             friends: vec![],
             edit_names: vec![],
             friend_names: vec![],
-            save_extra: false,
             friend_adding: "".to_string(),
             name_adding: "".to_string(),
             addr: "".to_string(),
@@ -317,7 +315,6 @@ impl epi::App for KhoraUserGUI {
             friend_names,
             friend_adding,
             name_adding,
-            save_extra,
             addr,
             dont_trust_amounts,
             password0,
@@ -474,13 +471,15 @@ impl epi::App for KhoraUserGUI {
                     if ui.button("📋").on_hover_text("Click to copy your invisible wallet address to clipboard").clicked() {
                         ui.output().copied_text = addr.clone();
                     }
-                    ui.add(Label::new("Hidden Wallet Address").underline()).on_hover_text(&*addr);
+                    ui.add(Label::new("Red Wallet Address").underline()).on_hover_text(&*addr);
+                    ui.add(Button::new("❓")).on_hover_text("Anonymous (Red) wallet: omniring scheme and one time accounts, use this wallet for any transaction that you wish to hide from the network.");
                 });
                 ui.horizontal(|ui| {
                     if ui.button("📋").on_hover_text("Click to copy your visible wallet address to clipboard").clicked() {
                         ui.output().copied_text = nonanonyaddr.clone();
                     }
-                    ui.add(Label::new("Visible Wallet Address").underline()).on_hover_text(&*nonanonyaddr);
+                    ui.add(Label::new("Blue Wallet Address").underline()).on_hover_text(&*nonanonyaddr);
+                    ui.add(Button::new("❓")).on_hover_text("Visible (Blue) wallet: transacting with this wallet is easier for the network, use it for all transactions that you dont wish to hide.");
                 });
                 // if ui.button(format!("Divide my accounts by {}",ACCOUNT_COMBINE)).clicked() {
                 //     let mut m = retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec();
@@ -515,12 +514,12 @@ impl epi::App for KhoraUserGUI {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Hidden Khora Balance");
-                    ui.label(&unstaked.separated_string());
+                    ui.label("Red Wallet Khora Balance");
+                    ui.add(Label::new(unstaked.separated_string()).text_color(egui::Color32::LIGHT_RED));
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Visible Khora Balance");
-                    ui.label(&nonanony.separated_string());
+                    ui.label("Blue Wallet Khora Balance");
+                    ui.add(Label::new(nonanony.separated_string()).text_color(egui::Color32::LIGHT_BLUE));
                 });
                 if ui.button("Sync Wallet").clicked() && !*setup {
                     sender.send(vec![121]).expect("something's wrong with communication from the gui");
@@ -563,18 +562,22 @@ impl epi::App for KhoraUserGUI {
                         *password0 = pswd_guess0.clone();
                         *next_pswrd1 = username.clone();
                         sender.send(get_pswrd(&*password0,&*username,&*secret_key));
-                        sender.send(vec![!*save_extra as u8]);
                     }
                 });
-                ui.add(Checkbox::new(save_extra,"I want to save extra information for easier ring making!"));
             }
             if *dont_trust_amounts {
                 ui.add(Label::new("Money owned is not yet verified").text_color(egui::Color32::RED));
             }
             if !*setup {
                 ui.horizontal(|ui| {
-                    ui.radio_value(txtype, TxInput::Invisable, "Spend with invisible unstaked money");
-                    ui.radio_value(txtype, TxInput::Visible, "Spend with visible unstaked money");
+                    if ui.add(egui::RadioButton::new(*txtype == TxInput::Invisable, "Spend with red wallet money").text_color(egui::Color32::LIGHT_RED)).clicked() {
+                        *txtype = TxInput::Invisable;
+                    }
+                    if ui.add(egui::RadioButton::new(*txtype == TxInput::Visible, "Spend with blue wallet money").text_color(egui::Color32::LIGHT_BLUE)).clicked() {
+                        *txtype = TxInput::Visible;
+                    }
+                    // ui.radio_value(txtype, TxInput::Invisable, "Spend with red wallet money");
+                    // ui.radio_value(txtype, TxInput::Visible, "Spend with blue wallet money");
                 });
                 let mut delete_row_x = usize::MAX;
                 egui::ScrollArea::vertical().show(ui,|ui| {
@@ -778,10 +781,14 @@ impl epi::App for KhoraUserGUI {
             });
         }
         egui::Window::new("Options Menu").open(options_menu).show(ctx, |ui| {
-            ui.label("This is the number of accounts that aren't yours that the transaction could have been made by from the perspective of spying eyes.");
-            ui.label("If the ring size is 0, you won't need to rely on the network to give you true ring members.");
+            ui.label("When you make a transaction, a ring is generated that hides your identity amongst its other ring members.");
+            ui.label("The larger the ring the more hidden your transaction will be, however, it will also take longer to create.");
+            ui.label("Given the nature of Khora, a ring size of 5 is already quite anonymouse.");
+            ui.label("A ring size of 0 is the fastest option and is best if you are not trying to hide your transactions.");
+            ui.label("Use the slider below to set desired ring size...");
+            ui.add(Label::new("We recommend that you set this somewhere between 3 and 15.").text_color(egui::Color32::RED));
             ui.label("\n");
-            ui.add(Slider::new(ringsize, 0..=22).text("Ring Size"));
+            ui.add(Slider::new(ringsize, 0..=20).text("Ring Size"));
         });
         egui::Window::new("Logout Menu").open(logout_window).show(ctx, |ui| {
             ui.label("Logging out of your account will refresh all of your wallet settings and will require resync with the blockchain.");

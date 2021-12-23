@@ -71,13 +71,9 @@ fn main() -> Result<(), MainError> {
         thread::spawn(move || {
             let pswrd = urecv.recv().unwrap();
             
-            let will_stk = urecv.recv().unwrap()[0] == 0;
             println!("password:\n{:?}",pswrd);
 
             let me = Account::new(&pswrd);
-            if will_stk {
-                History::initialize();
-            }
     
     
             let mut allnetwork = HashMap::new();
@@ -86,7 +82,6 @@ fn main() -> Result<(), MainError> {
             let node = KhoraNode {
                 sendview: vec![],
                 allnetwork,
-                save_history: will_stk,
                 lasttags: vec![],
                 me,
                 mine: HashMap::new(),
@@ -186,7 +181,6 @@ fn main() -> Result<(), MainError> {
 /// the information that you save to a file when the app is off (not including gui information like saved friends)
 struct SavedNode {
     sendview: Vec<SocketAddr>,
-    save_history: bool, //just testing. in real code this is true; but i need to pretend to be different people on the same computer
     me: Account,
     mine: HashMap<u64, OTAccount>,
     nmine: Option<(usize,u64)>, // [location, amount]
@@ -217,7 +211,6 @@ struct KhoraNode {
     gui_reciever: channel::Receiver<Vec<u8>>,
     sendview: Vec<SocketAddr>,
     allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
-    save_history: bool, // do i really want this? yes?
     me: Account,
     stkinfo: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
@@ -251,7 +244,6 @@ impl KhoraNode {
             let sn = SavedNode {
                 lasttags: self.lasttags.clone(),
                 sendview: self.sendview.clone(),
-                save_history: self.save_history,
                 me: self.me,
                 mine: self.mine.clone(),
                 nheight: self.nheight,
@@ -293,7 +285,6 @@ impl KhoraNode {
             gui_sender,
             gui_reciever,
             sendview: sn.sendview.clone(),
-            save_history: sn.save_history,
             allnetwork,
             me: sn.me,
             mine: sn.mine.clone(),
@@ -387,7 +378,7 @@ impl KhoraNode {
                     }
                     
                     // let t = Instant::now();
-                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut VecHashMap::new(), false, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, self.save_history);
+                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut VecHashMap::new(), false, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, false);
                     // println!("{}",format!("no one: {}",t.elapsed().as_millis()).yellow());
 
                     self.lastbnum = self.bnum;
@@ -500,36 +491,26 @@ impl KhoraNode {
 
 
         if self.ringsize > 0 {
-            if self.save_history {
-                for member in ring {
-                    if let Some(x) = self.rmems.get(&member) {
-                        if x.tag.is_some() {
-                            self.rmems.insert(member,OTAccount::summon_ota(&History::get(&member)));
-                        }
-                    }
-                }
-            } else {
-                let mut rng = &mut rand::thread_rng();
-                self.sendview.shuffle(&mut rng);
-                let mut memloc = 0usize;
-                if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
-                    stream.set_read_timeout(READ_TIMEOUT);
-                    stream.set_write_timeout(WRITE_TIMEOUT);
-                    println!("connected...");
-                    if stream.write_all(&rname).is_ok() {
-                        println!("request made...");
-                        let mut member = [0u8;64]; // using 6 byte buffer
-                        while stream.read_exact(&mut member).is_ok() {
-                                if let Some(x) = self.rmems.get(&ring[memloc]) {
-                                    if x.tag.is_none() {
-                                        print!("{}","!".red());
-                                        self.rmems.insert(ring[memloc],History::read_raw(&member));
-                                    }
-                                } else {
+            let mut rng = &mut rand::thread_rng();
+            self.sendview.shuffle(&mut rng);
+            let mut memloc = 0usize;
+            if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
+                stream.set_read_timeout(READ_TIMEOUT);
+                stream.set_write_timeout(WRITE_TIMEOUT);
+                println!("connected...");
+                if stream.write_all(&rname).is_ok() {
+                    println!("request made...");
+                    let mut member = [0u8;64]; // using 6 byte buffer
+                    while stream.read_exact(&mut member).is_ok() {
+                            if let Some(x) = self.rmems.get(&ring[memloc]) {
+                                if x.tag.is_none() {
+                                    print!("{}","!".red());
                                     self.rmems.insert(ring[memloc],History::read_raw(&member));
                                 }
-                                memloc += 1;
-                        }
+                            } else {
+                                self.rmems.insert(ring[memloc],History::read_raw(&member));
+                            }
+                            memloc += 1;
                     }
                 }
             }
@@ -883,9 +864,6 @@ impl Future for KhoraNode {
                             println!("{:?}",amnt);
                             if tx.verify().is_ok() {
                                 let tx = tx.polyform(&rname);
-                                if self.save_history {
-                                    tx.verify().unwrap();
-                                }
                                 let mut txbin = bincode::serialize(&tx).unwrap();
                                 txbin.push(0);
                                 

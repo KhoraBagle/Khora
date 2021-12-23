@@ -650,7 +650,7 @@ impl KhoraNode {
                     
 
                     // println!("saving block...");
-                    lastlightning.update_bloom(&mut self.bloom,&false);
+                    lastlightning.update_bloom(&mut self.bloom,false);
                     if !self.lightning_yielder {
                         NextBlock::save(&largeblock.unwrap()); // important! if you select to recieve full blocks you CAN NOT recieve with lightning blocks (because if you do youd miss full blocks)
                     }

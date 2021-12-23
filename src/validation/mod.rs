@@ -25,7 +25,7 @@ use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
 use std::time::Duration;
 
 
-pub static VERSION: &str = "v0.94";
+pub static VERSION: &str = "v0.95";
 
 
 /// the number of validators in the comittee, 128
@@ -1156,8 +1156,8 @@ impl LightningSyncBlock {
         f.write(&[0u8;8]).expect("should work");
     }
     /// adds all tags to the bloom filter so validators can check for double spends
-    pub fn update_bloom(&self,bloom:&BloomFile,parallel:&bool) {
-        if *parallel {
+    pub fn update_bloom(&self,bloom:&BloomFile,parallel:bool) {
+        if parallel {
             self.info.tags.par_iter().for_each(|x| bloom.insert(&x.as_bytes()));
         } else {
             self.info.tags.iter().for_each(|x| bloom.insert(&x.as_bytes()));

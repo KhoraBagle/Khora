@@ -31,9 +31,9 @@ use khora::validation::*;
 use khora::ringmaker::*;
 use serde::{Serialize, Deserialize};
 use khora::validation::{
-    NUMBER_OF_VALIDATORS, QUEUE_LENGTH, PERSON0,
+    NUMBER_OF_VALIDATORS, QUEUE_LENGTH, PERSON0, LONG_TERM_SHARDS,
     ACCOUNT_COMBINE, READ_TIMEOUT, WRITE_TIMEOUT, NONCEYNESS,
-    reward, blocktime,
+    reward, blocktime, set_comittee_n_user, comittee_n_user,
 };
 use colored::Colorize;
 
@@ -46,10 +46,7 @@ const OUTSIDER_PORT: u16 = 8335;
 /// the number of nodes to send each message to
 const TRANSACTION_SEND_TO: usize = 1;
 
-fn main() -> Result<(), MainError> {    
-    // this is the number of shards they keep track of
-    let max_shards = 64usize; /* this if for testing purposes... there IS NO MAX SHARDS */
-    
+fn main() -> Result<(), MainError> {
 
 
 
@@ -86,9 +83,9 @@ fn main() -> Result<(), MainError> {
                 nmine: None,
                 nheight: 0,
                 stkinfo: vec![initial_history.clone()],
-                queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|_| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
-                exitqueue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
-                comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|_| 0).collect::<Vec<usize>>()).collect::<Vec<_>>(),
+                queue: (0..LONG_TERM_SHARDS).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|_| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
+                exitqueue: (0..LONG_TERM_SHARDS).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
+                comittee: (0..LONG_TERM_SHARDS).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|_| 0).collect::<Vec<usize>>()).collect::<Vec<_>>(),
                 lastname: Scalar::one().as_bytes().to_vec(),
                 bnum: 0u64,
                 lastbnum: 0u64,
@@ -311,12 +308,8 @@ impl KhoraNode {
     fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, save: bool) {
         if lastlightning.bnum >= self.bnum {
             let com = &self.comittee;
-            if lastlightning.shards.len() == 0 {
-                // println!("Error in block verification: there is no shard");
-                return ();
-            }
-            let v = if (lastlightning.shards[0] as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
-                lastlightning.verify_multithread_user(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok()
+            let v = if (lastlightning.shard as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
+                lastlightning.verify_multithread_user(&comittee_n_user(lastlightning.shard as usize, &self.comittee, &self.stkinfo), &self.stkinfo).is_ok()
             } else {
                 false
             };
@@ -328,7 +321,7 @@ impl KhoraNode {
                     self.save();
                 }
                 // println!("{}",format!("{}",t.elapsed().as_millis()).red());
-                self.headshard = lastlightning.shards[0] as usize;
+                self.headshard = lastlightning.shard as usize;
 
                 // println!("=========================================================\nyay!");
 
@@ -372,7 +365,7 @@ impl KhoraNode {
                     }
                     
                     // let t = Instant::now();
-                    lastlightning.scan_as_noone_user(&mut self.stkinfo, &mut VecHashMap::new(), false, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, false);
+                    lastlightning.scan_as_noone_user(&mut self.stkinfo, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, false);
                     // println!("{}",format!("no one: {}",t.elapsed().as_millis()).yellow());
 
                     self.lastbnum = self.bnum;
@@ -388,6 +381,9 @@ impl KhoraNode {
                 }
                 self.bnum += 1;
                 
+
+
+                set_comittee_n_user(lastlightning.shard as usize, &self.comittee, &self.stkinfo);
 
 
                 // let t = Instant::now();

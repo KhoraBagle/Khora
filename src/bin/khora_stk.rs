@@ -38,10 +38,10 @@ use khora::ringmaker::*;
 use khora::vechashmap::*;
 use serde::{Serialize, Deserialize};
 use khora::validation::{
-    NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0,
+    NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0, LONG_TERM_SHARDS,
     STAKER_BLOOM_NAME, STAKER_BLOOM_SIZE, STAKER_BLOOM_HASHES,
     READ_TIMEOUT, WRITE_TIMEOUT, NONCEYNESS,
-    reward, blocktime
+    reward, blocktime, set_comittee_n, comittee_n,
 };
 
 use gip::{Provider, ProviderDefaultV4};
@@ -76,9 +76,6 @@ fn main() -> Result<(), MainError> {
     let global_socket = format!("{}:{}",global_addr,DEFAULT_PORT).parse::<SocketAddr>().unwrap();
     println!("computer socket: {}\nglobal socket: {}",local_socket,global_socket);
 
-    // this is the number of shards they keep track of
-    let max_shards = 64usize; /* this if for testing purposes... there IS NO MAX SHARDS */
-    
 
 
 
@@ -165,9 +162,9 @@ fn main() -> Result<(), MainError> {
                 overthrown: HashSet::new(),
                 votes: vec![0;NUMBER_OF_VALIDATORS],
                 stkinfo: initial_history.clone(),
-                queue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|_| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
-                exitqueue: (0..max_shards).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
-                comittee: (0..max_shards).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|_| 0).collect::<Vec<usize>>()).collect::<Vec<_>>(),
+                queue: (0..LONG_TERM_SHARDS).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|_| 0).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
+                exitqueue: (0..LONG_TERM_SHARDS).map(|_|(0..QUEUE_LENGTH).into_par_iter().map(|x| (x%NUMBER_OF_VALIDATORS)).collect::<VecDeque<usize>>()).collect::<Vec<_>>(),
+                comittee: (0..LONG_TERM_SHARDS).map(|_|(0..NUMBER_OF_VALIDATORS).into_par_iter().map(|_| 0).collect::<Vec<usize>>()).collect::<Vec<_>>(),
                 lastname: Scalar::one().as_bytes().to_vec(),
                 bloom: BloomFile::from_randomness(STAKER_BLOOM_NAME, STAKER_BLOOM_SIZE, STAKER_BLOOM_HASHES, true),
                 bnum: 0u64,
@@ -539,17 +536,12 @@ impl KhoraNode {
     fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, largeblock: Option<Vec<u8>>, save: bool) -> bool {
         let t = Instant::now();
         if lastlightning.bnum >= self.bnum {
-            let com = &self.comittee;
-            if lastlightning.shards.len() == 0 {
-                println!("Error in block verification: there is no shard");
-                return false;
-            }
-            let v = if (lastlightning.shards[0] as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
-                lastlightning.verify_multithread(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok()
+            let v = if (lastlightning.shard as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
+                lastlightning.verify_multithread(&comittee_n(lastlightning.shard as usize, &self.comittee, &self.stkinfo), &self.stkinfo).is_ok()
             } else {
                 false
             };
-            if v  {
+            if v {
                 println!("{}",format!("=========================================================\ngot a block at {}!",self.bnum).magenta());
                 if save {
                     // saves your current information BEFORE reading the new block. It's possible a leader is trying to cause a fork which can only be determined 1 block later based on what the comittee thinks is real
@@ -564,7 +556,7 @@ impl KhoraNode {
 
                 // if you are one of the validators who leave this turn, it is your responcibility to send the block to the outside world
                 if let Some(keylocation) = self.keylocation {
-                    let c = &self.comittee[self.headshard];
+                    let c = comittee_n(self.headshard,&self.comittee, &self.stkinfo);
                     if self.exitqueue[self.headshard].par_iter().take(REPLACERATE).map(|&x| c[x]).any(|x| keylocation == x) {
                         if let Some(mut lastblock) = largeblock.clone() {
                             lastblock.push(3);
@@ -573,7 +565,7 @@ impl KhoraNode {
                         }
                     }
                 }
-                self.headshard = lastlightning.shards[0] as usize;
+                self.headshard = lastlightning.shard as usize;
 
 
                 self.overthrown.remove(&self.stkinfo.vec[lastlightning.leader.pk as usize].0);
@@ -691,7 +683,7 @@ impl KhoraNode {
                 self.bnum += 1;
 
                 
-                self.votes = self.votes.par_iter().zip(self.comittee[self.headshard].par_iter()).map(|(z,&x)| z + lastlightning.validators.iter().filter(|y| y.pk == x).count() as i32).collect::<Vec<_>>();
+                self.votes = self.votes.par_iter().zip(comittee_n(self.headshard,&self.comittee, &self.stkinfo).par_iter()).map(|(z,&x)| z + lastlightning.validators.iter().filter(|y| y.pk == x).count() as i32).collect::<Vec<_>>();
                 
 
 
@@ -701,10 +693,10 @@ impl KhoraNode {
                 
                 let s = &self.stkinfo.vec;
                 let o = &self.overthrown;
-                let cm = &self.comittee[self.headshard];
+                let cm = &comittee_n(self.headshard,&self.comittee, &self.stkinfo);
                 /* LEADER CHOSEN BY VOTES (off blockchain, says which comittee member they should send stuff to) */
                 let abouttoleave = self.exitqueue[self.headshard].par_iter().take(EXIT_TIME).map(|z| cm[*z].clone()).collect::<HashSet<_>>();
-                self.leader = self.stkinfo.vec[*self.comittee[self.headshard].par_iter().zip(self.votes.par_iter()).max_by_key(|(x,&y)| {
+                self.leader = self.stkinfo.vec[*comittee_n(self.headshard,&self.comittee, &self.stkinfo).par_iter().zip(self.votes.par_iter()).max_by_key(|(x,&y)| {
                     if abouttoleave.contains(x) || o.contains(&s[**x].0) {
                         i32::MIN
                     } else {
@@ -758,7 +750,7 @@ impl KhoraNode {
 
                 // if you're lonely and on the comittee, you try to reconnect with the comittee (WARNING: DOES NOT HANDLE IF YOU HAVE FRIENDS BUT THEY ARE IGNORING YOU)
                 if self.is_validator && self.inner.plumtree_node().all_push_peers().is_empty() {
-                    for n in self.comittee[self.headshard].iter().filter_map(|&x| self.stkinfo.vec[x].1.1).collect::<Vec<_>>() {
+                    for n in comittee_n(self.headshard,&self.comittee, &self.stkinfo).iter().filter_map(|&x| self.stkinfo.vec[x].1.1).collect::<Vec<_>>() {
                         self.inner.join(NodeId::new(SocketAddr::from((n.ip(),DEFAULT_PORT)),LocalNodeId::new(1)));
                     }
                 }
@@ -778,7 +770,7 @@ impl KhoraNode {
 
                 if self.laststk.is_some() && (self.bnum%NONCEYNESS == 0 || self.laststk.iter().all(|&x| {
                     lastlightning.info.nonanonyin.iter().any(|y| y.0 == x)
-                }) || self.comittee[self.headshard].contains(&self.keylocation.unwrap()) || self.comittee[self.headshard+1].contains(&self.keylocation.unwrap())) {
+                }) || comittee_n(self.headshard,&self.comittee, &self.stkinfo).contains(&self.keylocation.unwrap()) || self.comittee[self.headshard+1].contains(&self.keylocation.unwrap())) {
                     self.gui_sender.send(vec![11]).expect("something's wrong with the communication to the gui");
                 }
 
@@ -788,6 +780,8 @@ impl KhoraNode {
                 self.gui_sender.send(vec![self.blocktime as u8,128]).expect("something's wrong with the communication to the gui");
 
                 self.sigs = vec![];
+                set_comittee_n(lastlightning.shard as usize, &self.comittee, &self.stkinfo);
+                self.headshard = 0;
                 self.doneerly = self.timekeeper;
                 self.waitingforentrybool = true;
                 self.waitingforleaderbool = false;
@@ -812,13 +806,13 @@ impl KhoraNode {
                 self.is_validator = false;
                 if let Some(keylocation) = self.keylocation {
                     let keylocation = keylocation as usize;
-                    self.is_validator = self.comittee[self.headshard].par_iter().any(|x| *x == keylocation);
+                    self.is_validator = comittee_n(self.headshard,&self.comittee, &self.stkinfo).par_iter().any(|x| *x == keylocation);
                     self.gui_sender.send(vec![self.is_validator as u8,3]).unwrap();
 
                     if self.queue[self.headshard].par_iter().take(REPLACERATE).any(|&x| x == keylocation) {
                         // announce yourself to the comittee because it's about to be your turn
                         let si = &self.stkinfo;
-                        for n in self.comittee[self.headshard].par_iter().filter_map(|&x| si.get_by_index(x).1.1).collect::<Vec<_>>() {
+                        for n in comittee_n(self.headshard,&self.comittee, &self.stkinfo).par_iter().filter_map(|&x| si.get_by_index(x).1.1).collect::<Vec<_>>() {
                             self.inner.join(NodeId::new(SocketAddr::from((n.ip(),DEFAULT_PORT)),LocalNodeId::new(1)));
                         }
                     }
@@ -1113,10 +1107,10 @@ impl Future for KhoraNode {
                                     if let Ok(m) = bincode::deserialize::<Vec<PolynomialTransaction>>(&m) {
 
                                         if let Some(keylocation) = &self.keylocation {
-                                            let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, m, &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo, &self.nonanony);
+                                            let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, m, &(self.headshard as u8), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo, &self.nonanony);
                                             let mut m = bincode::serialize(&m).unwrap();
                                             m.push(2);
-                                            for _ in self.comittee[self.headshard].iter().filter(|&x|x == keylocation).collect::<Vec<_>>() {
+                                            for _ in comittee_n(self.headshard,&self.comittee, &self.stkinfo).iter().filter(|&x|x == keylocation).collect::<Vec<_>>() {
                                                 println!("{}","broadcasting block signature".red());
                                                 self.inner.broadcast(m.clone());
                                             }
@@ -1163,7 +1157,7 @@ impl Future for KhoraNode {
                     /* change the leader, also add something about only changing the leader if block is free */
 
                     self.overthrown.insert(self.leader);
-                    self.leader = self.stkinfo.vec[*self.comittee[self.headshard].iter().zip(self.votes.iter()).max_by_key(|(&x,&y)| { // i think it does make sense to not care about whose going to leave soon here
+                    self.leader = self.stkinfo.vec[*comittee_n(self.headshard,&self.comittee, &self.stkinfo).iter().zip(self.votes.iter()).max_by_key(|(&x,&y)| { // i think it does make sense to not care about whose going to leave soon here
                         if self.overthrown.contains(&self.stkinfo.vec[x].0) {
                             i32::MIN
                         } else {
@@ -1184,9 +1178,9 @@ impl Future for KhoraNode {
                 // if you are the leader, run these block creation commands
                 if self.me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress() == self.leader {
                     if (self.sigs.len() > SIGNING_CUTOFF) && (self.timekeeper.elapsed().as_secs() > (0.25*self.blocktime) as u64) {
-                        if let Ok(lastblock) = NextBlock::finish(&self.key, &self.keylocation.iter().next().unwrap(), &self.sigs, &self.comittee[self.headshard], &(self.headshard as u16), &self.bnum, &self.lastname, &self.stkinfo,&self.nonanony) {
+                        if let Ok(lastblock) = NextBlock::finish(&self.key, &self.keylocation.iter().next().unwrap(), &self.sigs, &comittee_n(self.headshard,&self.comittee, &self.stkinfo), &(self.headshard as u8), &self.bnum, &self.lastname, &self.stkinfo,&self.nonanony) {
                             
-                            lastblock.verify(&self.comittee[self.headshard], &self.stkinfo,&self.nonanony).unwrap();
+                            lastblock.verify(&comittee_n(self.headshard,&self.comittee, &self.stkinfo), &self.stkinfo,&self.nonanony).unwrap();
     
                             let mut m = bincode::serialize(&lastblock).unwrap();
                             m.push(3u8);
@@ -1201,10 +1195,10 @@ impl Future for KhoraNode {
                             did_something = true;
 
                         } else {
-                            let comittee = &self.comittee[self.headshard];
+                            let comittee = &comittee_n(self.headshard,&self.comittee, &self.stkinfo);
                             self.sigs.retain(|x| !comittee.into_par_iter().all(|y| x.leader.pk != *y));
                             let a = self.leader.to_bytes().to_vec();
-                            let b = bincode::serialize(&vec![self.headshard as u16]).unwrap();
+                            let b = vec![self.headshard as u8];
                             let c = self.bnum.to_le_bytes().to_vec();
                             let d = self.lastname.clone();
                             let e = &self.stkinfo;
@@ -1225,11 +1219,11 @@ impl Future for KhoraNode {
                 if self.waitingforentrybool && (self.waitingforentrytime.elapsed().as_secs() > (0.66*self.blocktime) as u64) {
                     self.waitingforentrybool = false;
                     for keylocation in &self.keylocation {
-                        let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, vec![], &(self.headshard as u16), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo, &self.nonanony);
+                        let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, vec![], &(self.headshard as u8), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo, &self.nonanony);
                         println!("{}","ATTEMPTING TO MAKE AN EMPTY BLOCK".red().bold());
                         let mut m = bincode::serialize(&m).unwrap();
                         m.push(2);
-                        if self.comittee[self.headshard].contains(&(*keylocation as usize)) {
+                        if comittee_n(self.headshard,&self.comittee, &self.stkinfo).contains(&(*keylocation as usize)) {
                             self.inner.broadcast(m);
                         }
                     }

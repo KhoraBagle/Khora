@@ -320,7 +320,7 @@ struct SavedNode {
     av: Vec<NodeId>,
     pv: Vec<NodeId>,
     moneyreset: Option<Vec<u8>>,
-    laststk: Option<(Account, Option<(usize, u64)>, u64)>,
+    laststk: Option<(Account, Option<(usize, u64)>, u64)>, // paniced
     cumtime: f64,
     blocktime: f64,
     lightning_yielder: bool,
@@ -379,7 +379,7 @@ struct KhoraNode {
     is_node: bool,
     newest: usize,
     moneyreset: Option<Vec<u8>>,
-    laststk: Option<(Account, Option<(usize, u64)>, u64)>,
+    laststk: Option<(Account, Option<(usize, u64)>, u64)>, // paniced
     cumtime: f64,
     blocktime: f64,
     lightning_yielder: bool,
@@ -631,6 +631,8 @@ impl KhoraNode {
                             }
                         }
                     }
+
+                    
                     let (mut guitruster, new) = lastlightning.scanstk(&self.me, &mut self.smine, true, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
                     guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever) || guitruster;
                     
@@ -792,8 +794,6 @@ impl KhoraNode {
 
 
 
-                println!("{:?}",self.nmine);
-                println!("{:?}",self.nonanony);
 
 
 
@@ -816,7 +816,7 @@ impl KhoraNode {
                 }
                 self.is_node = !self.is_validator;
 
-
+                println!("stake info: {:?}",self.stkinfo);
                 println!("full time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
                 println!("known validator's ips: {:?}", self.stkinfo.vec.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>());
                 return true
@@ -1581,7 +1581,7 @@ impl Future for KhoraNode {
                             let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
                             let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
                             // tx.verify().unwrap();
-                            let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
+                            let mut loc = loc.into_iter().map(|x| (x as u64).to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
                             loc.push(1);
                             let tx = tx.polyform(&loc); // push 0
                             if tx.verifystk(&self.stkinfo, self.bnum/NONCEYNESS).is_ok() {

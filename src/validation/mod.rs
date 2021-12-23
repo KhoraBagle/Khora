@@ -150,7 +150,6 @@ impl Syncedtx {
                 None
             }
         }).collect();
-
         let (stknew, stkin): (Vec<_>,Vec<_>) = stkin.par_iter().map(|x| {
             if let Some(z) = stkinfo.contains(&x.0) {
                 (None,Some((z,x.1)))
@@ -160,7 +159,6 @@ impl Syncedtx {
         }).unzip();
         let mut stkin = stkin.par_iter().filter_map(|x|x.as_ref()).copied().collect::<Vec<_>>();
         let mut stknew = stknew.par_iter().filter_map(|x|x.copied()).collect::<Vec<_>>();
-
         stkin.retain(|x| {
             if stkout.par_iter().find_first(|&&y| y == x.0).is_some() {
                 stknew.push((stkinfo.get_by_index(x.0).0,x.1));
@@ -187,7 +185,6 @@ impl Syncedtx {
                 None
             }
         }).collect();
-
         let (nonanonynew, nonanonyin): (Vec<_>,Vec<_>) = nonanonyin.par_iter().map(|x| {
             if let Some(z) = nonanonyinfo.contains(&x.0) {
                 (None,Some((z,x.1)))
@@ -197,7 +194,6 @@ impl Syncedtx {
         }).unzip();
         let mut nonanonyin = nonanonyin.par_iter().filter_map(|x|x.as_ref()).copied().collect::<Vec<_>>();
         let mut nonanonynew = nonanonynew.par_iter().filter_map(|x|x.copied()).collect::<Vec<_>>();
-
         nonanonyin.retain(|x| {
             if nonanonyout.par_iter().find_first(|&&y| y == x.0).is_some() {
                 nonanonynew.push((nonanonyinfo.get_by_index(x.0).0,x.1));
@@ -925,7 +921,7 @@ impl LightningSyncBlock {
         }
 
 
-        // println!("valinfo {:?}",valinfo);
+        println!("valinfo {:?}",valinfo);
         // println!("valinfo {:?}",self.info.stkin);
 
     }
@@ -1075,7 +1071,7 @@ impl LightningSyncBlock {
         // let t = std::time::Instant::now();
 
         // println!("mine:---------------------------------\n{:?}",mine);
-        let changed = mine.clone();
+        let changed = mine.clone();n
         let nonetosome = mine.is_none();
         if let Some(mine) = mine {
             let winners: Vec<usize>;
@@ -1122,21 +1118,29 @@ impl LightningSyncBlock {
             }
         }
         if maybesome {
+            // println!("mine: {:?}",mine);
             if let Some(m) = mine {
-                if let Some(x) = self.info.nonanonyin.par_iter().find_first(|x| x.0 == m.0) {
-                    m.1 += x.1;                }
+                if let Some(x) = self.info.stkin.par_iter().find_first(|x| x.0 == m.0) {
+                    m.1 += x.1;
+                    println!("=================================================================================================");
+                    println!("someone sent me more stake! at staking {:?}",m);
+                    println!("=================================================================================================");
+                }
             }
-            *height -= self.info.nonanonyout.len();
     
             if let Some(x) = &mine {
-                *mine = follow(x.0,&self.info.nonanonyout,*height).map(|y| (y,x.1));
+                *mine = follow(x.0,&self.info.stkout,*height).map(|y| (y,x.1));
             }
+            *height -= self.info.stkout.len();
     
             let cr = me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
-            if let Some(x) = self.info.nonanonynew.par_iter().enumerate().find_first(|x| x.1.0 == cr) {
+            if let Some(x) = self.info.stknew.par_iter().enumerate().find_first(|x| x.1.0 == cr) {
                 *mine = Some((*height + x.0,x.1.1));
+                println!("=================================================================================================");
+                println!("someone sent me new stake! at staking {:?}",mine);
+                println!("=================================================================================================");
             }
-            *height += self.info.nonanonynew.len();
+            *height += self.info.stknew.len();
         } else {
             *height -= self.info.stkout.len();
             *height += self.info.stkin.len();

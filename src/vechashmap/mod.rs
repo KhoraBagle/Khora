@@ -105,6 +105,15 @@ impl<K: Eq + Clone + Hash, V: Clone> VecHashMap<K,V> {
             self.insert(k.clone(),v.clone());
         }
     }
+    /// modifies all values from keys by a function
+    /// if a key is not valid, it is ignored
+    pub fn modify_all_keys<P: Clone>(&mut self, keys: &[K], function: &dyn Fn(&V,P) -> V, parameter: P) {
+        for k in keys {
+            if let Some((_,v)) = self.vec.get_mut(self.hashmap[k]) {
+                *v = function(&v,parameter.clone());
+            };
+        }
+    }
 }
 /// takes as input an index returns where it goes/ if it's deleted
 /// this function goes with the VecHashMap

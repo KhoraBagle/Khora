@@ -280,40 +280,6 @@ impl Signature {
         self.c == Scalar::from_hash(message.to_owned())
     }
 
-    /// signs any message with your staker public key
-    pub fn sign_message(key: &Scalar, message: &Vec<u8>, location: &u64) -> Vec<u8> {
-        let mut s = Sha3_512::new();
-        s.update(&message); // impliment non block check stuff for signatures
-        let mut csprng = thread_rng();
-        let a = Scalar::random(&mut csprng);
-        s.update((a*PEDERSEN_H()).compress().to_bytes());
-        let c = Scalar::from_hash(s.to_owned());
-        let mut out = c.as_bytes().to_vec();
-        out.par_extend((a - c*key).as_bytes());
-        out.par_extend(location.to_le_bytes());
-        out.par_extend(message);
-        out
-    }
-
-    /// recieves a signed message
-    pub fn recieve_signed_message(signed_message: &mut Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>) -> Option<u64> {
-        let sig = signed_message.par_drain(..72).collect::<Vec<_>>();
-        let s = Signature{
-            c: Scalar::from_bits(sig[..32].try_into().unwrap()),
-            r: Scalar::from_bits(sig[32..64].try_into().unwrap()),
-            pk: u64::from_le_bytes(sig[64..72].try_into().unwrap())
-        };
-        
-        let mut h = Sha3_512::new();
-        h.update(signed_message);
-        if s.verify(&mut h, stkstate) {
-            Some(s.pk)
-        } else {
-            None
-        }
-    }
-
-
     /// signs any message with your staker public key (without a location)
     pub fn sign_message2(key: &Scalar, message: &Vec<u8>) -> Vec<u8> {
         let mut s = Sha3_512::new();
@@ -1329,9 +1295,8 @@ mod tests {
         let message = "hi!!!".as_bytes().to_vec();
         let sk = Scalar::from(rand::random::<u64>());
         let pk = (sk*PEDERSEN_H()).compress();
-        let stkstate = vec![(pk,9012309183u64)];
-        let mut m = Signature::sign_message(&sk,&message,&0u64);
-        assert!(0 == Signature::recieve_signed_message(&mut m,&stkstate).unwrap());
+        let mut m = Signature::sign_message2(&sk,&message);
+        assert!(Signature::recieve_signed_message2(&mut m).unwrap() == pk);
         assert!(m == message);
     }
 

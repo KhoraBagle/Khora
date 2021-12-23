@@ -73,7 +73,7 @@ impl<K: Eq + Clone + Hash, V: Clone> VecHashMap<K,V> {
         &self.vec[index]
     }
     /// removes an element from the vec and hashmap
-    /// make sure gone is sorted for this to be used
+    /// make sure gone is sorted as aesending for this to be used
     pub fn remove_all(&mut self, gone: &Vec<usize>) {
         // assert!(is_aesending(gone));
 

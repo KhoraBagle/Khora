@@ -77,8 +77,10 @@ pub fn blocktime(cumtime: f64) -> f64 {
 /// the information on the transactions made that is saved in lightning blocks
 /// in a minimalist setting where validators dont ever need to sync anyone, they only need to save their history object and the stake state at the current time
 pub struct Syncedtx{
-    pub stkout: Vec<u64>,
+    /// this should already be sorted
+    pub stkout: Vec<usize>,
     pub stkin: Vec<(CompressedRistretto,u64)>,
+    /// this should already be sorted
     pub nonanonyout: Vec<usize>,
     pub nonanonyin: Vec<(usize,u64)>,
     pub nonanonynew: Vec<(CompressedRistretto,u64)>,
@@ -95,7 +97,8 @@ impl PartialEq for Syncedtx {
 
 impl Syncedtx {
     /// distills the important information from a group of transactions
-    pub fn from(txs: &Vec<PolynomialTransaction>, nonanonyinfo: &VecHashMap<CompressedRistretto,u64>)->Syncedtx {
+    /// this does return the stkout and nonanonyout sorted
+    pub fn from(txs: &Vec<PolynomialTransaction>, nonanonyinfo: &VecHashMap<CompressedRistretto,u64>, stkinfo: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>)->Syncedtx {
 
         let ((tags,fees), (inputs, outputs)): ((Vec<_>,Vec<_>),(Vec<_>,Vec<Vec<_>>)) = txs.into_par_iter().map(|x|
             ((if x.inputs.last() == Some(&0) {Some(x.tags.clone())} else {None},x.fee),(x.inputs.clone(),x.outputs.clone()))
@@ -119,14 +122,15 @@ impl Syncedtx {
 
         let (stkout,nonanonyout): (Vec<_>,Vec<_>) = inputs.into_par_iter().filter_map(|x| {
             if x.last() == Some(&1) {
-                Some((Some(x.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap())).collect::<Vec<_>>()),None))
+                Some((Some(x.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap()) as usize).collect::<Vec<_>>()),None))
             } else if x.last() == Some(&2) {
                 Some((None,Some(x.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap()) as usize).collect::<Vec<_>>())))
             } else {None}
         }).unzip();
-        let stkout = stkout.into_par_iter().filter_map(|x|x).flatten().collect::<Vec<_>>();
-        let nonanonyout = nonanonyout.into_par_iter().filter_map(|x|x).flatten().collect::<Vec<_>>();
-
+        let mut stkout = stkout.into_par_iter().filter_map(|x|x).flatten().collect::<Vec<_>>();
+        stkout.sort();
+        let mut nonanonyout = nonanonyout.into_par_iter().filter_map(|x|x).flatten().collect::<Vec<_>>();
+        nonanonyout.sort();
 
         let s = stkin.clone();
         stkin.par_iter_mut().enumerate().for_each(|(i,x)| {
@@ -274,9 +278,9 @@ impl Signature {
     }
 
     /// verifies a schoore signature on a message given as a Sha3_512 state
-    pub fn verify(&self, message: &mut Sha3_512, stkstate: &Vec<(CompressedRistretto,u64)>) -> bool { // the inputs are the hashed messages you are checking for signatures on because it's faster for many messages.
+    pub fn verify(&self, message: &mut Sha3_512, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>) -> bool { // the inputs are the hashed messages you are checking for signatures on because it's faster for many messages.
         if self.pk as usize >= stkstate.len() {return false}
-        message.update((self.r*PEDERSEN_H() + self.c*stkstate[self.pk as usize].0.decompress().unwrap()).compress().to_bytes());
+        message.update((self.r*PEDERSEN_H() + self.c*stkstate.vec[self.pk as usize].0.decompress().unwrap()).compress().to_bytes());
         self.c == Scalar::from_hash(message.to_owned())
     }
 
@@ -334,7 +338,7 @@ impl Signature {
     }
 
     /// recieved a signed message only if it was signed as the current block
-    pub fn recieve_signed_message_nonced(signed_message: &mut Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, bnum: &u64) -> Option<u64> {
+    pub fn recieve_signed_message_nonced(signed_message: &mut Vec<u8>, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>, bnum: &u64) -> Option<u64> {
         if signed_message.len() < 72 {return None}
         let sig = signed_message.par_drain(..72).collect::<Vec<_>>();
         let s = Signature{
@@ -376,7 +380,7 @@ impl PartialEq for NextBlock {
 }
 impl NextBlock {
     /// selects the transactions that are valid (as a member of the comittee in block generation)
-    pub fn valicreate(key: &Scalar, location: &u64, leader: &CompressedRistretto, mut txs: Vec<PolynomialTransaction>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, bloom: &BloomFile, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<CompressedRistretto,u64>) -> NextBlock {
+    pub fn valicreate(key: &Scalar, location: &u64, leader: &CompressedRistretto, mut txs: Vec<PolynomialTransaction>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, bloom: &BloomFile, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>, nonanony: &VecHashMap<CompressedRistretto,u64>) -> NextBlock {
         let mut stks = txs.par_iter().filter(|x| 
             if x.inputs.last() == Some(&1) {
                 x.verifystk(&stkstate,bnum/NONCEYNESS).is_ok()
@@ -392,7 +396,7 @@ impl NextBlock {
         }).map(|x| x.1.to_owned()).collect::<Vec<_>>();
         let mut nonanons = txs.par_iter().filter(|x| 
             if x.inputs.last() == Some(&2) {
-                x.verifystk(&nonanony.vec,bnum/NONCEYNESS).is_ok()
+                x.verifynonanony(&nonanony,bnum/NONCEYNESS).is_ok()
             } else {
                 false
             }
@@ -440,7 +444,7 @@ impl NextBlock {
     }
 
     /// creates a full block from a collection of signatures in the comittee
-    pub fn finish(key: &Scalar, location: &u64, sigs: &Vec<NextBlock>, validator_pool: &Vec<u64>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<CompressedRistretto,u64>) -> Result<NextBlock,&'static str> { // <----do i need to reference previous block explicitly?
+    pub fn finish(key: &Scalar, location: &u64, sigs: &Vec<NextBlock>, validator_pool: &Vec<u64>, pool: &u16, bnum: &u64, last_name: &Vec<u8>, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>, nonanony: &VecHashMap<CompressedRistretto,u64>) -> Result<NextBlock,&'static str> { // <----do i need to reference previous block explicitly?
         let leader = (key*PEDERSEN_H()).compress().as_bytes().to_vec();
         let mut sigs = sigs.into_par_iter().filter(|x| !validator_pool.into_par_iter().all(|y| x.leader.pk != *y)).map(|x| x.to_owned()).collect::<Vec<NextBlock>>();
         let mut sigfinale: Vec<NextBlock>;
@@ -485,7 +489,7 @@ impl NextBlock {
 
     /// creates the final block from the collection of subblocks and signatures from the main shard
     /// WARNING:: MUST MAKE SURE blks[0] IS THE ONE YOU MADE YOURSELF
-    pub fn valimerge(key: &Scalar, location: &u64, leader: &CompressedRistretto, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony: &VecHashMap<CompressedRistretto,u64>, _mypoolnum: &u16) -> Signature {
+    pub fn valimerge(key: &Scalar, location: &u64, leader: &CompressedRistretto, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, bnum: &u64, last_name: &Vec<u8>, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>, nonanony: &VecHashMap<CompressedRistretto,u64>, _mypoolnum: &u16) -> Signature {
         
         
         let mut blks: Vec<NextBlock> = blks.par_iter().zip(val_pools).filter_map(|(x,y)| if x.verify(&y,&stkstate,nonanony).is_ok() {Some(x.to_owned())} else {None}).collect();
@@ -514,8 +518,8 @@ impl NextBlock {
     }
 
     /// verifies a full block (that the comittee acted as they should)
-    pub fn finishmerge(key: &Scalar, location: &u64, sigs: &Vec<Signature>, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, headpool: &Vec<u64>, bnum: &u64, last_name: &Vec<u8>, stkstate: &Vec<(CompressedRistretto,u64)>,nonanony:&VecHashMap<CompressedRistretto,u64> , _mypoolnum: &u16) -> NextBlock {
-        let headpool = headpool.into_par_iter().map(|x|stkstate[*x as usize].0).collect::<Vec<CompressedRistretto>>();
+    pub fn finishmerge(key: &Scalar, location: &u64, sigs: &Vec<Signature>, blks: &Vec<NextBlock>, val_pools: &Vec<Vec<u64>>, headpool: &Vec<u64>, bnum: &u64, last_name: &Vec<u8>, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,nonanony:&VecHashMap<CompressedRistretto,u64> , _mypoolnum: &u16) -> NextBlock {
+        let headpool = headpool.into_par_iter().map(|x|stkstate.vec[*x as usize].0).collect::<Vec<CompressedRistretto>>();
         let mut blks: Vec<NextBlock> = blks.par_iter().zip(val_pools).filter_map(|(x,y)| if x.verify(&y, &stkstate,nonanony).is_ok() {Some(x.to_owned())} else {None}).collect();
         let mut blk = blks.remove(0);
         
@@ -540,7 +544,7 @@ impl NextBlock {
         let sigs = sigs.into_par_iter().filter(|x|
             Signature::verify(x, &mut s.clone(), stkstate)
         ).collect::<Vec<&Signature>>();
-        let sigs = sigs.into_par_iter().filter(|x| !headpool.clone().into_par_iter().all(|y| stkstate[x.pk as usize].0 != y)).collect::<Vec<&Signature>>();
+        let sigs = sigs.into_par_iter().filter(|x| !headpool.clone().into_par_iter().all(|y| stkstate.vec[x.pk as usize].0 != y)).collect::<Vec<&Signature>>();
         let sigcopy = sigs.clone();
         let sigs = sigs.into_par_iter().enumerate().filter_map(|(i,x)| if sigcopy[..i].par_iter().all(|y| x.pk != y.pk) {Some(x.to_owned())} else {None}).collect::<Vec<Signature>>();
         let mut s = Sha3_512::new();
@@ -555,7 +559,7 @@ impl NextBlock {
     }
 
     /// verifies a full block (that the comittee acted as they should)
-    pub fn verify(&self, validator_pool: &Vec<u64>, stkstate: &Vec<(CompressedRistretto,u64)>, nonanony:&VecHashMap<CompressedRistretto, u64>) -> Result<bool, &'static str> {
+    pub fn verify(&self, validator_pool: &Vec<u64>, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>, nonanony:&VecHashMap<CompressedRistretto, u64>) -> Result<bool, &'static str> {
         let mut s = Sha3_512::new();
         s.update(&bincode::serialize(&self.validators).unwrap().to_vec());
         let c = s.finalize();
@@ -566,7 +570,7 @@ impl NextBlock {
         if !self.leader.verify(&mut s, &stkstate) {
             return Err("leader is fake")
         }
-        let m = vec![stkstate[self.leader.pk as usize].0.as_bytes().to_vec().clone(),bincode::serialize(&self.shards).unwrap(),Syncedtx::to_sign(&self.txs,nonanony),self.bnum.to_le_bytes().to_vec(), self.last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
+        let m = vec![stkstate.vec[self.leader.pk as usize].0.as_bytes().to_vec().clone(),bincode::serialize(&self.shards).unwrap(),Syncedtx::to_sign(&self.txs,nonanony),self.bnum.to_le_bytes().to_vec(), self.last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
         let mut h = Sha3_512::new();
         h.update(&m);
         if !self.validators.par_iter().all(|x| x.verify(&mut h.clone(), &stkstate)) {
@@ -586,11 +590,11 @@ impl NextBlock {
     }
 
     /// the function you use to pay the comittee if you are not saving the block
-    pub fn pay_all_empty(shard: &usize, comittee: &Vec<Vec<usize>>, valinfo: &mut Vec<(CompressedRistretto,u64)>, reward: f64) {
+    pub fn pay_all_empty(shard: &usize, comittee: &Vec<Vec<usize>>, valinfo: &mut VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>, reward: f64) {
         let winners = comittee[*shard].iter();
         let inflation = (reward/winners.len() as f64) as u64;
         for &i in winners {
-            valinfo[i].1 += inflation;
+            valinfo.vec[i].1.0 += inflation;
         }
     }
 
@@ -687,7 +691,7 @@ pub struct LightningSyncBlock {
 }
 impl LightningSyncBlock {
     /// verifies that the block is real and the 128 comittee members came to consensus. all computations are carried out in parallell
-    pub fn verify_multithread(&self, validator_pool: &Vec<u64>, stkstate: &Vec<(CompressedRistretto,u64)>) -> Result<bool, &'static str> {
+    pub fn verify_multithread(&self, validator_pool: &Vec<u64>, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>) -> Result<bool, &'static str> {
         let mut s = Sha3_512::new();
         s.update(&bincode::serialize(&self.validators).unwrap().to_vec());
         let c = s.finalize();
@@ -697,7 +701,7 @@ impl LightningSyncBlock {
         if !self.leader.verify(&mut h, &stkstate) {
             return Err("leader is fake")
         }
-        let m = vec![stkstate[self.leader.pk as usize].0.as_bytes().to_vec().clone(), bincode::serialize(&self.shards).unwrap(), bincode::serialize(&self.info).unwrap(), self.bnum.to_le_bytes().to_vec(), self.last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
+        let m = vec![stkstate.vec[self.leader.pk as usize].0.as_bytes().to_vec().clone(), bincode::serialize(&self.shards).unwrap(), bincode::serialize(&self.info).unwrap(), self.bnum.to_le_bytes().to_vec(), self.last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
         let mut h = Sha3_512::new();
         h.update(&m);
         if !self.validators.par_iter().all(|x| x.verify(&mut h.clone(), &stkstate)) {
@@ -717,7 +721,7 @@ impl LightningSyncBlock {
     }
 
     /// verifies that the block is real and the 128 comittee members came to consensus
-    pub fn verify(&self, validator_pool: &Vec<u64>, stkstate: &Vec<(CompressedRistretto,u64)>) -> Result<bool, &'static str> {
+    pub fn verify(&self, validator_pool: &Vec<u64>, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>) -> Result<bool, &'static str> {
         let mut s = Sha3_512::new();
         s.update(&bincode::serialize(&self.validators).unwrap().to_vec());
         let c = s.finalize();
@@ -727,7 +731,7 @@ impl LightningSyncBlock {
         if !self.leader.verify(&mut h, &stkstate) {
             return Err("leader is fake")
         }
-        let m = vec![stkstate[self.leader.pk as usize].0.as_bytes().to_vec().clone(), bincode::serialize(&self.shards).unwrap(), bincode::serialize(&self.info).unwrap(), self.bnum.to_le_bytes().to_vec(), self.last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
+        let m = vec![stkstate.vec[self.leader.pk as usize].0.as_bytes().to_vec().clone(), bincode::serialize(&self.shards).unwrap(), bincode::serialize(&self.info).unwrap(), self.bnum.to_le_bytes().to_vec(), self.last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
         let mut h = Sha3_512::new();
         h.update(&m);
         if !self.validators.iter().all(|x| x.verify(&mut h.clone(), &stkstate)) {
@@ -747,7 +751,7 @@ impl LightningSyncBlock {
     }
 
     /// updates the staker state by dulling out punishments and gifting rewards. also updates the queue, exitqueue, and comittee if stakers left
-    pub fn scan_as_noone(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, nonanony: &mut VecHashMap<CompressedRistretto,u64>, dononanony: bool, netinfo: &mut HashMap<CompressedRistretto, (u64, Option<SocketAddr>)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
+    pub fn scan_as_noone(&self, valinfo: &mut VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>, nonanony: &mut VecHashMap<CompressedRistretto,u64>, dononanony: bool, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
         if save_history {History::append(&self.info.txout)};
 
 
@@ -774,31 +778,25 @@ impl LightningSyncBlock {
 
 
         for i in winners {
-            valinfo[i].1 += inflation;
+            valinfo.vec[i].1.0 += inflation;
         }
         for i in feelovers {
-            valinfo[i].1 += fees;
+            valinfo.vec[i].1.0 += fees;
         }
         let mut punishments = 0u64;
         for i in masochists {
-            punishments += valinfo[i].1/PUNISHMENT_FRACTION;
-            valinfo[i].1 -= valinfo[i].1/PUNISHMENT_FRACTION;
+            punishments += valinfo.vec[i].1.0/PUNISHMENT_FRACTION;
+            valinfo.vec[i].1.0 -= valinfo.vec[i].1.0/PUNISHMENT_FRACTION;
         }
         punishments = punishments/lucky.len() as u64;
         for i in lucky {
-            valinfo[i].1 += punishments;
+            valinfo.vec[i].1.0 += punishments;
         }
 
 
 
 
-        let mut savelist = HashMap::new();
         for x in self.info.stkout.iter().rev() {
-            savelist.insert(valinfo[*x as usize].0, netinfo.remove(&valinfo[*x as usize].0).expect("this IS in netinfo"));
-            valinfo[*x as usize + 1..].iter().for_each(|(x,_)| {
-                netinfo.get_mut(x).unwrap().0 -= 1;
-            });
-            valinfo.remove(*x as usize);
             
             
             *queue = queue.into_par_iter().map(|y| {
@@ -842,27 +840,11 @@ impl LightningSyncBlock {
         refill(queue, exitqueue, comittee);
 
 
-        let realstkin = self.info.stkin.iter().filter(|x| {
-            if let Some(&(i,_)) = netinfo.get(&x.0) {
-                valinfo[i as usize].1 += x.1;
-                return false
-            }
-            true
-        }).copied().collect::<Vec<_>>();
-        valinfo.extend(&realstkin);
-
-        self.info.stkin.iter().enumerate().for_each(|(i,(x,_))| {
-            if !netinfo.contains_key(x) {
-                netinfo.insert(*x, ((i + valinfo.len()) as u64,None));
-            }
+        self.info.stkin.iter().for_each(|x| {
+            valinfo.mut_value_from_key(&x.0).0 += x.1;
         });
-
-        for (x,v) in savelist {
-            if let Some(val) = netinfo.get_mut(&x) {
-                *val = v;
-            }
-        }
-
+        valinfo.remove_all(&self.info.stkout);
+        valinfo.insert_all(&self.info.stknew.iter().map(|x| (x.0,(x.1,None))).collect::<Vec<_>>());
 
         if dononanony {
 
@@ -912,7 +894,7 @@ impl LightningSyncBlock {
     }
 
     /// scans the block for any transactions sent to you or any rewards and punishments you recieved. it additionally updates the height of stakers. returns if your money changed then if your index changed
-    pub fn scanstk(&self, me: &Account, mine: &mut Option<[u64;2]>, maybesome: bool, height: &mut u64, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &Vec<(CompressedRistretto,u64)>) -> (bool,bool) {
+    pub fn scanstk(&self, me: &Account, mine: &mut Option<[u64;2]>, maybesome: bool, height: &mut u64, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>) -> (bool,bool) {
 
         // let t = std::time::Instant::now();
 
@@ -952,9 +934,9 @@ impl LightningSyncBlock {
             }
             let mut punishments = 0u64;
             for i in masochists {
-                punishments += valinfo[i].1/PUNISHMENT_FRACTION;
+                punishments += valinfo.vec[i].1.0/PUNISHMENT_FRACTION;
                 if mine[0] == i as u64 {
-                    mine[1] -= valinfo[i].1/PUNISHMENT_FRACTION;
+                    mine[1] -= valinfo.vec[i].1.0/PUNISHMENT_FRACTION;
                 }
             }
             punishments = punishments/lucky.len() as u64;
@@ -1138,8 +1120,8 @@ impl LightningSyncBlock {
 
 
 /// selects the stakers who get to validate the queue and exit_queue
-pub fn select_stakers(block: &Vec<u8>, bnum: &u64, shard: &u128, queue: &mut VecDeque<usize>, exitqueue: &mut VecDeque<usize>, comittee: &mut Vec<usize>, stkstate: &Vec<(CompressedRistretto,u64)>) {
-    let y = stkstate.into_iter().map(|(_,y)| *y as u128).collect::<Vec<_>>();
+pub fn select_stakers(block: &Vec<u8>, bnum: &u64, shard: &u128, queue: &mut VecDeque<usize>, exitqueue: &mut VecDeque<usize>, comittee: &mut Vec<usize>, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>) {
+    let y = stkstate.vec.iter().map(|(_,y)| y.0 as u128).collect::<Vec<_>>();
     let tot_stk: u128 = y.iter().sum(); /* initial queue will be 0 for all non0 shards... */
 
     let bnum = bnum.to_le_bytes();
@@ -1283,7 +1265,7 @@ impl History {
 mod tests {
     use std::time::Instant;
 
-    use crate::constants::PEDERSEN_H;
+    use crate::{constants::PEDERSEN_H, vechashmap::VecHashMap};
 
 
 
@@ -1308,7 +1290,9 @@ mod tests {
         let message = "hi!!!".as_bytes().to_vec();
         let sk = Scalar::from(rand::random::<u64>());
         let pk = (sk*PEDERSEN_H()).compress();
-        let stkstate = vec![(pk,9012309183u64)];
+        let mut stkstate = VecHashMap::new();
+
+        stkstate.insert(pk,(9012309183u64,None));
         let mut m = Signature::sign_message_nonced(&sk,&message,&0u64,&80u64);
         assert!(0 == Signature::recieve_signed_message_nonced(&mut m,&stkstate,&80u64).unwrap());
         assert!(m == message);

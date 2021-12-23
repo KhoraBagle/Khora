@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use std::convert::TryInto;
+use std::net::SocketAddr;
 
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use curve25519_dalek::scalar::Scalar;
@@ -11,6 +12,7 @@ use crate::account::{OTAccount, Account, Tag, fee_ota, stakereader_acc};
 use crate::seal::SealSig;
 use crate::ringmaker::*;
 use crate::commitment::Commitment;
+use crate::vechashmap::VecHashMap;
 
 
 use curve25519_dalek::ristretto::CompressedRistretto;
@@ -308,7 +310,7 @@ impl PolynomialTransaction {
 
     /// checks if a staker tx is valid given the history.
     /// WARNING: this does not check if it is labeled as a staker transaction
-    pub fn verifystk(&self,history:&Vec<(CompressedRistretto,u64)>, nonce: u64) -> Result<(), TransactionError> {
+    pub fn verifystk(&self,history:&VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>, nonce: u64) -> Result<(), TransactionError> {
         let mut i = self.inputs.clone();
         i.pop();
 
@@ -319,7 +321,42 @@ impl PolynomialTransaction {
         }
         let mut input = vec![];
         for i in places {
-            let (pk,amnt) = match history.get(i) {
+            let (pk,(amnt,_)) = match history.vec.get(i) {
+                Some(x) => x,
+                None => return Err(TransactionError::InvalidTransaction),
+            };
+            let com = Commitment::commit(&Scalar::from(*amnt),&Scalar::zero());
+            input.push(OTAccount{pk: pk.decompress().unwrap(),com,..Default::default()});
+        }
+
+        let mut outputs = self.outputs.clone();
+        outputs.push(fee_ota(&Scalar::from(self.fee)));
+        let outputs: Vec<&OTAccount> = outputs.iter().map(|a|a).collect();
+        
+        let mut tr = Transcript::new(b"seal tx");
+        tr.append_u64(b"nonce", nonce);
+        let b = self.seal.verify(&mut tr, &input.iter().collect::<Vec<_>>(), &tags, &outputs);
+
+        match b {
+            Ok(()) => Ok(()),
+            Err(_) => Err(TransactionError::InvalidTransaction)
+        }
+    }
+
+    /// checks if a nonanony tx is valid given the history.
+    /// WARNING: this does not check if it is labeled as a stk transaction
+    pub fn verifynonanony(&self,history:&VecHashMap<CompressedRistretto,u64>, nonce: u64) -> Result<(), TransactionError> {
+        let mut i = self.inputs.clone();
+        i.pop();
+
+        let tags: Vec<&Tag> = self.tags.iter().map(|a| a).collect();
+        let places = i.chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap()) as usize).collect::<Vec<_>>();
+        if !places[1..].iter().enumerate().all(|(i,&x)| x > places[i]) {
+            return Err(TransactionError::InvalidTransaction)
+        }
+        let mut input = vec![];
+        for i in places {
+            let (pk,amnt) = match history.vec.get(i) {
                 Some(x) => x,
                 None => return Err(TransactionError::InvalidTransaction),
             };

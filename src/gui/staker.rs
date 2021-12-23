@@ -868,7 +868,7 @@ impl epi::App for KhoraStakerGUI {
                         *transaction_processed = false;
                     }
                 } else {
-                    ui.add(Label::new("The red wallet transaction is being processed. If you make another transaction (including panicing), only 1 will go through").text_color(egui::Color32::RED));
+                    ui.add(Label::new("The red wallet transaction is being processed.").text_color(egui::Color32::RED));
                 } 
             });
         }
@@ -881,7 +881,7 @@ impl epi::App for KhoraStakerGUI {
                         *transaction_processeds = false;
                     }
                 } else {
-                    ui.add(Label::new("The staking transaction is being processed. If you make another transaction (including panicing), only 1 will go through").text_color(egui::Color32::RED));
+                    ui.add(Label::new("The staking transaction is being processed.").text_color(egui::Color32::RED));
                 } 
             });
         }
@@ -889,7 +889,7 @@ impl epi::App for KhoraStakerGUI {
             egui::Window::new("Processing").show(ctx, |ui| {
                 if *transaction_processedn {
                     if *tx_failed {
-                        ui.add(Label::new("The transaction did not go through.\nPlease resend it if you would still like to make it.").text_color(egui::Color32::YELLOW));
+                        ui.add(Label::new("Transaction blue wallet transaction was unsuccessful, please try again").text_color(egui::Color32::YELLOW));
                     } else {
                         ui.add(Label::new("The blue wallet transaction is completed.").text_color(egui::Color32::GREEN));
                     }

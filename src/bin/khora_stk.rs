@@ -65,8 +65,8 @@ fn main() -> Result<(), MainError> {
     let outerlistener = TcpListener::bind(format!("0.0.0.0:{}",OUTSIDER_PORT)).unwrap();
 
     
-    // let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
-    let local_socket: SocketAddr = format!("{}:{}",local_ip().unwrap(),DEFAULT_PORT).parse().unwrap();
+    let local_socket: SocketAddr = format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap();
+    // let local_socket: SocketAddr = format!("{}:{}",local_ip().unwrap(),DEFAULT_PORT).parse().unwrap();
     let mut p = ProviderDefaultV4::new();
     let global_addr = match p.get_addr() {
         Ok(x) => x.v4addr.unwrap(),
@@ -86,7 +86,7 @@ fn main() -> Result<(), MainError> {
     let executor = track_any_err!(ThreadPoolExecutor::new())?;
     let service = ServiceBuilder::new(local_socket)
         .logger(logger.clone())
-        .server_addr(global_socket)
+        // .server_addr(global_socket)
         .finish(executor.handle(), SerialLocalNodeIdGenerator::new());
     let backnode = NodeBuilder::new().logger(logger.clone()).finish(service.handle());
     println!("{:?}",backnode.id());
@@ -297,13 +297,13 @@ struct SavedNode {
     smine: Option<[u64; 2]>, // [location, amount]
     nmine: Option<(usize,u64)>, // [location, amount]
     nheight: usize,
-    allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
+    // allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     key: Scalar,
     keylocation: Option<u64>,
     leader: CompressedRistretto,
     overthrown: HashSet<CompressedRistretto>,
     votes: Vec<i32>,
-    stkinfo: Vec<(CompressedRistretto,u64)>,
+    stkinfo: Vec<(CompressedRistretto,(u64,Option<SocketAddr>))>,
     nonanony: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
     exitqueue: Vec<VecDeque<usize>>,
@@ -340,7 +340,6 @@ struct KhoraNode {
     outerlister: channel::Receiver<TcpStream>, // for listening to people not in the network
     gui_sender: channel::Sender<Vec<u8>>,
     gui_reciever: channel::Receiver<Vec<u8>>,
-    allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     me: Account,
     mine: HashMap<u64, OTAccount>,
     reversemine: HashMap<CompressedRistretto, u64>,
@@ -352,7 +351,9 @@ struct KhoraNode {
     leader: CompressedRistretto, // would they ever even reach consensus on this for new people when a dishonest person is eliminated???
     overthrown: HashSet<CompressedRistretto>,
     votes: Vec<i32>,
-    stkinfo: Vec<(CompressedRistretto,u64)>,
+    // allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
+    // stkinfo: Vec<(CompressedRistretto,u64)>,
+    stkinfo: VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     nonanony: VecHashMap<CompressedRistretto,u64>,
     queue: Vec<VecDeque<usize>>,
     exitqueue: Vec<VecDeque<usize>>,
@@ -405,13 +406,13 @@ impl KhoraNode {
                 smine: self.smine.clone(), // [location, amount]
                 nheight: self.nheight,
                 nmine: self.nmine.clone(), // [location, amount]
-                allnetwork: self.allnetwork.clone(),
+                // allnetwork: self.allnetwork.clone(),
                 key: self.key,
                 keylocation: self.keylocation.clone(),
                 leader: self.leader.clone(),
                 overthrown: self.overthrown.clone(),
                 votes: self.votes.clone(),
-                stkinfo: self.stkinfo.clone(),
+                stkinfo: self.stkinfo.vec.clone(),
                 queue: self.queue.clone(),
                 exitqueue: self.exitqueue.clone(),
                 comittee: self.comittee.clone(),
@@ -472,6 +473,7 @@ impl KhoraNode {
             fullmsg.push(110);
             outer.broadcast_now(fullmsg);
         }
+        
         KhoraNode {
             inner,
             outer,
@@ -480,7 +482,7 @@ impl KhoraNode {
             gui_reciever,
             lasttags: sn.lasttags.clone(),
             lastspot: sn.lastspot.clone(),
-            allnetwork: sn.allnetwork.clone(),
+            // allnetwork: sn.allnetwork.clone(),
             timekeeper: Instant::now(),
             waitingforentrybool: true,
             waitingforleaderbool: false,
@@ -500,7 +502,6 @@ impl KhoraNode {
             leader: sn.leader.clone(),
             overthrown: sn.overthrown.clone(),
             votes: sn.votes.clone(),
-            stkinfo: sn.stkinfo.clone(),
             queue: sn.queue.clone(),
             exitqueue: sn.exitqueue.clone(),
             comittee: sn.comittee.clone(),
@@ -527,6 +528,7 @@ impl KhoraNode {
             maxcli: sn.maxcli,
             spammers: HashSet::new(),
             nonanony: VecHashMap::from(sn.nonanony.clone()),
+            stkinfo: VecHashMap::from(sn.stkinfo.clone()),
             lastnonanony: sn.lastnonanony,
         }
     }
@@ -588,8 +590,8 @@ impl KhoraNode {
                 self.headshard = lastlightning.shards[0] as usize;
 
 
-                self.overthrown.remove(&self.stkinfo[lastlightning.leader.pk as usize].0);
-                if self.stkinfo[lastlightning.leader.pk as usize].0 != self.leader {
+                self.overthrown.remove(&self.stkinfo.vec[lastlightning.leader.pk as usize].0);
+                if self.stkinfo.vec[lastlightning.leader.pk as usize].0 != self.leader {
                     self.overthrown.insert(self.leader);
                 }
 
@@ -659,7 +661,7 @@ impl KhoraNode {
                     if let Some(x) = &self.smine {
                         self.keylocation = Some(x[0])
                     }
-                    lastlightning.scan_as_noone(&mut self.stkinfo,&mut self.nonanony,true, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, true);
+                    lastlightning.scan_as_noone(&mut self.stkinfo,&mut self.nonanony,true, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, true);
 
                     self.lastbnum = self.bnum;
                     let mut hasher = Sha3_512::new();

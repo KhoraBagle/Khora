@@ -576,7 +576,7 @@ impl epi::App for KhoraStakerGUI {
                         ui.output().copied_text = stkaddr.clone();
                     }
                     ui.add(Label::new("Staking Address").underline()).on_hover_text(&*stkaddr);
-                    if ui.add(Button::new("❓")).on_hover_text("Visible (Blue) wallet: transacting with this wallet is easier for the network, use it for all transactions that you dont wish to hide.").clicked() {
+                    if ui.add(Button::new("❓")).on_hover_text("Staking wallet: this wallet is where your staked khora is held, it is not anonymous and may randomly gain money from other people's punishments.").clicked() {
                         ui.output().open_url = Some(OpenUrl::new_tab(KHORA_WEBSITE));
                     }
                 });

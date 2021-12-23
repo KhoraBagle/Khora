@@ -702,13 +702,13 @@ impl epi::App for KhoraUserGUI {
         if *transaction_processing {
             egui::Window::new("Processing").show(ctx, |ui| {
                 if *transaction_processed {
-                    ui.add(Label::new("The anony transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                    ui.add(Label::new("The red wallet transaction is completed.").text_color(egui::Color32::GREEN));
                     if ui.button("Close").clicked() {
                         *transaction_processing = false;
                         *transaction_processed = false;
                     }
                 } else {
-                    ui.add(Label::new("The anony transaction is being processed.").text_color(egui::Color32::RED));
+                    ui.add(Label::new("The red wallet transaction is being processed.").text_color(egui::Color32::RED));
                 } 
             });
         }
@@ -718,7 +718,7 @@ impl epi::App for KhoraUserGUI {
                     if *tx_failed {
                         ui.add(Label::new("The transaction did not go through.\nPlease resend it if you would still like to make it.").text_color(egui::Color32::YELLOW));
                     } else {
-                        ui.add(Label::new("The nonanony transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                        ui.add(Label::new("The blue wallet transaction is completed.").text_color(egui::Color32::GREEN));
                     }
                     if ui.button("Close").clicked() {
                         *transaction_processingn = false;
@@ -726,7 +726,7 @@ impl epi::App for KhoraUserGUI {
                         *tx_failed = false;
                     }
                 } else {
-                    ui.add(Label::new("The nonanony transaction is being processed.").text_color(egui::Color32::RED));
+                    ui.add(Label::new("The blue wallet transaction is being processed.").text_color(egui::Color32::RED));
                 }
             });
         }

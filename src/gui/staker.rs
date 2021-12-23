@@ -576,7 +576,7 @@ impl epi::App for KhoraStakerGUI {
                         ui.output().copied_text = stkaddr.clone();
                     }
                     ui.add(Label::new("Staking Address").underline()).on_hover_text(&*stkaddr);
-                    if ui.add(Button::new("❓")).on_hover_text("Staking wallet: this wallet is where your staked khora is held, it is not anonymous and may randomly gain money from other people's punishments.").clicked() {
+                    if ui.add(Button::new("❓")).on_hover_text("Staking wallet. Khora held here is being staked to support the network, your chances of being selected as a validator are based on this balance.  Rewards and fees that you collect as a staker will automatically be deposited here. This wallet is not anonymous.").clicked() {
                         ui.output().open_url = Some(OpenUrl::new_tab(KHORA_WEBSITE));
                     }
                 });
@@ -862,20 +862,20 @@ impl epi::App for KhoraStakerGUI {
         if *transaction_processing {
             egui::Window::new("Processing").show(ctx, |ui| {
                 if *transaction_processed {
-                    ui.add(Label::new("The non staking nonanonymous transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                    ui.add(Label::new("The red wallet transaction is completed.").text_color(egui::Color32::GREEN));
                     if ui.button("Close").clicked() {
                         *transaction_processing = false;
                         *transaction_processed = false;
                     }
                 } else {
-                    ui.add(Label::new("The non staking nonanonymous transaction is being processed. If you make another transaction (including panicing), only 1 will go through").text_color(egui::Color32::RED));
+                    ui.add(Label::new("The red wallet transaction is being processed. If you make another transaction (including panicing), only 1 will go through").text_color(egui::Color32::RED));
                 } 
             });
         }
         if *transaction_processings {
             egui::Window::new("Processing").show(ctx, |ui| {
                 if *transaction_processeds {
-                    ui.add(Label::new("The staking transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                    ui.add(Label::new("The staking transaction is completed.").text_color(egui::Color32::GREEN));
                     if ui.button("Close").clicked() {
                         *transaction_processings = false;
                         *transaction_processeds = false;
@@ -891,7 +891,7 @@ impl epi::App for KhoraStakerGUI {
                     if *tx_failed {
                         ui.add(Label::new("The transaction did not go through.\nPlease resend it if you would still like to make it.").text_color(egui::Color32::YELLOW));
                     } else {
-                        ui.add(Label::new("The non staking nonanonymous transaction is completed.\nIn the incredibly rare event that a fork happens, it is safer to wait 1 extra block.").text_color(egui::Color32::GREEN));
+                        ui.add(Label::new("The blue wallet transaction is completed.").text_color(egui::Color32::GREEN));
                     }
                     if ui.button("Close").clicked() {
                         *transaction_processingn = false;
@@ -899,7 +899,7 @@ impl epi::App for KhoraStakerGUI {
                         *tx_failed = false;
                     }
                 } else {
-                    ui.add(Label::new("The non staking nonanonymous transaction is being processed.").text_color(egui::Color32::RED));
+                    ui.add(Label::new("The blue wallet transaction is being processed.").text_color(egui::Color32::RED));
                 }
             });
         }
@@ -959,10 +959,15 @@ impl epi::App for KhoraStakerGUI {
             });
         }
         egui::Window::new("Options Menu").open(options_menu).show(ctx, |ui| {
-            ui.label("This is the number of accounts that aren't yours that the transaction could have been made by from the perspective of spying eyes.");
-            ui.label("This only affects non staking transactions.");
+            ui.label("When you make a transaction, a ring is generated that hides your identity amongst its other ring members.");
+            ui.label("The larger the ring the more hidden your transaction will be, however, it will also take longer to create.");
+            ui.label("Given the nature of Khora, a ring size of 5 is already quite anonymouse.");
+            ui.label("A ring size of 0 is the fastest option and is best if you are not trying to hide your transactions.");
+            ui.label("Use the slider below to set desired ring size...");
+            ui.add(Label::new("We recommend that you set this somewhere between 3 and 15.").text_color(egui::Color32::RED));
             ui.label("\n");
             ui.add(Slider::new(ringsize, 0..=20).text("Ring Size"));
+            ui.label("\n\n");
             ui.label("This is the number of nodes you are willing to sync at a time.");
             ui.label("The higher the number, the more you are willing to help the network in times of need.");
             ui.label("Any changes will be implimented next time you get a recieve a block.");

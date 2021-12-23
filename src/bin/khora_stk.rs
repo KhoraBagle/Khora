@@ -1080,7 +1080,7 @@ impl Future for KhoraNode {
         |--0| ::::::::::::::::VALIDATOR STUFF::::::::::::::::VALIDATOR STUFF::::::::::::::::VALIDATOR STUFF::::::::::::::::VALIDATOR STUFF/
              \*/
             // this section is for if you're on the comittee (or are very soon about to be)
-            if self.is_validator && (self.bnum < 5 || self.headshard > 0) {
+            if self.is_validator {
                 while let Async::Ready(Some(fullmsg)) = track_try_unwrap!(self.inner.poll()) {
                     let msg = fullmsg.message.clone();
                     let mut m = msg.payload.to_vec();
@@ -1262,15 +1262,18 @@ impl Future for KhoraNode {
                                                 m.push(0);
                                                 self.outer.broadcast_now(m);
                                                 stream.write_all(&[1u8]);
+                                                stream.flush();
                                             }
                                         }
                                     } else if mtype == 1 {
                                         println!("{}","a validator needs some tx".blue());
                                         stream.write_all(&bincode::serialize(&self.txses.iter().collect::<Vec<_>>()).unwrap());
+                                        stream.flush();
                                     } else if mtype == 101 /* e */ {
                                         println!("{}","someone wants a bunch of ips".blue());
                                         let x = self.stkinfo.vec.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>();
                                         stream.write_all(&bincode::serialize(&x).unwrap());
+                                        stream.flush();
                                     } else if mtype == 114 /* r */ { // answer their ring question
                                         if let Ok(r) = recieve_ring(&m) {
                                             println!("{}","someone wants a ring".blue());
@@ -1280,6 +1283,7 @@ impl Future for KhoraNode {
                                                         break
                                                     }
                                                 }
+                                                stream.flush();
                                             });
                                         }
                                     } else if mtype == 121 /* y */ { // someone sent a sync request
@@ -1311,6 +1315,7 @@ impl Future for KhoraNode {
                                                         }
                                                     }
                                                 }
+                                                stream.flush();
                                                 *cli.write() -= 1;
                                             });
                                         }
@@ -1341,6 +1346,7 @@ impl Future for KhoraNode {
                                                         } 
                                                     }
                                                 }
+                                                stream.flush();
                                                 *cli.write() -= 1;
                                             });
                                         }

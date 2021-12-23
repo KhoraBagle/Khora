@@ -149,7 +149,6 @@ fn main() -> Result<(), MainError> {
                 inner: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
                 outer: NodeBuilder::new().finish( ServiceBuilder::new(format!("0.0.0.0:{}",DEFAULT_PORT).parse().unwrap()).finish(ThreadPoolExecutor::new().unwrap().handle(), SerialLocalNodeIdGenerator::new()).handle()),
                 outerlister: channel::unbounded().1,
-                // allnetwork,
                 lasttags: vec![],
                 lastnonanony: None,
                 nonanony: VecHashMap::new(),
@@ -297,7 +296,6 @@ struct SavedNode {
     sheight: usize,
     nmine: Option<(usize,u64)>, // [location, amount]
     nheight: usize,
-    // allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     key: Scalar,
     keylocation: Option<usize>,
     leader: CompressedRistretto,
@@ -320,7 +318,6 @@ struct SavedNode {
     av: Vec<NodeId>,
     pv: Vec<NodeId>,
     moneyreset: Option<Vec<u8>>,
-    laststk: Option<(Account, Option<(usize, u64)>, u64)>, // paniced
     cumtime: f64,
     blocktime: f64,
     lightning_yielder: bool,
@@ -330,6 +327,7 @@ struct SavedNode {
     lastspot: Option<usize>,
     maxcli: u8,
     lastnonanony: Option<usize>,
+    laststk: Option<usize>,
     newest: usize,
 }
 
@@ -352,8 +350,6 @@ struct KhoraNode {
     leader: CompressedRistretto, // would they ever even reach consensus on this for new people when a dishonest person is eliminated???
     overthrown: HashSet<CompressedRistretto>,
     votes: Vec<i32>,
-    // allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
-    // stkinfo: Vec<(CompressedRistretto,u64)>,
     stkinfo: VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     nonanony: VecHashMap<CompressedRistretto,u64>,
     queue: Vec<VecDeque<usize>>,
@@ -379,7 +375,6 @@ struct KhoraNode {
     is_node: bool,
     newest: usize,
     moneyreset: Option<Vec<u8>>,
-    laststk: Option<(Account, Option<(usize, u64)>, u64)>, // paniced
     cumtime: f64,
     blocktime: f64,
     lightning_yielder: bool,
@@ -391,6 +386,7 @@ struct KhoraNode {
     maxcli: u8,
     spammers: HashSet<SocketAddr>,
     lastnonanony: Option<usize>,
+    laststk: Option<usize>,
 }
 
 impl KhoraNode {
@@ -406,7 +402,6 @@ impl KhoraNode {
                 smine: self.smine.clone(), // [location, amount]
                 nheight: self.nheight,
                 nmine: self.nmine.clone(), // [location, amount]
-                // allnetwork: self.allnetwork.clone(),
                 key: self.key,
                 keylocation: self.keylocation.clone(),
                 leader: self.leader.clone(),
@@ -483,7 +478,6 @@ impl KhoraNode {
             gui_reciever,
             lasttags: sn.lasttags.clone(),
             lastspot: sn.lastspot.clone(),
-            // allnetwork: sn.allnetwork.clone(),
             timekeeper: Instant::now(),
             waitingforentrybool: true,
             waitingforleaderbool: false,
@@ -633,8 +627,14 @@ impl KhoraNode {
                     }
 
                     
+                    let laststkissome = self.laststk.is_some();
+                    if let Some(x) = self.laststk.borrow() {
+                        self.laststk = follow(*x,&lastlightning.info.stkout,self.sheight);
+                    }
+                    if laststkissome && self.laststk.is_none() {
+                        self.gui_sender.send(vec![6]).expect("something's wrong with the communication to the gui");
+                    }
                     let (mut guitruster, new) = lastlightning.scanstk(&self.me, &mut self.smine, true, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
-                    guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever) || guitruster;
                     
                     let lastnonanonyissome = self.lastnonanony.is_some();
                     if let Some(x) = self.lastnonanony.borrow() {
@@ -644,6 +644,9 @@ impl KhoraNode {
                         self.gui_sender.send(vec![9]).expect("something's wrong with the communication to the gui");
                     }
                     guitruster = lastlightning.scannonanony(&self.me, &mut self.nmine, &mut self.nheight) || guitruster;
+
+
+                    guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever) || guitruster;
                     self.gui_sender.send(vec![!guitruster as u8,1]).expect("there's a problem communicating to the gui!");
 
                     if new {
@@ -771,6 +774,12 @@ impl KhoraNode {
                     lastlightning.info.nonanonyin.iter().any(|y| y.0 == x)
                 })) {
                     self.gui_sender.send(vec![10]).expect("something's wrong with the communication to the gui");
+                }
+
+                if self.laststk.is_some() && (self.bnum%NONCEYNESS == 0 || self.laststk.iter().all(|&x| {
+                    lastlightning.info.nonanonyin.iter().any(|y| y.0 == x)
+                }) || self.comittee[self.headshard].contains(self.keylocation) || self.comittee[self.headshard+1].contains(self.keylocation)) {
+                    self.gui_sender.send(vec![11]).expect("something's wrong with the communication to the gui");
                 }
 
                 self.cumtime += self.blocktime;
@@ -1586,6 +1595,7 @@ impl Future for KhoraNode {
                             let tx = tx.polyform(&loc); // push 0
                             if tx.verifystk(&self.stkinfo, self.bnum/NONCEYNESS).is_ok() {
                                 txbin = bincode::serialize(&tx).unwrap();
+                                self.laststk = Some(nmine.0);
                                 self.txses.insert(tx);
                             } else {
                                 txbin = vec![];

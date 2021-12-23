@@ -105,6 +105,7 @@ pub struct KhoraStakerGUI {
     transaction_processingn: bool,
     transaction_processedn: bool,
     tx_failed: bool,
+    tx_faileds: bool,
     txtype: TxInput,
 
     #[cfg_attr(feature = "persistence", serde(skip))]
@@ -199,6 +200,7 @@ impl Default for KhoraStakerGUI {
             transaction_processingn: false,
             transaction_processedn: true,
             tx_failed: false,
+            tx_faileds: false,
             nextblock: 0,
             maxcli: 10,
         }
@@ -332,8 +334,6 @@ impl epi::App for KhoraStakerGUI {
                         self.sender.send(vec![self.maxcli,98]);
                     }
                 }
-
-
             } else if modification == 3 {
                 self.validating = i == vec![1];
             } else if modification == 4 {
@@ -353,6 +353,9 @@ impl epi::App for KhoraStakerGUI {
             } else if modification == 10 {
                 self.transaction_processedn = true;
                 self.tx_failed = true;
+            } else if modification == 11 {
+                self.transaction_processeds = true;
+                self.tx_faileds = true;
             } else if modification == 128 {
                 self.eta = i[0] as i8;
                 self.timekeeper = Instant::now();
@@ -380,6 +383,7 @@ impl epi::App for KhoraStakerGUI {
             transaction_processingn,
             transaction_processedn,
             tx_failed,
+            tx_faileds,
             nonanonyaddr,
             nonanony,
             sender,
@@ -875,10 +879,15 @@ impl epi::App for KhoraStakerGUI {
         if *transaction_processings {
             egui::Window::new("Processing").show(ctx, |ui| {
                 if *transaction_processeds {
-                    ui.add(Label::new("The staking transaction is completed.").text_color(egui::Color32::GREEN));
+                    if *tx_faileds {
+                        ui.add(Label::new("Transaction staking transaction was unsuccessful, please try again").text_color(egui::Color32::YELLOW));
+                    } else {
+                        ui.add(Label::new("The staking transaction is completed.").text_color(egui::Color32::GREEN));
+                    }
                     if ui.button("Close").clicked() {
                         *transaction_processings = false;
                         *transaction_processeds = false;
+                        *tx_faileds = false;
                     }
                 } else {
                     ui.add(Label::new("The staking transaction is being processed.").text_color(egui::Color32::RED));

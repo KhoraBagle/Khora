@@ -304,6 +304,14 @@ impl Signature {
         self.c == Scalar::from_hash(message.to_owned())
     }
 
+    /// verifies a schoore signature on a message given as a Sha3_512 state
+    /// this is for users because it requires less of stkstate
+    pub fn verify_user(&self, message: &mut Sha3_512, stkstate: &Vec<(CompressedRistretto,u64)>) -> bool { // the inputs are the hashed messages you are checking for signatures on because it's faster for many messages.
+        if self.pk as usize >= stkstate.len() {return false}
+        message.update((self.r*PEDERSEN_H() + self.c*stkstate[self.pk as usize].0.decompress().unwrap()).compress().to_bytes());
+        self.c == Scalar::from_hash(message.to_owned())
+    }
+
     /// signs any message with your staker public key (without a location)
     pub fn sign_message2(key: &Scalar, message: &Vec<u8>) -> Vec<u8> {
         let mut s = Sha3_512::new();
@@ -618,6 +626,16 @@ impl NextBlock {
         }
     }
 
+    /// the function you use to pay the comittee if you are not saving the block
+    /// this is for users because it does not require the inverse hashmap
+    pub fn pay_all_empty_user(shard: &usize, comittee: &Vec<Vec<usize>>, valinfo: &mut Vec<(CompressedRistretto,u64)>, reward: f64) {
+        let winners = comittee[*shard].iter();
+        let inflation = (reward/winners.len() as f64) as u64;
+        for &i in winners {
+            valinfo[i].1 += inflation;
+        }
+    }
+
     /// the function you use to pay yourself if you are not saving the block
     pub fn pay_self_empty(shard: &usize, comittee: &Vec<Vec<usize>>, mine: &mut Option<(usize,u64)>, reward: f64) -> bool {
 
@@ -725,6 +743,37 @@ impl LightningSyncBlock {
         let mut h = Sha3_512::new();
         h.update(&m);
         if !self.validators.par_iter().all(|x| x.verify(&mut h.clone(), &stkstate)) {
+            return Err("at least 1 validator is fake")
+        }
+        if !self.validators.par_iter().any(|x| validator_pool.into_par_iter().any(|y| x.pk == *y)) {
+            return Err("at least 1 validator is not in the pool")
+        }
+        if validator_pool.par_iter().filter(|x| self.validators.par_iter().any(|y| x.to_owned() == &y.pk)).count() < SIGNING_CUTOFF {
+            return Err("there aren't enough validators")
+        }
+        let x = self.validators.par_iter().map(|x| x.pk).collect::<Vec<_>>();
+        if x.par_iter().enumerate().any(|(i,y)| x.par_iter().take(i).any(|z| y == z)) {
+            return Err("there's multiple signatures from the same validator")
+        }
+        return Ok(true)
+    }
+
+    /// verifies that the block is real and the 128 comittee members came to consensus. all computations are carried out in parallell
+    /// this is for users because it requires less of stkstate
+    pub fn verify_multithread_user(&self, validator_pool: &Vec<usize>, stkstate: &Vec<(CompressedRistretto,u64)>) -> Result<bool, &'static str> {
+        let mut s = Sha3_512::new();
+        s.update(&bincode::serialize(&self.validators).unwrap().to_vec());
+        let c = s.finalize();
+        let m = vec![bincode::serialize(&self.shards).unwrap(),self.bnum.to_le_bytes().to_vec(), self.last_name.clone(),c.to_vec()].into_par_iter().flatten().collect::<Vec<u8>>();
+        let mut h = Sha3_512::new();
+        h.update(&m);
+        if !self.leader.verify_user(&mut h, &stkstate) {
+            return Err("leader is fake")
+        }
+        let m = vec![stkstate[self.leader.pk as usize].0.as_bytes().to_vec().clone(), bincode::serialize(&self.shards).unwrap(), bincode::serialize(&self.info).unwrap(), self.bnum.to_le_bytes().to_vec(), self.last_name.clone()].into_par_iter().flatten().collect::<Vec<u8>>();
+        let mut h = Sha3_512::new();
+        h.update(&m);
+        if !self.validators.par_iter().all(|x| x.verify_user(&mut h.clone(), &stkstate)) {
             return Err("at least 1 validator is fake")
         }
         if !self.validators.par_iter().any(|x| validator_pool.into_par_iter().any(|y| x.pk == *y)) {
@@ -880,6 +929,115 @@ impl LightningSyncBlock {
         // println!("valinfo {:?}",self.info.stkin);
 
     }
+
+    /// updates the staker state by dulling out punishments and gifting rewards. also updates the queue, exitqueue, and comittee if stakers left
+    /// this is for users because it requires less of valinfo
+    pub fn scan_as_noone_user(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, nonanony: &mut VecHashMap<CompressedRistretto,u64>, dononanony: bool, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
+        if save_history {History::append(&self.info.txout)};
+
+
+        // println!("valinfo {:?}",valinfo);
+
+
+
+        let winners: Vec<usize>;
+        let masochists: Vec<usize>;
+        let lucky: Vec<usize>;
+        let feelovers: Vec<usize>;
+        let x = self.validators.iter().map(|x| x.pk as usize).collect::<HashSet<_>>();
+
+        winners = comittee[self.shards[0] as usize].iter().filter(|&y| x.contains(y)).map(|x| *x).collect::<Vec<_>>();
+        masochists = comittee[self.shards[0] as usize].iter().filter(|&y| !x.contains(y)).map(|x| *x).collect::<Vec<_>>();
+        if self.shards.len() > 1 {
+            feelovers = self.shards[1..].iter().map(|x| comittee[*x as usize].clone()).flatten().chain(winners.clone()).collect::<Vec<_>>();
+        } else {
+            feelovers = winners.clone();
+        }
+        lucky = comittee[*self.shards.iter().max().unwrap() as usize + 1].clone();
+        let fees = self.info.fees/(feelovers.len() as u64);
+        let inflation = (reward/winners.len() as f64) as u64;
+
+
+        for i in winners {
+            valinfo[i].1 += inflation;
+        }
+        for i in feelovers {
+            valinfo[i].1 += fees;
+        }
+        let mut punishments = 0u64;
+        for i in masochists {
+            punishments += valinfo[i].1/PUNISHMENT_FRACTION;
+            valinfo[i].1 -= valinfo[i].1/PUNISHMENT_FRACTION;
+        }
+        punishments = punishments/lucky.len() as u64;
+        for i in lucky {
+            valinfo[i].1 += punishments;
+        }
+
+
+
+
+        for x in self.info.stkout.iter().rev() {
+            *queue = queue.into_par_iter().map(|y| {
+                let z = y.into_par_iter().filter_map(|z|
+                    if *z > *x as usize {Some(*z - 1)}
+                    else if *z == *x as usize {None}
+                    else {Some(*z)}
+                ).collect::<VecDeque<_>>();
+                if z.len() == 0 {
+                    VecDeque::from_iter([0usize])
+                } else {
+                    z
+                }
+            }).collect::<Vec<_>>();
+            *exitqueue = exitqueue.into_par_iter().map(|y| {
+                let z = y.into_par_iter().filter_map(|z|
+                    if *z > *x as usize {Some(*z - 1)}
+                    else if *z == *x as usize {None}
+                    else {Some(*z)}
+                ).collect::<VecDeque<_>>();
+                if z.len() == 0 {
+                    VecDeque::from_iter([0usize])
+                } else {
+                    z
+                }
+            }).collect::<Vec<_>>();
+            *comittee = comittee.into_par_iter().map(|y| {
+                let z = y.into_par_iter().filter_map(|z|
+                    if *z > *x as usize {Some(*z - 1)}
+                    else if *z == *x as usize {None}
+                    else {Some(*z)}
+                ).collect::<Vec<_>>();
+                if z.len() == 0 {
+                    vec![0usize]
+                } else {
+                    z
+                }
+            }).collect::<Vec<_>>();
+        }
+
+        refill(queue, exitqueue, comittee);
+
+
+        self.info.stkin.iter().for_each(|x| {
+            valinfo[x.0].1 += x.1;
+        });
+        valinfo.remove_all(&self.info.stkout);
+        valinfo.par_extend(&self.info.stknew);
+
+        if dononanony {
+
+            self.info.nonanonyin.iter().for_each(|x| {
+                let y = nonanony.mut_value_from_index(x.0);
+                *y += x.1;
+            });
+            nonanony.remove_all(&self.info.nonanonyout);
+            nonanony.insert_all(&self.info.nonanonynew);
+    
+        }
+    }
+
+
 
     /// scans the block for money sent to you. additionally updates your understanding of the height. returns weather you recieved money
     pub fn scan(&self, me: &Account, mine: &mut HashMap<u64,OTAccount>, reversemine: &mut HashMap<CompressedRistretto,u64>, height: &mut u64, alltagsever: &mut HashSet<CompressedRistretto>) -> bool {
@@ -1202,6 +1360,54 @@ pub fn refill(queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usi
 
 
 
+/// selects the stakers who get to validate the queue and exit_queue
+pub fn select_stakers_user(block: &Vec<u8>, bnum: &u64, shard: &u128, queue: &mut VecDeque<usize>, exitqueue: &mut VecDeque<usize>, comittee: &mut Vec<usize>, stkstate: &Vec<(CompressedRistretto,u64)>) {
+    let y = stkstate.iter().map(|(_,y)| *y as u128).collect::<Vec<_>>();
+    let tot_stk: u128 = y.iter().sum(); /* initial queue will be 0 for all non0 shards... */
+
+    let bnum = bnum.to_le_bytes();
+    let mut s = AHasher::new_with_keys(0, *shard);
+    s.write(&block);
+    s.write(&bnum);
+    let mut winner = (0..REPLACERATE).into_par_iter().map(|x| {
+        let mut s = s.clone();
+        s.write(&x.to_le_bytes()[..]);
+        let c = s.finish() as u128;
+        // println!("unmoded winner:    {}",c);
+        let mut staker = (c%tot_stk) as i128;
+        // println!("winner:            {}",staker);
+        let mut w = 0;
+        for (i,&j) in y.iter().enumerate() {
+            staker -= j as i128;
+            if staker <= 0
+                {w = i; break;}
+        };
+        w
+    }).collect::<VecDeque<usize>>();
+    queue.append(&mut winner); // need to hardcode initial state
+    let winner = queue.par_drain(..REPLACERATE).collect::<Vec<usize>>();
+
+    let mut s = AHasher::new_with_keys(1, *shard);
+    s.write(&block);
+    s.write(&bnum);
+    let mut loser = (0..REPLACERATE).into_par_iter().map(|x| {
+        let mut s = s.clone();
+        s.write(&x.to_le_bytes()[..]);
+        let c = s.finish() as usize;
+        c%NUMBER_OF_VALIDATORS
+    }).collect::<VecDeque<usize>>();
+    exitqueue.append(&mut loser);
+    let loser = exitqueue.par_drain(..REPLACERATE).collect::<Vec<usize>>();
+
+    for (i,j) in loser.iter().enumerate() {
+        comittee[*j] = winner[i];
+    }
+}
+
+
+
+
+
 
 
 
@@ -1286,7 +1492,7 @@ mod tests {
         let mut stkstate = VecHashMap::new();
 
         stkstate.insert(pk,(9012309183u64,None));
-        let mut m = Signature::sign_message_nonced(&sk,&message,&0u64,&80u64);
+        let mut m = Signature::sign_message_nonced(&sk,&message,&0usize,&80u64);
         assert!(0 == Signature::recieve_signed_message_nonced(&mut m,&stkstate,&80u64).unwrap());
         assert!(m == message);
     }

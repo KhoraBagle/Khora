@@ -76,12 +76,9 @@ fn main() -> Result<(), MainError> {
             let me = Account::new(&pswrd);
     
     
-            let mut allnetwork = HashMap::new();
-            allnetwork.insert(initial_history.0, (0u64,None));
             // creates the node with the specified conditions then saves it to be used from now on
             let node = KhoraNode {
                 sendview: vec![],
-                allnetwork,
                 lasttags: vec![],
                 me,
                 mine: HashMap::new(),
@@ -210,7 +207,6 @@ struct KhoraNode {
     gui_sender: channel::Sender<Vec<u8>>,
     gui_reciever: channel::Receiver<Vec<u8>>,
     sendview: Vec<SocketAddr>,
-    allnetwork: HashMap<CompressedRistretto,(u64,Option<SocketAddr>)>,
     me: Account,
     stkinfo: Vec<(CompressedRistretto,u64)>,
     queue: Vec<VecDeque<usize>>,
@@ -280,12 +276,10 @@ impl KhoraNode {
 
         let sn = bincode::deserialize::<SavedNode>(&buf).unwrap();
 
-        let allnetwork = sn.stkinfo.iter().enumerate().map(|(i,x)| (x.0,(i as u64,None))).collect::<HashMap<_,_>>();
         KhoraNode {
             gui_sender,
             gui_reciever,
             sendview: sn.sendview.clone(),
-            allnetwork,
             me: sn.me,
             mine: sn.mine.clone(),
             reversemine: sn.reversemine.clone(),
@@ -316,13 +310,13 @@ impl KhoraNode {
     /// reads a lightning block and saves information when appropriate and returns if you accepted the block
     fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, save: bool) {
         if lastlightning.bnum >= self.bnum {
-            let com = self.comittee.par_iter().map(|x| x.par_iter().map(|y| *y as u64).collect::<Vec<_>>()).collect::<Vec<_>>();
+            let com = &self.comittee;
             if lastlightning.shards.len() == 0 {
                 // println!("Error in block verification: there is no shard");
                 return ();
             }
             let v = if (lastlightning.shards[0] as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
-                lastlightning.verify_multithread(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok()
+                lastlightning.verify_multithread_user(&com[lastlightning.shards[0] as usize], &self.stkinfo).is_ok()
             } else {
                 false
             };
@@ -346,11 +340,11 @@ impl KhoraNode {
                     self.cumtime += self.blocktime;
                     self.blocktime = blocktime(self.cumtime);
 
-                    NextBlock::pay_all_empty(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
+                    NextBlock::pay_all_empty_user(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
 
 
                     for i in 0..self.comittee.len() {
-                        select_stakers(&self.lastname,&self.bnum, &(i as u128), &mut self.queue[i], &mut self.exitqueue[i], &mut self.comittee[i], &self.stkinfo);
+                        select_stakers_user(&self.lastname,&self.bnum, &(i as u128), &mut self.queue[i], &mut self.exitqueue[i], &mut self.comittee[i], &self.stkinfo);
                     }
                     self.bnum += 1;
                 }
@@ -378,7 +372,7 @@ impl KhoraNode {
                     }
                     
                     // let t = Instant::now();
-                    lastlightning.scan_as_noone(&mut self.stkinfo, &mut VecHashMap::new(), false, &mut self.allnetwork, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, false);
+                    lastlightning.scan_as_noone_user(&mut self.stkinfo, &mut VecHashMap::new(), false, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, false);
                     // println!("{}",format!("no one: {}",t.elapsed().as_millis()).yellow());
 
                     self.lastbnum = self.bnum;
@@ -386,11 +380,11 @@ impl KhoraNode {
                     hasher.update(m);
                     self.lastname = Scalar::from_hash(hasher).as_bytes().to_vec();
                 } else {
-                    NextBlock::pay_all_empty(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
+                    NextBlock::pay_all_empty_user(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
                 }
 
                 for i in 0..self.comittee.len() {
-                    select_stakers(&self.lastname,&self.bnum, &(i as u128), &mut self.queue[i], &mut self.exitqueue[i], &mut self.comittee[i], &self.stkinfo);
+                    select_stakers_user(&self.lastname,&self.bnum, &(i as u128), &mut self.queue[i], &mut self.exitqueue[i], &mut self.comittee[i], &self.stkinfo);
                 }
                 self.bnum += 1;
                 

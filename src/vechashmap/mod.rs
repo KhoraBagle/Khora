@@ -8,8 +8,26 @@ use std::cmp::Eq;
 
 
 
+pub trait RemoveAll {
+    fn remove_all(&mut self, gone: &Vec<usize>);
+}
 
+impl<T>  RemoveAll for Vec<T> {
 
+    /// removes elements from the vec in the O(1) way
+    /// make sure gone is sorted as aesending for this to be used
+    fn remove_all(&mut self, gone: &Vec<usize>) {
+        // assert!(is_aesending(gone));
+
+        let vlen = self.len();
+        let dlen = gone.len();
+        for (i,&e) in gone.into_iter().rev().enumerate() {
+            self.swap(e,vlen-i-1)
+        }
+        self.truncate(vlen - dlen);
+        
+    }
+}
 
 
 

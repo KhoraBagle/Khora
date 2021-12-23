@@ -93,12 +93,12 @@ fn main() -> Result<(), MainError> {
                 rname: vec![],
                 gui_sender: usend.clone(),
                 gui_reciever: channel::unbounded().1,
-                moneyreset: None,
                 cumtime: 0f64,
                 blocktime: blocktime(0.0),
                 ringsize: 5,
                 gui_timer: Instant::now(),
                 lastnonanony: None,
+                paniced: None,
             };
             node.save();
 
@@ -188,12 +188,12 @@ struct SavedNode {
     alltagsever: HashSet<CompressedRistretto>,
     headshard: usize,
     rname: Vec<u8>,
-    moneyreset: Option<(Vec<u8>,CompressedRistretto)>,
     cumtime: f64,
     blocktime: f64,
     ringsize: u8,
     lasttags: Vec<PolynomialTransaction>,
     lastnonanony: Option<usize>,
+    paniced: Option<(Account,Option<PolynomialTransaction>,Option<(usize,u64)>,u64)>
 }
 
 /// the node used to run all the networking
@@ -218,48 +218,46 @@ struct KhoraNode {
     headshard: usize,
     rmems: HashMap<u64,OTAccount>,
     rname: Vec<u8>,
-    moneyreset: Option<(Vec<u8>,CompressedRistretto)>,
     cumtime: f64,
     blocktime: f64,
     gui_timer: Instant,
     ringsize: u8,
     lasttags: Vec<PolynomialTransaction>,
     lastnonanony: Option<usize>,
+    paniced: Option<(Account,Option<PolynomialTransaction>,Option<(usize,u64)>,u64)>
 }
 
 impl KhoraNode {
     /// saves the important information like staker state and block number to a file: "myUsr"
     fn save(&self) {
-        if self.moneyreset.is_none() {
-            let sn = SavedNode {
-                lasttags: self.lasttags.clone(),
-                sendview: self.sendview.clone(),
-                me: self.me,
-                mine: self.mine.clone(),
-                nheight: self.nheight,
-                nmine: self.nmine.clone(), // [location, amount]
-                reversemine: self.reversemine.clone(),
-                stkinfo: self.stkinfo.clone(),
-                queue: self.queue.clone(),
-                exitqueue: self.exitqueue.clone(),
-                comittee: self.comittee.clone(),
-                lastname: self.lastname.clone(),
-                bnum: self.bnum,
-                lastbnum: self.lastbnum,
-                height: self.height,
-                alltagsever: self.alltagsever.clone(),
-                headshard: self.headshard.clone(),
-                rname: self.rname.clone(),
-                moneyreset: self.moneyreset.clone(),
-                cumtime: self.cumtime,
-                blocktime: self.blocktime,
-                ringsize: self.ringsize,
-                lastnonanony: self.lastnonanony,
-            }; // just redo initial conditions on the rest
-            let mut sn = bincode::serialize(&sn).unwrap();
-            let mut f = File::create("myUsr").unwrap();
-            f.write_all(&mut sn).unwrap();
-        }
+        let sn = SavedNode {
+            lasttags: self.lasttags.clone(),
+            sendview: self.sendview.clone(),
+            me: self.me,
+            mine: self.mine.clone(),
+            nheight: self.nheight,
+            nmine: self.nmine.clone(), // [location, amount]
+            reversemine: self.reversemine.clone(),
+            stkinfo: self.stkinfo.clone(),
+            queue: self.queue.clone(),
+            exitqueue: self.exitqueue.clone(),
+            comittee: self.comittee.clone(),
+            lastname: self.lastname.clone(),
+            bnum: self.bnum,
+            lastbnum: self.lastbnum,
+            height: self.height,
+            alltagsever: self.alltagsever.clone(),
+            headshard: self.headshard.clone(),
+            rname: self.rname.clone(),
+            paniced: self.paniced.clone(),
+            cumtime: self.cumtime,
+            blocktime: self.blocktime,
+            ringsize: self.ringsize,
+            lastnonanony: self.lastnonanony,
+        }; // just redo initial conditions on the rest
+        let mut sn = bincode::serialize(&sn).unwrap();
+        let mut f = File::create("myUsr").unwrap();
+        f.write_all(&mut sn).unwrap();
     }
 
     /// loads the node information from a file: "myUsr"
@@ -291,7 +289,7 @@ impl KhoraNode {
             headshard: sn.headshard.clone(),
             rmems: HashMap::new(),
             rname: vec![],
-            moneyreset: sn.moneyreset,
+            paniced: sn.paniced,
             cumtime: sn.cumtime,
             blocktime: sn.blocktime,
             gui_timer: Instant::now(),
@@ -321,6 +319,7 @@ impl KhoraNode {
                 self.headshard = lastlightning.shard as usize;
 
                 // println!("=========================================================\nyay!");
+                self.send_panic_or_stop(&lastlightning,self.nheight.clone(), save);
 
 
                 // if you're synicng, you just infer the empty blocks that no one saves
@@ -403,13 +402,8 @@ impl KhoraNode {
                 self.cumtime += self.blocktime;
                 self.blocktime = blocktime(self.cumtime);
 
-                if self.send_panic_or_stop(&lastlightning.info.tags) {
-                    if save {
-                        if let Some((x,_)) = self.moneyreset.clone() {
-                            self.send_message(x, TRANSACTION_SEND_TO);
-                        }
-                    }
-                }
+
+
                 // println!("block reading process done!!!");
 
                 // println!("{}",format!("{}",t.elapsed().as_millis()).bright_yellow());
@@ -420,16 +414,60 @@ impl KhoraNode {
     }
 
     /// runs the operations needed for the panic button to work
-    fn send_panic_or_stop(&mut self, tags: &Vec<CompressedRistretto>) -> bool {
-        if let Some(m) = &self.moneyreset {
-            if tags.contains(&m.1) {
-                self.moneyreset = None;
-                false
-            } else {
-                true
+    fn send_panic_or_stop(&mut self, block: &LightningSyncBlock,mut nheight:usize,save: bool) {
+        let mut done = true;
+        let mut send = vec![];
+        if let Some((a,t,n,fee)) = &mut self.paniced {
+
+            if let Some(x) = &t {
+                if block.info.tags.contains(&x.tags[0]) {
+                    *t = None;
+                } else {
+                    if save {
+                        let mut x = bincode::serialize(&x).unwrap();
+                        x.push(0);
+                        send.push(x);
+                    }
+                    done = false;
+                }
             }
-        } else {
-            false
+
+            block.scannonanony(a,n,&mut nheight);
+
+            if let Some(nmine) = n {
+                let mut amnt = nmine.1;
+                if amnt > *fee {
+                    amnt -= *fee;
+                }
+
+                let mut outs = vec![];
+                outs.push((&self.me,Scalar::from(amnt)));
+                
+                let loc = vec![nmine.0];
+                let amnt = vec![nmine.1];
+                let inps = amnt.into_iter().map(|x| a.receive_ot(&a.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
+                let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
+                if tx.verify_nonce(self.bnum/NONCEYNESS).is_ok() {
+                    let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
+                    loc.push(2);
+                    let tx = tx.polyform(&loc);
+
+                    let mut x = bincode::serialize(&tx).unwrap();
+                    x.push(0);
+                    send.push(x);
+                    done = false;
+                }
+            }
+
+
+
+        }
+        for m in send {
+            self.send_message(m, TRANSACTION_SEND_TO);
+
+        }
+        if done {
+            self.paniced = None;
         }
     }
 
@@ -813,14 +851,20 @@ impl Future for KhoraNode {
 
                     } else if istx == u8::MAX /* panic button */ {
                         
-                        let amnt = u64::from_le_bytes(m.drain(..8).collect::<Vec<_>>().try_into().unwrap());
-                        let amnt = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>() - Scalar::from(amnt);
-                        let amnt = u64::from_le_bytes(amnt.as_bytes()[..8].to_vec().try_into().unwrap());
+                        let fee = u64::from_le_bytes(m.drain(..8).collect::<Vec<_>>().try_into().unwrap());
+                        
 
-
+                        self.paniced = Some((self.me.clone(),None,self.nmine.clone(),fee));
                         let newacc = Account::new(&format!("{}",String::from_utf8_lossy(&m)));
 
                         if self.mine.len() > 0 {
+                            let amnt = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>() ;
+                            let mut amnt = u64::from_le_bytes(amnt.as_bytes()[..8].to_vec().try_into().unwrap());
+                            if amnt > fee {
+                                amnt -= fee;
+                            }
+
+
                             let loc = self.mine.iter().map(|(&x,_)|x).collect::<Vec<_>>();
 
                             println!("remembered owned accounts");
@@ -834,15 +878,6 @@ impl Future for KhoraNode {
                             
 
                             let mut outs = vec![];
-                            // let y = amnt/2u64.pow(BETA as u32);
-                            // let mut tot = 0u64;
-                            // for _ in 0..y {
-                            //     tot += amnt/y;
-                            //     let amnt = Scalar::from(amnt/y);
-                            //     outs.push((&newacc,amnt));
-                            // }
-                            // let amnt = Scalar::from(tot - amnt); // prob that this is less than 0 is crazy small for reasonable fee
-                            // outs.push((&newacc,amnt));
                             outs.push((&newacc,Scalar::from(amnt)));
 
                             let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (x.0,&x.1)).collect());
@@ -853,19 +888,46 @@ impl Future for KhoraNode {
                                 let tx = tx.polyform(&rname);
                                 let mut txbin = bincode::serialize(&tx).unwrap();
                                 txbin.push(0);
-                                
+                                self.paniced.iter_mut().for_each(|x| {
+                                    x.1 = Some(tx.clone())
+                                });
                                 let responces = self.send_message(txbin.clone(), TRANSACTION_SEND_TO);
                                 if !responces.is_empty() {
                                     println!("responce 0 is: {:?}",responces);
                                 }
-                                self.moneyreset = Some((txbin,tx.tags[0]));
-                                println!("transaction made!");
+                                println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
                             } else {
-                                println!("you can't make that transaction, user!");
+                                println!("{}","TRANSACTION INVALID".red().bold());
                             }
                         }
 
 
+                        if let Some(nmine) = self.nmine {
+                            let mut amnt = nmine.1;
+                            if amnt > fee {
+                                amnt -= fee;
+                            }
+
+
+                            let mut outs = vec![];
+                            outs.push((&newacc,Scalar::from(amnt)));
+                            
+                            let (loc, amnt): (Vec<usize>,Vec<u64>) = vec![nmine].iter().map(|&x|x).unzip();
+                            let inps = amnt.into_iter().map(|x| self.me.receive_ot(&self.me.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
+                            let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>(),self.bnum/NONCEYNESS);
+                            if tx.verify_nonce(self.bnum/NONCEYNESS).is_ok() {
+                                let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
+                                loc.push(2);
+                                let tx = tx.polyform(&loc);
+
+                                let mut txbin = bincode::serialize(&tx).unwrap();
+                                txbin.push(0);
+                                self.send_message(txbin,TRANSACTION_SEND_TO);
+                                println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
+                            } else {
+                                println!("{}","TRANSACTION INVALID".red().bold());
+                            }
+                        }
 
                         self.mine = HashMap::new();
                         self.reversemine = HashMap::new();

@@ -766,7 +766,6 @@ impl LightningSyncBlock {
 
         let winners: Vec<usize>;
         let masochists: Vec<usize>;
-        let lucky: Vec<usize>;
         let x = self.validators.iter().map(|x| x.pk as usize).collect::<HashSet<_>>();
 
         let cn = comittee_n(self.shard as usize, comittee, valinfo);
@@ -853,7 +852,6 @@ impl LightningSyncBlock {
 
         let winners: Vec<usize>;
         let masochists: Vec<usize>;
-        let lucky: Vec<usize>;
         let x = self.validators.iter().map(|x| x.pk as usize).collect::<HashSet<_>>();
 
         let cn = comittee_n_user(self.shard as usize, comittee, valinfo);
@@ -956,7 +954,6 @@ impl LightningSyncBlock {
         if let Some(mine) = mine {
             let winners: Vec<usize>;
             let masochists: Vec<usize>;
-            let lucky: Vec<usize>;
     
             let x = self.validators.iter().map(|x| x.pk as usize).collect::<HashSet<_>>();
     

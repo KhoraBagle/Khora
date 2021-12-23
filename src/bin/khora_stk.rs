@@ -142,7 +142,6 @@ fn main() -> Result<(), MainError> {
                 lasttags: vec![],
                 lastnonanony: None,
                 nonanony: VecHashMap::new(),
-                lastspot: None,
                 me,
                 mine: HashMap::new(),
                 reversemine: HashMap::new(),
@@ -180,7 +179,6 @@ fn main() -> Result<(), MainError> {
                 newest: 0usize,
                 gui_sender: usend.clone(),
                 gui_reciever: channel::unbounded().1,
-                moneyreset: None,
                 laststk: None,
                 cumtime: 0f64,
                 blocktime: blocktime(0.0),
@@ -190,6 +188,7 @@ fn main() -> Result<(), MainError> {
                 clients: Arc::new(RwLock::new(0)),
                 maxcli: 10,
                 spammers: HashSet::new(),
+                paniced: None,
             };
             node.save();
 
@@ -307,18 +306,18 @@ struct SavedNode {
     outer_eager: HashSet<NodeId>,
     av: Vec<NodeId>,
     pv: Vec<NodeId>,
-    moneyreset: Option<Vec<u8>>,
     cumtime: f64,
     blocktime: f64,
     lightning_yielder: bool,
     is_validator: bool,
     ringsize: u8,
     lasttags: Vec<CompressedRistretto>,
-    lastspot: Option<usize>,
     maxcli: u8,
     lastnonanony: Option<usize>,
     laststk: Option<usize>,
     newest: usize,
+    paniced: Option<(Account,Option<PolynomialTransaction>,u64)>,
+
 }
 
 /// the node used to run all the networking
@@ -364,71 +363,67 @@ struct KhoraNode {
     is_validator: bool,
     is_node: bool,
     newest: usize,
-    moneyreset: Option<Vec<u8>>,
     cumtime: f64,
     blocktime: f64,
     lightning_yielder: bool,
     gui_timer: Instant,
     ringsize: u8,
     lasttags: Vec<CompressedRistretto>,
-    lastspot: Option<usize>,
     clients: Arc<RwLock<u8>>,
     maxcli: u8,
     spammers: HashSet<SocketAddr>,
     lastnonanony: Option<usize>,
     laststk: Option<usize>,
+    paniced: Option<(Account,Option<PolynomialTransaction>,u64)>,
 }
 
 impl KhoraNode {
     /// saves the important information like staker state and block number to a file: "myNode"
     fn save(&self) {
-        if !self.moneyreset.is_some() && !self.laststk.is_some() {
-            let sn = SavedNode {
-                lasttags: self.lasttags.clone(),
-                lastspot: self.lastspot.clone(),
-                me: self.me,
-                mine: self.mine.clone(),
-                reversemine: self.reversemine.clone(),
-                smine: self.smine.clone(), // [location, amount]
-                nheight: self.nheight,
-                nmine: self.nmine.clone(), // [location, amount]
-                key: self.key,
-                keylocation: self.keylocation.clone(),
-                leader: self.leader.clone(),
-                overthrown: self.overthrown.clone(),
-                votes: self.votes.clone(),
-                stkinfo: self.stkinfo.vec.clone(),
-                queue: self.queue.clone(),
-                exitqueue: self.exitqueue.clone(),
-                comittee: self.comittee.clone(),
-                lastname: self.lastname.clone(),
-                bloom: self.bloom.get_keys(),
-                bnum: self.bnum,
-                lastbnum: self.lastbnum,
-                height: self.height,
-                sheight: self.sheight,
-                alltagsever: self.alltagsever.clone(),
-                headshard: self.headshard.clone(),
-                outer_view: self.outer.plumtree_node().lazy_push_peers().clone(),
-                outer_eager: self.outer.plumtree_node().eager_push_peers().clone(),
-                moneyreset: self.moneyreset.clone(),
-                laststk: self.laststk.clone(),
-                cumtime: self.cumtime,
-                blocktime: self.blocktime,
-                lightning_yielder: self.lightning_yielder,
-                is_validator: self.is_validator,
-                ringsize: self.ringsize,
-                av: self.outer.hyparview_node.active_view.clone(),
-                pv: self.outer.hyparview_node.passive_view.clone(),
-                maxcli: self.maxcli,
-                nonanony: self.nonanony.vec.clone(),
-                lastnonanony: self.lastnonanony,
-                newest: self.newest,
-            }; // just redo initial conditions on the rest
-            let mut sn = bincode::serialize(&sn).unwrap();
-            let mut f = File::create("myNode").unwrap();
-            f.write_all(&mut sn).unwrap();
-        }
+        let sn = SavedNode {
+            lasttags: self.lasttags.clone(),
+            me: self.me,
+            mine: self.mine.clone(),
+            reversemine: self.reversemine.clone(),
+            smine: self.smine.clone(), // [location, amount]
+            nheight: self.nheight,
+            nmine: self.nmine.clone(), // [location, amount]
+            key: self.key,
+            keylocation: self.keylocation.clone(),
+            leader: self.leader.clone(),
+            overthrown: self.overthrown.clone(),
+            votes: self.votes.clone(),
+            stkinfo: self.stkinfo.vec.clone(),
+            queue: self.queue.clone(),
+            exitqueue: self.exitqueue.clone(),
+            comittee: self.comittee.clone(),
+            lastname: self.lastname.clone(),
+            bloom: self.bloom.get_keys(),
+            bnum: self.bnum,
+            lastbnum: self.lastbnum,
+            height: self.height,
+            sheight: self.sheight,
+            alltagsever: self.alltagsever.clone(),
+            headshard: self.headshard.clone(),
+            outer_view: self.outer.plumtree_node().lazy_push_peers().clone(),
+            outer_eager: self.outer.plumtree_node().eager_push_peers().clone(),
+            paniced: self.paniced.clone(),
+            laststk: self.laststk.clone(),
+            cumtime: self.cumtime,
+            blocktime: self.blocktime,
+            lightning_yielder: self.lightning_yielder,
+            is_validator: self.is_validator,
+            ringsize: self.ringsize,
+            av: self.outer.hyparview_node.active_view.clone(),
+            pv: self.outer.hyparview_node.passive_view.clone(),
+            maxcli: self.maxcli,
+            nonanony: self.nonanony.vec.clone(),
+            lastnonanony: self.lastnonanony,
+            newest: self.newest,
+        }; // just redo initial conditions on the rest
+        let mut sn = bincode::serialize(&sn).unwrap();
+        let mut f = File::create("myNode").unwrap();
+        f.write_all(&mut sn).unwrap();
     }
 
     /// loads the node information from a file: "myNode"
@@ -467,7 +462,6 @@ impl KhoraNode {
             gui_sender,
             gui_reciever,
             lasttags: sn.lasttags.clone(),
-            lastspot: sn.lastspot.clone(),
             timekeeper: Instant::now(),
             waitingforentrybool: true,
             waitingforleaderbool: false,
@@ -502,7 +496,7 @@ impl KhoraNode {
             is_node: true,
             doneerly: Instant::now(),
             newest: sn.newest,
-            moneyreset: sn.moneyreset,
+            paniced: sn.paniced,
             cumtime: sn.cumtime,
             blocktime: sn.blocktime,
             lightning_yielder: sn.lightning_yielder,
@@ -739,7 +733,7 @@ impl KhoraNode {
 
                 println!("{}",format!("have {} tx",self.txses.len()).magenta());
                 // runs any operations needed for the panic button to function
-                self.send_panic_or_stop(&lastlightning, reward, save);
+                self.send_panic_or_stop(&lastlightning, save);
 
                 // if you're lonely and on the comittee, you try to reconnect with the comittee (WARNING: DOES NOT HANDLE IF YOU HAVE FRIENDS BUT THEY ARE IGNORING YOU)
                 if self.is_validator && self.inner.plumtree_node().all_push_peers().is_empty() {
@@ -822,64 +816,91 @@ impl KhoraNode {
     }
 
     /// runs the operations needed for the panic button to work
-    fn send_panic_or_stop(&mut self, lastlightning: &LightningSyncBlock, reward: f64, send: bool) {
-        // if self.moneyreset.is_some() || self.laststk.is_some() {
-        //     if self.mine.len() < (self.moneyreset.is_some() as usize + self.laststk.is_some() as usize) {
-        //         let mut oldstkcheck = false;
-        //         if let Some(laststk) = &mut self.laststk {
-        //             if !self.mine.iter().all(|x| x.1.com.amount.unwrap() != Scalar::from(laststk.2)) {
-        //                 oldstkcheck = true;
-        //             }
-        //             if !lastlightning.info.is_empty() {
-        //                 lastlightning.scanstk(&laststk.0, &mut laststk.1, true, &mut self.sheight.clone(), &self.comittee, reward, &self.stkinfo);
-        //             } else {
-        //                 NextBlock::pay_self_empty(&self.headshard, &self.comittee, &mut laststk.1, reward);
-        //             }
-        //             laststk.2 = laststk.1.iter().map(|x| x.1).sum::<u64>(); // maybe add a fee here?
-        //             let (loc, amnt): (Vec<usize>,Vec<u64>) = laststk.1.iter().map(|&x|x).unzip();
-        //             let inps = amnt.into_iter().map(|x| laststk.0.receive_ot(&laststk.0.derive_stk_ot(&Scalar::from(x))).unwrap()).collect::<Vec<_>>();
-        //             let mut outs = vec![];
-        //             // let y = laststk.2/2u64.pow(BETA as u32);
-        //             // let mut tot = Scalar::zero();
-        //             // for _ in 0..y {
-        //             //     let amnt = Scalar::from(laststk.2/y);
-        //             //     tot += amnt;
-        //             //     outs.push((self.me,amnt));
-        //             // }
-        //             // let amnt = Scalar::from(laststk.2) - tot;
-        //             // outs.push((self.me,amnt));
-        //             outs.push((self.me,Scalar::from(laststk.2)));
-        //             let tx = Transaction::spend_ring_nonce(&inps, &outs.iter().map(|x|(&x.0,&x.1)).collect(),self.bnum/NONCEYNESS);
-        //             // println!("about to verify!");
-        //             // tx.verify().unwrap();
-        //             // println!("finished to verify!");
-        //             let mut loc = loc.into_iter().map(|x| x.to_le_bytes().to_vec()).flatten().collect::<Vec<_>>();
-        //             loc.push(1);
-        //             let tx = tx.polyform(&loc); // push 0
-        //             if tx.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok() {
-        //                 let mut txbin = bincode::serialize(&tx).unwrap();
-        //                 self.txses.insert(tx);
-        //                 txbin.push(0);
-        //                 if send {
-        //                     self.outer.broadcast_now(txbin);
-        //                 }
-        //             }
-        //         }
-        //         if oldstkcheck {
-        //             self.laststk = None;
-        //         }
-        //         if self.mine.len() > 0 && self.laststk.is_some() {
-        //             self.moneyreset = None;
-        //         }
-        //         if let Some(x) = self.moneyreset.clone() {
-        //             if send {
-        //                 self.outer.broadcast(x);
-        //             }
-        //         }
-        //     } else {
-        //         self.moneyreset = None;
-        //     }
-        // }
+    fn send_panic_or_stop(&mut self, lastlightning: &LightningSyncBlock, send: bool) {
+        let mut done = true;
+        if let Some((a,t,fee)) = &mut self.paniced {
+            if let Some(b) = &t {
+                if lastlightning.info.tags.contains(&b.tags[0]) {
+                    *t = None;
+                } else {
+                    done = false;
+                    let mut txbin = bincode::serialize(&b).unwrap();
+                    self.txses.insert(b.clone());
+                    txbin.push(0);
+                    if send {
+                        self.outer.broadcast_now(txbin);
+                    }
+                }
+            }
+
+
+            let s = a.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
+            if let Some(x) = self.stkinfo.get_index_by_key(&s) {
+                let smine: (usize, u64) = (x,self.stkinfo.vec[x].1.0);
+
+
+                let (loc, amnt) = smine.clone();
+                let inps = a.receive_ot(&a.derive_stk_ot(&Scalar::from(amnt))).unwrap();
+
+                let fee = if *fee < amnt {*fee} else {0};
+                let mut outs = vec![];
+                outs.push((&self.me,Scalar::from(amnt - fee)));
+
+                
+                let tx = Transaction::spend_ring_nonce(&vec![inps], &outs.iter().map(|x| (x.0,&x.1)).collect(),self.bnum/NONCEYNESS);
+                // println!("about to verify!");
+                // tx.verify().unwrap();
+                // println!("finished to verify!");
+                let mut loc = loc.to_le_bytes().to_vec();
+                loc.push(1);
+                let tx = tx.polyform(&loc); // push 0
+                if tx.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok() {
+                    done = false;
+                    let mut txbin = bincode::serialize(&tx).unwrap();
+                    self.txses.insert(tx);
+                    txbin.push(0);
+                    self.outer.broadcast_now(txbin.clone());
+                    println!("sending tx!");
+                } else {
+                    println!("you can't make that transaction!");
+                }
+            };
+
+            let s = a.nonanony_acc().derive_stk_ot(&Scalar::one()).pk.compress();
+            if let Some(x) = self.nonanony.get_index_by_key(&s) {
+                let smine: (usize, u64) = (x,self.nonanony.vec[x].1);
+
+
+                let (loc, amnt) = smine.clone();
+                let inps = a.receive_ot(&a.derive_stk_ot(&Scalar::from(amnt))).unwrap();
+
+                let fee = if *fee < amnt {*fee} else {0};
+                let mut outs = vec![];
+                outs.push((&self.me,Scalar::from(amnt - fee)));
+
+                
+                let tx = Transaction::spend_ring_nonce(&vec![inps], &outs.iter().map(|x| (x.0,&x.1)).collect(),self.bnum/NONCEYNESS);
+                // println!("about to verify!");
+                // tx.verify().unwrap();
+                // println!("finished to verify!");
+                let mut loc = loc.to_le_bytes().to_vec();
+                loc.push(1);
+                let tx = tx.polyform(&loc); // push 0
+                if tx.verifynonanony(&self.nonanony,self.bnum/NONCEYNESS).is_ok() {
+                    done = false;
+                    let mut txbin = bincode::serialize(&tx).unwrap();
+                    self.txses.insert(tx);
+                    txbin.push(0);
+                    self.outer.broadcast_now(txbin.clone());
+                    println!("sending tx!");
+                } else {
+                    println!("you can't make that transaction!");
+                }
+            };
+        }
+        if done {
+            self.paniced = None;
+        }
     }
 
 
@@ -1708,6 +1729,8 @@ impl Future for KhoraNode {
                         if nonanony >= fee {
                             nonanony -= fee;
                         }
+
+                        self.paniced = Some((self.me.clone(),None,fee));
                         // send unstaked money
                         if self.mine.len() > 0 {
                             let (loc, _acc): (Vec<u64>,Vec<OTAccount>) = self.mine.iter().map(|x|(x.0,x.1.clone())).unzip();
@@ -1723,15 +1746,6 @@ impl Future for KhoraNode {
                             rlring.iter_mut().for_each(|x|if let Ok(y)=me.receive_ot(&x) {*x = y;});
                             
                             let mut outs = vec![];
-                            // let y = amnt/2u64.pow(BETA as u32);
-                            // let mut tot = Scalar::zero();
-                            // for _ in 0..y {
-                            //     let amnt = Scalar::from(amnt/y);
-                            //     tot += amnt;
-                            //     outs.push((&newacc,amnt));
-                            // }
-                            // let amnt = Scalar::from(stkamnt) - tot;
-                            // outs.push((&newacc,amnt));
                             outs.push((&newacc,Scalar::from(amnt)));
                             let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x| (x.0,&x.1)).collect());
 
@@ -1741,10 +1755,11 @@ impl Future for KhoraNode {
                             if tx.verify().is_ok() {
                                 let mut txbin = bincode::serialize(&tx).unwrap();
                                 txbin.push(0);
-                                self.lasttags.push(tx.tags[0]);
+                                self.paniced.iter_mut().for_each(|x| {
+                                    x.1 = Some(tx.clone())
+                                });
                                 self.txses.insert(tx);
                                 self.outer.broadcast_now(txbin.clone());
-                                self.moneyreset = Some(txbin);
                                 // println!("transaction made!");
                             } else {
                                 println!("you can't make that transaction, user!");
@@ -1758,15 +1773,6 @@ impl Future for KhoraNode {
 
 
                             let mut outs = vec![];
-                            // let y = stkamnt/2u64.pow(BETA as u32);
-                            // let mut tot = 0u64;
-                            // for _ in 0..y {
-                            //     let stkamnt = Scalar::from(stkamnt/y);
-                            //     tot += amnt;
-                            //     outs.push((&newacc,stkamnt));
-                            // }
-                            // let amnt = Scalar::from(stkamnt) - Scalar::from(tot);
-                            // outs.push((&newacc,amnt));
                             outs.push((&newacc,Scalar::from(stkamnt)));
 
                             
@@ -1782,7 +1788,6 @@ impl Future for KhoraNode {
                                 self.txses.insert(tx);
                                 txbin.push(0);
                                 self.outer.broadcast_now(txbin.clone());
-                                // self.laststk = Some((self.me.clone(),self.smine.clone(),stkamnt));
                                 println!("sending tx!");
                             } else {
                                 println!("you can't make that transaction!");
@@ -1796,15 +1801,6 @@ impl Future for KhoraNode {
 
 
                             let mut outs = vec![];
-                            // let y = stkamnt/2u64.pow(BETA as u32);
-                            // let mut tot = 0u64;
-                            // for _ in 0..y {
-                            //     let stkamnt = Scalar::from(stkamnt/y);
-                            //     tot += amnt;
-                            //     outs.push((&newacc,stkamnt));
-                            // }
-                            // let amnt = Scalar::from(stkamnt) - Scalar::from(tot);
-                            // outs.push((&newacc,amnt));
                             outs.push((&newacc,Scalar::from(nonanony)));
 
                             
@@ -1820,7 +1816,6 @@ impl Future for KhoraNode {
                                 self.txses.insert(tx);
                                 txbin.push(0);
                                 self.outer.broadcast_now(txbin.clone());
-                                // self.oldnoanony = Some((self.me.clone(),self.nmine.clone(),nonanony));
                                 println!("sending tx!");
                             } else {
                                 println!("you can't make that transaction!");

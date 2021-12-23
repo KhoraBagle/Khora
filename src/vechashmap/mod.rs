@@ -90,6 +90,14 @@ impl<K: Eq + Clone + Hash, V: Clone> VecHashMap<K,V> {
     pub fn get_by_index(&self, index: usize) -> &(K,V) {
         &self.vec[index]
     }
+    /// returns the key value pair of the index's element
+    pub fn get_index_by_key(&self, key: &K) -> Option<usize> {
+        if let Some(&x)  =self.hashmap.get(key) {
+            Some(x)
+        } else {
+            None
+        }
+    }
     /// removes an element from the vec and hashmap
     /// make sure gone is sorted as aesending for this to be used
     pub fn remove_all(&mut self, gone: &Vec<usize>) {

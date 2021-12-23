@@ -866,9 +866,6 @@ impl LightningSyncBlock {
                 follow(*z,&self.info.stkout,valinfo.len())
             }).collect::<VecDeque<_>>();
         });
-        println!("============================================");
-        println!("got past queue!");
-        println!("============================================");
         comittee.par_iter_mut().zip(exitqueue.par_iter_mut()).for_each(|(y,z)| {
             let a = y.into_par_iter().map(|y| {
                 follow(*y,&self.info.stkout,valinfo.len())
@@ -883,13 +880,10 @@ impl LightningSyncBlock {
             }).collect();
             *y = a.into_par_iter().filter_map(|x|x).collect();
         });
-        println!("============================================");
-        println!("got past comittee!");
-        println!("============================================");
         refill(queue, exitqueue, comittee, valinfo);
-        println!("============================================");
-        println!("got past refill!");
-        println!("============================================");
+
+
+
 
         self.info.stkin.iter().for_each(|x| {
             valinfo.mut_value_from_index(x.0).0 += x.1;
@@ -961,23 +955,28 @@ impl LightningSyncBlock {
 
 
 
-        queue.iter_mut().for_each(|y| {
-            *y = y.into_iter().filter_map(|z| {
-                println!("{:?}: {}",self.info.stkout,z);
-                follow(*z,&self.info.stkout,valinfo.len())
-            }).collect::<VecDeque<_>>();
-        });
-        exitqueue.par_iter_mut().for_each(|y| {
+        queue.par_iter_mut().for_each(|y| {
             *y = y.into_par_iter().filter_map(|z| {
                 follow(*z,&self.info.stkout,valinfo.len())
             }).collect::<VecDeque<_>>();
         });
-        comittee.par_iter_mut().for_each(|y| {
-            *y = y.into_par_iter().filter_map(|z| {
-                follow(*z,&self.info.stkout,valinfo.len())
+        comittee.par_iter_mut().zip(exitqueue.par_iter_mut()).for_each(|(y,z)| {
+            let a = y.into_par_iter().map(|y| {
+                follow(*y,&self.info.stkout,valinfo.len())
             }).collect::<Vec<_>>();
+            let b = a.par_iter().enumerate().filter(|(_,x)| x.is_none()).map(|(x,_)|x).collect::<Vec<_>>();
+            *z = z.par_iter().filter_map(|x| {
+                if b.contains(x) {
+                    None
+                } else {
+                    Some(*x - b.par_iter().filter(|y| *y<x).count())
+                }
+            }).collect();
+            *y = a.into_par_iter().filter_map(|x|x).collect();
         });
         refill_user(queue, exitqueue, comittee, valinfo);
+
+
 
 
         self.info.stkin.iter().for_each(|x| {

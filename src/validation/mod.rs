@@ -61,7 +61,16 @@ pub const WRITE_TIMEOUT: Option<Duration> = Some(Duration::from_millis(500));
 pub const NONCEYNESS: u64 = 100;
 /// how many comittees you keep track of over time
 pub const LONG_TERM_SHARDS: usize = 2;
-
+/// when to announce you're about to be in the comittee or how far in advance you can no longer serve as leader
+pub const EXIT_TIME: usize = REPLACERATE*5;
+/// amount of seconds to wait before initiating shard takeover
+pub const USURP_TIME: u64 = 60;
+/// the default port
+pub const DEFAULT_PORT: u16 = 8334;
+/// the outsider port
+pub const OUTSIDER_PORT: u16 = 8335;
+/// the number of nodes to send each message to as a user
+pub const TRANSACTION_SEND_TO: usize = 1;
 
 
 /// calculates the reward for the current block

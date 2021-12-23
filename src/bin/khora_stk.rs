@@ -41,6 +41,7 @@ use khora::validation::{
     NUMBER_OF_VALIDATORS, SIGNING_CUTOFF, QUEUE_LENGTH, REPLACERATE, PERSON0, LONG_TERM_SHARDS,
     STAKER_BLOOM_NAME, STAKER_BLOOM_SIZE, STAKER_BLOOM_HASHES,
     READ_TIMEOUT, WRITE_TIMEOUT, NONCEYNESS,
+    EXIT_TIME, USURP_TIME, DEFAULT_PORT, OUTSIDER_PORT,
     reward, blocktime, set_comittee_n, comittee_n,
 };
 
@@ -49,14 +50,6 @@ use local_ip_address::local_ip;
 use colored::Colorize;
 
 
-/// when to announce you're about to be in the comittee or how far in advance you can no longer serve as leader
-const EXIT_TIME: usize = REPLACERATE*5;
-/// amount of seconds to wait before initiating shard takeover
-const USURP_TIME: u64 = 3600;
-/// the default port
-const DEFAULT_PORT: u16 = 8334;
-/// the outsider port
-const OUTSIDER_PORT: u16 = 8335;
 
 fn main() -> Result<(), MainError> {
     let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build())?; // info or debug
@@ -1036,7 +1029,6 @@ impl Future for KhoraNode {
                     self.waitingforentrytime = Instant::now();
                     self.timekeeper = Instant::now();
                     self.doneerly = Instant::now();
-                    self.usurpingtime = Instant::now();
                     println!("{}","ready to make block".red());
     
                     // if you are the newest member of the comittee you're responcible for choosing the tx that goes into the next block
@@ -1088,7 +1080,7 @@ impl Future for KhoraNode {
         |--0| ::::::::::::::::VALIDATOR STUFF::::::::::::::::VALIDATOR STUFF::::::::::::::::VALIDATOR STUFF::::::::::::::::VALIDATOR STUFF/
              \*/
             // this section is for if you're on the comittee (or are very soon about to be)
-            if self.is_validator {
+            if self.is_validator && (self.bnum < 5 || self.headshard > 0) {
                 while let Async::Ready(Some(fullmsg)) = track_try_unwrap!(self.inner.poll()) {
                     let msg = fullmsg.message.clone();
                     let mut m = msg.payload.to_vec();

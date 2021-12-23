@@ -33,6 +33,7 @@ use serde::{Serialize, Deserialize};
 use khora::validation::{
     NUMBER_OF_VALIDATORS, QUEUE_LENGTH, PERSON0, LONG_TERM_SHARDS,
     ACCOUNT_COMBINE, READ_TIMEOUT, WRITE_TIMEOUT, NONCEYNESS,
+    OUTSIDER_PORT, TRANSACTION_SEND_TO,
     reward, blocktime, set_comittee_n_user, comittee_n_user,
 };
 use colored::Colorize;
@@ -41,10 +42,6 @@ use colored::Colorize;
 
 
 
-/// the outsider port
-const OUTSIDER_PORT: u16 = 8335;
-/// the number of nodes to send each message to
-const TRANSACTION_SEND_TO: usize = 1;
 
 fn main() -> Result<(), MainError> {
 

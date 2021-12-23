@@ -7,7 +7,7 @@ use separator::Separatable;
 use getrandom::getrandom;
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_512};
-use crate::validation::{VERSION, KHORA_WEBSITE, MINSTK, STAKER_BLOOM_NAME, blocktime};
+use crate::validation::{VERSION, KHORA_WEBSITE, MINSTK, STAKER_BLOOM_NAME, USURP_TIME, blocktime};
 
 /*
 cargo run --bin full_staker --release 9876 pig
@@ -605,7 +605,7 @@ impl epi::App for KhoraStakerGUI {
                     if x > 0 {
                         ui.add(Label::new(format!("{}",x)).strong().text_color(egui::Color32::YELLOW));
                     } else {
-                        ui.add(Label::new(format!("Block late. Selecting new stakers in: {}",x + 3600)).strong().text_color(egui::Color32::RED));
+                        ui.add(Label::new(format!("Block late. Selecting new stakers in: {}",x + USURP_TIME as i32)).strong().text_color(egui::Color32::RED));
                     }
                 });
                 ui.horizontal(|ui| {

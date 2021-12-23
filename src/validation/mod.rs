@@ -861,47 +861,35 @@ impl LightningSyncBlock {
 
 
 
-        for x in self.info.stkout.iter().rev() {
-            *queue = queue.into_par_iter().map(|y| {
-                let z = y.into_par_iter().filter_map(|z|
-                    if *z > *x as usize {Some(*z - 1)}
-                    else if *z == *x as usize {None}
-                    else {Some(*z)}
-                ).collect::<VecDeque<_>>();
-                if z.len() == 0 {
-                    VecDeque::from_iter([0usize])
-                } else {
-                    z
-                }
+        queue.par_iter_mut().for_each(|y| {
+            *y = y.into_par_iter().filter_map(|z| {
+                follow(*z,&self.info.stkout,valinfo.len())
+            }).collect::<VecDeque<_>>();
+        });
+        println!("============================================");
+        println!("got past queue!");
+        println!("============================================");
+        comittee.par_iter_mut().zip(exitqueue.par_iter_mut()).for_each(|(y,z)| {
+            let a = y.into_par_iter().map(|y| {
+                follow(*y,&self.info.stkout,valinfo.len())
             }).collect::<Vec<_>>();
-            *exitqueue = exitqueue.into_par_iter().map(|y| {
-                let z = y.into_par_iter().filter_map(|z|
-                    if *z > *x as usize {Some(*z - 1)}
-                    else if *z == *x as usize {None}
-                    else {Some(*z)}
-                ).collect::<VecDeque<_>>();
-                if z.len() == 0 {
-                    VecDeque::from_iter([0usize])
+            let b = a.par_iter().enumerate().filter(|(_,x)| x.is_none()).map(|(x,_)|x).collect::<Vec<_>>();
+            *z = z.par_iter().filter_map(|x| {
+                if b.contains(x) {
+                    None
                 } else {
-                    z
+                    Some(*x - b.par_iter().filter(|y| *y<x).count())
                 }
-            }).collect::<Vec<_>>();
-            *comittee = comittee.into_par_iter().map(|y| {
-                let z = y.into_par_iter().filter_map(|z|
-                    if *z > *x as usize {Some(*z - 1)}
-                    else if *z == *x as usize {None}
-                    else {Some(*z)}
-                ).collect::<Vec<_>>();
-                if z.len() == 0 {
-                    vec![0usize]
-                } else {
-                    z
-                }
-            }).collect::<Vec<_>>();
-        }
-
-        refill(queue, exitqueue, comittee);
-
+            }).collect();
+            *y = a.into_par_iter().filter_map(|x|x).collect();
+        });
+        println!("============================================");
+        println!("got past comittee!");
+        println!("============================================");
+        refill(queue, exitqueue, comittee, valinfo);
+        println!("============================================");
+        println!("got past refill!");
+        println!("============================================");
 
         self.info.stkin.iter().for_each(|x| {
             valinfo.mut_value_from_index(x.0).0 += x.1;
@@ -973,46 +961,23 @@ impl LightningSyncBlock {
 
 
 
-        for x in self.info.stkout.iter().rev() {
-            *queue = queue.into_par_iter().map(|y| {
-                let z = y.into_par_iter().filter_map(|z|
-                    if *z > *x as usize {Some(*z - 1)}
-                    else if *z == *x as usize {None}
-                    else {Some(*z)}
-                ).collect::<VecDeque<_>>();
-                if z.len() == 0 {
-                    VecDeque::from_iter([0usize])
-                } else {
-                    z
-                }
+        queue.iter_mut().for_each(|y| {
+            *y = y.into_iter().filter_map(|z| {
+                println!("{:?}: {}",self.info.stkout,z);
+                follow(*z,&self.info.stkout,valinfo.len())
+            }).collect::<VecDeque<_>>();
+        });
+        exitqueue.par_iter_mut().for_each(|y| {
+            *y = y.into_par_iter().filter_map(|z| {
+                follow(*z,&self.info.stkout,valinfo.len())
+            }).collect::<VecDeque<_>>();
+        });
+        comittee.par_iter_mut().for_each(|y| {
+            *y = y.into_par_iter().filter_map(|z| {
+                follow(*z,&self.info.stkout,valinfo.len())
             }).collect::<Vec<_>>();
-            *exitqueue = exitqueue.into_par_iter().map(|y| {
-                let z = y.into_par_iter().filter_map(|z|
-                    if *z > *x as usize {Some(*z - 1)}
-                    else if *z == *x as usize {None}
-                    else {Some(*z)}
-                ).collect::<VecDeque<_>>();
-                if z.len() == 0 {
-                    VecDeque::from_iter([0usize])
-                } else {
-                    z
-                }
-            }).collect::<Vec<_>>();
-            *comittee = comittee.into_par_iter().map(|y| {
-                let z = y.into_par_iter().filter_map(|z|
-                    if *z > *x as usize {Some(*z - 1)}
-                    else if *z == *x as usize {None}
-                    else {Some(*z)}
-                ).collect::<Vec<_>>();
-                if z.len() == 0 {
-                    vec![0usize]
-                } else {
-                    z
-                }
-            }).collect::<Vec<_>>();
-        }
-
-        refill(queue, exitqueue, comittee);
+        });
+        refill_user(queue, exitqueue, comittee, valinfo);
 
 
         self.info.stkin.iter().for_each(|x| {
@@ -1071,7 +1036,7 @@ impl LightningSyncBlock {
         // let t = std::time::Instant::now();
 
         // println!("mine:---------------------------------\n{:?}",mine);
-        let changed = mine.clone();n
+        let changed = mine.clone();
         let nonetosome = mine.is_none();
         if let Some(mine) = mine {
             let winners: Vec<usize>;
@@ -1276,8 +1241,8 @@ impl LightningSyncBlock {
 
 /// selects the stakers who get to validate the queue and exit_queue
 pub fn select_stakers(block: &Vec<u8>, bnum: &u64, shard: &u128, queue: &mut VecDeque<usize>, exitqueue: &mut VecDeque<usize>, comittee: &mut Vec<usize>, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>) {
-    let y = stkstate.vec.iter().map(|(_,y)| y.0 as u128).collect::<Vec<_>>();
-    let tot_stk: u128 = y.iter().sum(); /* initial queue will be 0 for all non0 shards... */
+    let y = stkstate.vec.par_iter().map(|(_,y)| y.0 as u128).collect::<Vec<_>>();
+    let tot_stk: u128 = y.par_iter().sum(); /* initial queue will be 0 for all non0 shards... */
 
     let bnum = bnum.to_le_bytes();
     let mut s = AHasher::new_with_keys(0, *shard);
@@ -1318,46 +1283,103 @@ pub fn select_stakers(block: &Vec<u8>, bnum: &u64, shard: &u128, queue: &mut Vec
     }
 }
 
-pub fn refill(queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>) {
+pub fn refill(queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, stkstate: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>) {
 
-    queue.par_iter_mut().for_each(|x| {
-        let mut s = Sha3_512::new();
-        s.update(&bincode::serialize(&x).unwrap());
-        let mut v = Scalar::from_hash(s.clone()).as_bytes().to_vec();
-        s.update(&bincode::serialize(&x).unwrap());
-        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-        s.update(&bincode::serialize(&x).unwrap());
-        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-        s.update(&bincode::serialize(&x).unwrap());
-        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-        let mut y = (0..QUEUE_LENGTH-x.len()).map(|i| x[v[i] as usize%x.len()]).collect::<VecDeque<usize>>();
-        x.append(&mut y);
+    let y = stkstate.vec.par_iter().map(|(_,(y,_))| *y as u128).collect::<Vec<_>>();
+    let tot_stk: u128 = y.par_iter().sum(); /* initial queue will be 0 for all non0 shards... */
+
+    queue.par_iter_mut().enumerate().for_each(|(shard,x)| {
+        if x.len() < QUEUE_LENGTH {
+            let mut s = AHasher::new_with_keys(shard as u128, shard as u128);
+            s.write(b"refill_queue");
+            s.write(&x.iter().map(|x| x.to_le_bytes()).flatten().collect::<Vec<_>>());
+            if x.len() == 0 {
+                *x = (0..QUEUE_LENGTH).map(|x| {
+                    let mut s = s.clone();
+                    s.write(&x.to_le_bytes()[..]);
+                    let c = s.finish() as u128;
+
+                    let mut staker = (c%tot_stk) as i128;
+                    let mut w = 0;
+                    for (i,&j) in y.iter().enumerate() {
+                        staker -= j as i128;
+                        if staker <= 0
+                            {w = i; break;}
+                    };
+                    w
+                }).collect::<VecDeque<_>>();
+            } else {
+                x.par_extend((0..QUEUE_LENGTH-x.len()).map(|y| {
+                    let mut s = s.clone();
+                    s.write(&y.to_le_bytes()[..]);
+                    let c = s.finish() as usize;
+
+                    x[c%x.len()]
+                }).collect::<Vec<_>>());
+            }
+        }
     });
-    exitqueue.par_iter_mut().for_each(|x| {
-        let mut s = Sha3_512::new();
-        s.update(&bincode::serialize(&x).unwrap());
-        let mut v = Scalar::from_hash(s.clone()).as_bytes().to_vec();
-        s.update(&bincode::serialize(&x).unwrap());
-        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-        s.update(&bincode::serialize(&x).unwrap());
-        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-        s.update(&bincode::serialize(&x).unwrap());
-        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-        let mut y = (0..QUEUE_LENGTH-x.len()).map(|i| x[v[i] as usize%x.len()]).collect::<VecDeque<usize>>();
-        x.append(&mut y);
+    exitqueue.par_iter_mut().enumerate().for_each(|(shard,x)| {
+        if x.len() < QUEUE_LENGTH {
+            let mut s = AHasher::new_with_keys(shard as u128, shard as u128);
+            s.write(b"refill_exitqueue");
+            s.write(&x.iter().map(|x| x.to_le_bytes()).flatten().collect::<Vec<_>>());
+            if x.len() == 0 {
+                *x = (0..QUEUE_LENGTH).map(|x| {
+                    let mut s = s.clone();
+                    s.write(&x.to_le_bytes()[..]);
+                    let c = s.finish() as u128;
+
+                    let mut staker = (c%tot_stk) as i128;
+                    let mut w = 0;
+                    for (i,&j) in y.iter().enumerate() {
+                        staker -= j as i128;
+                        if staker <= 0
+                            {w = i; break;}
+                    };
+                    w
+                }).collect::<VecDeque<_>>();
+            } else {
+                x.par_extend((0..QUEUE_LENGTH-x.len()).map(|y| {
+                    let mut s = s.clone();
+                    s.write(&y.to_le_bytes()[..]);
+                    let c = s.finish() as usize;
+
+                    x[c%x.len()]
+                }).collect::<Vec<_>>());
+            }
+        }
     });
-    comittee.par_iter_mut().for_each(|x| {
-        let mut s = Sha3_512::new();
-        s.update(&bincode::serialize(&x).unwrap());
-        let mut v = Scalar::from_hash(s.clone()).as_bytes().to_vec();
-        s.update(&bincode::serialize(&x).unwrap());
-        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-        s.update(&bincode::serialize(&x).unwrap());
-        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-        s.update(&bincode::serialize(&x).unwrap());
-        v.append(&mut Scalar::from_hash(s.clone()).as_bytes().to_vec());
-        let mut y = (0..NUMBER_OF_VALIDATORS-x.len()).map(|i| x[v[i] as usize%x.len()]).collect::<Vec<usize>>();
-        x.append(&mut y);
+    comittee.par_iter_mut().enumerate().for_each(|(shard,x)| {
+        if x.len() < NUMBER_OF_VALIDATORS {
+            let mut s = AHasher::new_with_keys(shard as u128, shard as u128);
+            s.write(b"refill_comittee");
+            s.write(&x.iter().map(|x| x.to_le_bytes()).flatten().collect::<Vec<_>>());
+            if x.len() == 0 {
+                *x = (0..NUMBER_OF_VALIDATORS).map(|x| {
+                    let mut s = s.clone();
+                    s.write(&x.to_le_bytes()[..]);
+                    let c = s.finish() as u128;
+
+                    let mut staker = (c%tot_stk) as i128;
+                    let mut w = 0;
+                    for (i,&j) in y.iter().enumerate() {
+                        staker -= j as i128;
+                        if staker <= 0
+                            {w = i; break;}
+                    };
+                    w
+                }).collect::<Vec<_>>();
+            } else {
+                x.par_extend((0..NUMBER_OF_VALIDATORS-x.len()).map(|y| {
+                    let mut s = s.clone();
+                    s.write(&y.to_le_bytes()[..]);
+                    let c = s.finish() as usize;
+
+                    x[c%x.len()]
+                }).collect::<Vec<_>>());
+            }
+        }
     });
 
 }
@@ -1408,6 +1430,107 @@ pub fn select_stakers_user(block: &Vec<u8>, bnum: &u64, shard: &u128, queue: &mu
     }
 }
 
+
+pub fn refill_user(queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, stkstate: &Vec<(CompressedRistretto,u64)>) {
+
+    let y = stkstate.par_iter().map(|(_,y)| *y as u128).collect::<Vec<_>>();
+    let tot_stk: u128 = y.par_iter().sum(); /* initial queue will be 0 for all non0 shards... */
+
+    queue.par_iter_mut().enumerate().for_each(|(shard,x)| {
+        if x.len() < QUEUE_LENGTH {
+            let mut s = AHasher::new_with_keys(shard as u128, shard as u128);
+            s.write(b"refill_queue");
+            s.write(&x.iter().map(|x| x.to_le_bytes()).flatten().collect::<Vec<_>>());
+            if x.len() == 0 {
+                *x = (0..QUEUE_LENGTH).map(|x| {
+                    let mut s = s.clone();
+                    s.write(&x.to_le_bytes()[..]);
+                    let c = s.finish() as u128;
+
+                    let mut staker = (c%tot_stk) as i128;
+                    let mut w = 0;
+                    for (i,&j) in y.iter().enumerate() {
+                        staker -= j as i128;
+                        if staker <= 0
+                            {w = i; break;}
+                    };
+                    w
+                }).collect::<VecDeque<_>>();
+            } else {
+                x.par_extend((0..QUEUE_LENGTH-x.len()).map(|y| {
+                    let mut s = s.clone();
+                    s.write(&y.to_le_bytes()[..]);
+                    let c = s.finish() as usize;
+
+                    x[c%x.len()]
+                }).collect::<Vec<_>>());
+            }
+        }
+    });
+    exitqueue.par_iter_mut().enumerate().for_each(|(shard,x)| {
+        if x.len() < QUEUE_LENGTH {
+            let mut s = AHasher::new_with_keys(shard as u128, shard as u128);
+            s.write(b"refill_exitqueue");
+            s.write(&x.iter().map(|x| x.to_le_bytes()).flatten().collect::<Vec<_>>());
+            if x.len() == 0 {
+                *x = (0..QUEUE_LENGTH).map(|x| {
+                    let mut s = s.clone();
+                    s.write(&x.to_le_bytes()[..]);
+                    let c = s.finish() as u128;
+
+                    let mut staker = (c%tot_stk) as i128;
+                    let mut w = 0;
+                    for (i,&j) in y.iter().enumerate() {
+                        staker -= j as i128;
+                        if staker <= 0
+                            {w = i; break;}
+                    };
+                    w
+                }).collect::<VecDeque<_>>();
+            } else {
+                x.par_extend((0..QUEUE_LENGTH-x.len()).map(|y| {
+                    let mut s = s.clone();
+                    s.write(&y.to_le_bytes()[..]);
+                    let c = s.finish() as usize;
+
+                    x[c%x.len()]
+                }).collect::<Vec<_>>());
+            }
+        }
+    });
+    comittee.par_iter_mut().enumerate().for_each(|(shard,x)| {
+        if x.len() < NUMBER_OF_VALIDATORS {
+            let mut s = AHasher::new_with_keys(shard as u128, shard as u128);
+            s.write(b"refill_comittee");
+            s.write(&x.iter().map(|x| x.to_le_bytes()).flatten().collect::<Vec<_>>());
+            if x.len() == 0 {
+                *x = (0..NUMBER_OF_VALIDATORS).map(|x| {
+                    let mut s = s.clone();
+                    s.write(&x.to_le_bytes()[..]);
+                    let c = s.finish() as u128;
+
+                    let mut staker = (c%tot_stk) as i128;
+                    let mut w = 0;
+                    for (i,&j) in y.iter().enumerate() {
+                        staker -= j as i128;
+                        if staker <= 0
+                            {w = i; break;}
+                    };
+                    w
+                }).collect::<Vec<_>>();
+            } else {
+                x.par_extend((0..NUMBER_OF_VALIDATORS-x.len()).map(|y| {
+                    let mut s = s.clone();
+                    s.write(&y.to_le_bytes()[..]);
+                    let c = s.finish() as usize;
+
+                    x[c%x.len()]
+                }).collect::<Vec<_>>());
+            }
+        }
+    });
+
+}
 
 
 

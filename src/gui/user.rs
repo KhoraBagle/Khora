@@ -1,13 +1,13 @@
 use std::{convert::TryInto, fs, time::{Instant, Duration}};
 
 use curve25519_dalek::scalar::Scalar;
-use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit}, epi};
+use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit, output::OpenUrl}, epi};
 use crossbeam::channel;
 use separator::Separatable;
 use getrandom::getrandom;
 use sha3::{Digest, Sha3_512};
 use serde::{Serialize, Deserialize};
-use crate::validation::{VERSION, ACCOUNT_COMBINE};
+use crate::validation::{VERSION, KHORA_WEBSITE, ACCOUNT_COMBINE};
 
 /*
 cargo run --bin full_staker --release 9876 pig
@@ -407,7 +407,7 @@ impl epi::App for KhoraUserGUI {
             });
             ui.heading("KHORA");
             ui.horizontal(|ui| {
-                ui.hyperlink("https://khora.info");
+                ui.hyperlink(KHORA_WEBSITE);
                 ui.hyperlink_to("Source Code","https://github.com/constantine1024/Khora");
                 ui.label(VERSION);
             });
@@ -468,18 +468,22 @@ impl epi::App for KhoraUserGUI {
             }
             if !*setup {
                 ui.horizontal(|ui| {
-                    if ui.button("📋").on_hover_text("Click to copy your invisible wallet address to clipboard").clicked() {
+                    if ui.button("📋").on_hover_text("Click to copy your red wallet address to clipboard").clicked() {
                         ui.output().copied_text = addr.clone();
                     }
                     ui.add(Label::new("Red Wallet Address").underline()).on_hover_text(&*addr);
-                    ui.add(Button::new("❓")).on_hover_text("Anonymous (Red) wallet: omniring scheme and one time accounts, use this wallet for any transaction that you wish to hide from the network.");
+                    if ui.add(Button::new("❓")).on_hover_text("Anonymous (Red) wallet: omniring scheme and one time accounts, use this wallet for any transaction that you wish to hide from the network.").clicked() {
+                        ui.output().open_url = Some(OpenUrl::new_tab(KHORA_WEBSITE));
+                    }
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("📋").on_hover_text("Click to copy your visible wallet address to clipboard").clicked() {
+                    if ui.button("📋").on_hover_text("Click to copy your blue wallet address to clipboard").clicked() {
                         ui.output().copied_text = nonanonyaddr.clone();
                     }
                     ui.add(Label::new("Blue Wallet Address").underline()).on_hover_text(&*nonanonyaddr);
-                    ui.add(Button::new("❓")).on_hover_text("Visible (Blue) wallet: transacting with this wallet is easier for the network, use it for all transactions that you dont wish to hide.");
+                    if ui.add(Button::new("❓")).on_hover_text("Visible (Blue) wallet: transacting with this wallet is easier for the network, use it for all transactions that you dont wish to hide.").clicked() {
+                        ui.output().open_url = Some(OpenUrl::new_tab(KHORA_WEBSITE));
+                    }
                 });
                 // if ui.button(format!("Divide my accounts by {}",ACCOUNT_COMBINE)).clicked() {
                 //     let mut m = retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec();

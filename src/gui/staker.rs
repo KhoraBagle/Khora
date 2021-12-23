@@ -1,13 +1,13 @@
 use std::{convert::TryInto, fs, time::Instant};
 
 use curve25519_dalek::scalar::Scalar;
-use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit}, epi};
+use eframe::{egui::{self, Button, Checkbox, Label, Sense, Slider, TextEdit, output::OpenUrl}, epi};
 use crossbeam::channel;
 use separator::Separatable;
 use getrandom::getrandom;
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_512};
-use crate::validation::{VERSION, MINSTK, STAKER_BLOOM_NAME, blocktime};
+use crate::validation::{VERSION, KHORA_WEBSITE, MINSTK, STAKER_BLOOM_NAME, blocktime};
 
 /*
 cargo run --bin full_staker --release 9876 pig
@@ -485,7 +485,7 @@ impl epi::App for KhoraStakerGUI {
             });
             ui.heading("KHORA");
             ui.horizontal(|ui| {
-                ui.hyperlink("https://khora.info");
+                ui.hyperlink(KHORA_WEBSITE);
                 ui.hyperlink_to("Source Code","https://github.com/constantine1024/Khora");
                 ui.label(VERSION);
             });
@@ -546,22 +546,39 @@ impl epi::App for KhoraStakerGUI {
             }
             if !*setup {
                 ui.horizontal(|ui| {
-                    if ui.button("📋").on_hover_text("Click to copy your invisable wallet address to clipboard").clicked() {
+                    if ui.button("📋").on_hover_text("Click to copy your red wallet address to clipboard").clicked() {
                         ui.output().copied_text = addr.clone();
                     }
-                    ui.add(Label::new("Invisible Wallet Address").underline()).on_hover_text(&*addr);
+                    ui.add(Label::new("Red Wallet Address").underline()).on_hover_text(&*addr);
+                    if ui.add(Button::new("❓")).on_hover_text("Anonymous (Red) wallet: omniring scheme and one time accounts, use this wallet for any transaction that you wish to hide from the network.").clicked() {
+                        ui.output().open_url = Some(OpenUrl::new_tab(KHORA_WEBSITE));
+                    }
+                    // if ui.button("📋").on_hover_text("Click to copy your invisable wallet address to clipboard").clicked() {
+                    //     ui.output().copied_text = addr.clone();
+                    // }
+                    // ui.add(Label::new("Invisible Wallet Address").underline()).on_hover_text(&*addr);
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("📋").on_hover_text("Click to copy your visible wallet address to clipboard").clicked() {
+                    if ui.button("📋").on_hover_text("Click to copy your blue wallet address to clipboard").clicked() {
                         ui.output().copied_text = nonanonyaddr.clone();
                     }
-                    ui.add(Label::new("Visible Wallet Address").underline()).on_hover_text(&*nonanonyaddr);
+                    ui.add(Label::new("Blue Wallet Address").underline()).on_hover_text(&*nonanonyaddr);
+                    if ui.add(Button::new("❓")).on_hover_text("Visible (Blue) wallet: transacting with this wallet is easier for the network, use it for all transactions that you dont wish to hide.").clicked() {
+                        ui.output().open_url = Some(OpenUrl::new_tab(KHORA_WEBSITE));
+                    }
+                    // if ui.button("📋").on_hover_text("Click to copy your visible wallet address to clipboard").clicked() {
+                    //     ui.output().copied_text = nonanonyaddr.clone();
+                    // }
+                    // ui.add(Label::new("Visible Wallet Address").underline()).on_hover_text(&*nonanonyaddr);
                 });
                 ui.horizontal(|ui| {
                     if ui.button("📋").on_hover_text("Click to copy your staking wallet address to clipboard").clicked() {
                         ui.output().copied_text = stkaddr.clone();
                     }
                     ui.add(Label::new("Staking Address").underline()).on_hover_text(&*stkaddr);
+                    if ui.add(Button::new("❓")).on_hover_text("Visible (Blue) wallet: transacting with this wallet is easier for the network, use it for all transactions that you dont wish to hide.").clicked() {
+                        ui.output().open_url = Some(OpenUrl::new_tab(KHORA_WEBSITE));
+                    }
                 });
                 if *validating {
                     ui.horizontal(|ui| {
@@ -588,16 +605,16 @@ impl epi::App for KhoraStakerGUI {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Invisible Unstaked Khora");
-                    ui.label(&unstaked.separated_string());
+                    ui.label("Red Wallet Khora");
+                    ui.add(Label::new(unstaked.separated_string()).text_color(egui::Color32::LIGHT_RED));
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Visible Unstaked Khora");
-                    ui.label(&nonanony.separated_string());
+                    ui.label("Blue Wallet Khora");
+                    ui.add(Label::new(nonanony.separated_string()).text_color(egui::Color32::LIGHT_BLUE));
                 });
                 ui.horizontal(|ui| {
                     ui.label("Staked Khora");
-                    ui.label(&staked.separated_string());
+                    ui.add(Label::new(staked.separated_string()).text_color(egui::Color32::LIGHT_YELLOW));
                 });
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(stake);
@@ -697,9 +714,18 @@ impl epi::App for KhoraStakerGUI {
             }
             if !*setup {
                 ui.horizontal(|ui| {
-                    ui.radio_value(txtype, TxInput::Stake, "Spend with staked money");
-                    ui.radio_value(txtype, TxInput::Invisable, "Spend with invisible unstaked money");
-                    ui.radio_value(txtype, TxInput::Visible, "Spend with visible unstaked money");
+                    if ui.add(egui::RadioButton::new(*txtype == TxInput::Invisable, "Spend with red wallet money").text_color(egui::Color32::LIGHT_RED)).clicked() {
+                        *txtype = TxInput::Invisable;
+                    }
+                    if ui.add(egui::RadioButton::new(*txtype == TxInput::Visible, "Spend with blue wallet money").text_color(egui::Color32::LIGHT_BLUE)).clicked() {
+                        *txtype = TxInput::Visible;
+                    }
+                    if ui.add(egui::RadioButton::new(*txtype == TxInput::Stake, "Spend with staked money").text_color(egui::Color32::LIGHT_YELLOW)).clicked() {
+                        *txtype = TxInput::Stake;
+                    }
+                    // ui.radio_value(txtype, TxInput::Stake, "Spend with staked money");
+                    // ui.radio_value(txtype, TxInput::Invisable, "Spend with invisible unstaked money");
+                    // ui.radio_value(txtype, TxInput::Visible, "Spend with visible unstaked money");
                 });
                 let mut delete_row_x = usize::MAX;
                 egui::ScrollArea::vertical().show(ui,|ui| {

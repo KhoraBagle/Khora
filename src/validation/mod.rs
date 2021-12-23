@@ -26,6 +26,7 @@ use std::time::Duration;
 
 
 pub static VERSION: &str = "v0.95";
+pub static KHORA_WEBSITE: &str = "https://khora.info";
 
 
 /// the number of validators in the comittee, 128

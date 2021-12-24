@@ -768,13 +768,13 @@ impl KhoraNode {
 
                 self.sigs = vec![];
                 set_comittee_n(lastlightning.shard as usize, &self.comittee, &self.stkinfo);
-                self.headshard = 0;
                 self.doneerly = self.timekeeper;
                 self.waitingforentrybool = true;
                 self.waitingforleaderbool = false;
                 self.waitingforleadertime = Instant::now();
                 self.waitingforentrytime = Instant::now();
                 self.timekeeper = Instant::now();
+                self.headshard = 0;
                 self.usurpingtime = Instant::now();
                 // println!("block reading process done!!!");
 
@@ -1849,6 +1849,9 @@ impl Future for KhoraNode {
                     } else if istx == 121 /* y */ { // you clicked sync
                         self.attempt_sync(None);
                     } else if istx == 42 /* * */ { // entry address
+                        self.headshard = 0;
+                        self.usurpingtime = Instant::now();
+                        self.gui_sender.send(vec![blocktime(self.bnum as f64) as u8,128]);
                         let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
                         println!("{}",m);
                         if let Ok(socket) = m.parse() {

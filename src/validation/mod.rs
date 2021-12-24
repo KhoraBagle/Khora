@@ -25,7 +25,7 @@ use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
 use std::time::Duration;
 
 
-pub static VERSION: &str = "v0.95";
+pub static VERSION: &str = "v0.96";
 pub static KHORA_WEBSITE: &str = "https://khora.info";
 
 
@@ -64,7 +64,7 @@ pub const LONG_TERM_SHARDS: usize = 2;
 /// when to announce you're about to be in the comittee or how far in advance you can no longer serve as leader
 pub const EXIT_TIME: usize = REPLACERATE*5;
 /// amount of seconds to wait before initiating shard takeover
-pub const USURP_TIME: u64 = 60;
+pub const USURP_TIME: u64 = 3600;
 /// the default port
 pub const DEFAULT_PORT: u16 = 8334;
 /// the outsider port
@@ -80,8 +80,8 @@ pub fn reward(cumtime: f64, blocktime: f64) -> f64 {
 /// calculates the amount of time the current block takes to be created
 pub fn blocktime(cumtime: f64) -> f64 {
     // 60f64/(6.337618E-8f64*cumtime+2f64).ln()
-    10.0
-    // 30.0
+    // 10.0
+    30.0
 }
 
 #[derive(Default, Clone, Serialize, Deserialize, Eq, Hash, Debug)]

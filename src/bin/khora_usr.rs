@@ -88,7 +88,6 @@ fn main() -> Result<(), MainError> {
                 lastbnum: 0u64,
                 height: 0u64,
                 alltagsever: HashSet::new(),
-                headshard: 0,
                 rmems: HashMap::new(),
                 rname: vec![],
                 gui_sender: usend.clone(),
@@ -186,7 +185,6 @@ struct SavedNode {
     lastbnum: u64,
     height: u64,
     alltagsever: HashSet<CompressedRistretto>,
-    headshard: usize,
     rname: Vec<u8>,
     cumtime: f64,
     blocktime: f64,
@@ -215,7 +213,6 @@ struct KhoraNode {
     mine: HashMap<u64, OTAccount>,
     reversemine: HashMap<CompressedRistretto, u64>,
     alltagsever: HashSet<CompressedRistretto>,
-    headshard: usize,
     rmems: HashMap<u64,OTAccount>,
     rname: Vec<u8>,
     cumtime: f64,
@@ -247,7 +244,6 @@ impl KhoraNode {
             lastbnum: self.lastbnum,
             height: self.height,
             alltagsever: self.alltagsever.clone(),
-            headshard: self.headshard.clone(),
             rname: self.rname.clone(),
             paniced: self.paniced.clone(),
             cumtime: self.cumtime,
@@ -286,7 +282,6 @@ impl KhoraNode {
             lastbnum: sn.lastbnum,
             height: sn.height,
             alltagsever:sn.alltagsever.clone(),
-            headshard: sn.headshard.clone(),
             rmems: HashMap::new(),
             rname: vec![],
             paniced: sn.paniced,
@@ -302,8 +297,7 @@ impl KhoraNode {
     /// reads a lightning block and saves information when appropriate and returns if you accepted the block
     fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, save: bool) {
         if lastlightning.bnum >= self.bnum {
-            let com = &self.comittee;
-            let v = if (lastlightning.shard as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
+            let v = if (lastlightning.last_name == self.lastname) {
                 lastlightning.verify_multithread_user(&comittee_n_user(lastlightning.shard as usize, &self.comittee, &self.stkinfo), &self.stkinfo).is_ok()
             } else {
                 false
@@ -316,7 +310,6 @@ impl KhoraNode {
                     self.save();
                 }
                 // println!("{}",format!("{}",t.elapsed().as_millis()).red());
-                self.headshard = lastlightning.shard as usize;
 
                 // println!("=========================================================\nyay!");
                 self.send_panic_or_stop(&lastlightning,self.nheight.clone(), save);
@@ -329,7 +322,7 @@ impl KhoraNode {
                     self.cumtime += self.blocktime;
                     self.blocktime = blocktime(self.cumtime);
 
-                    NextBlock::pay_all_empty_user(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
+                    NextBlock::pay_all_empty_user(&(lastlightning.shard as usize), &mut self.comittee, &mut self.stkinfo, reward);
 
 
                     for i in 0..self.comittee.len() {
@@ -369,7 +362,7 @@ impl KhoraNode {
                     hasher.update(m);
                     self.lastname = Scalar::from_hash(hasher).as_bytes().to_vec();
                 } else {
-                    NextBlock::pay_all_empty_user(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
+                    NextBlock::pay_all_empty_user(&(lastlightning.shard as usize), &mut self.comittee, &mut self.stkinfo, reward);
                 }
 
                 for i in 0..self.comittee.len() {

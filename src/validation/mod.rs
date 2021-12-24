@@ -44,7 +44,7 @@ pub const PERSON0: CompressedRistretto = CompressedRistretto([46, 235, 227, 188,
 /// minimum stake
 pub const MINSTK: u64 = 1_000_000;
 /// total money ever produced
-pub const TOTAL_KHORA: f64 = 1.0e16;
+pub const TOTAL_KHORA: f64 = (u64::MAX/2u64) as f64;
 /// bloom file for stakers
 pub const STAKER_BLOOM_NAME: &'static str = "all_tags";
 /// bloom file for stakers size
@@ -80,8 +80,8 @@ pub fn reward(cumtime: f64, blocktime: f64) -> f64 {
 /// calculates the amount of time the current block takes to be created
 pub fn blocktime(cumtime: f64) -> f64 {
     // 60f64/(6.337618E-8f64*cumtime+2f64).ln()
-    // 10.0
-    30.0
+    10.0
+    // 30.0
 }
 
 #[derive(Default, Clone, Serialize, Deserialize, Eq, Hash, Debug)]
@@ -144,6 +144,9 @@ impl Syncedtx {
         let mut nonanonyout = nonanonyout.into_par_iter().filter_map(|x|x).flatten().collect::<Vec<_>>();
         nonanonyout.sort();
 
+
+
+
         let s = stkin.clone();
         stkin.par_iter_mut().enumerate().for_each(|(i,x)| {
             x.1 += s.par_iter().take(i).filter_map(|y| {
@@ -169,15 +172,17 @@ impl Syncedtx {
             }
         }).unzip();
         let mut stkin = stkin.par_iter().filter_map(|x|x.as_ref()).copied().collect::<Vec<_>>();
-        let mut stknew = stknew.par_iter().filter_map(|x|x.copied()).collect::<Vec<_>>();
-        stkin.retain(|x| {
-            if stkout.par_iter().find_first(|&&y| y == x.0).is_some() {
-                stknew.push((stkinfo.get_by_index(x.0).0,x.1));
-                false
+        let stknew = stknew.par_iter().filter_map(|x|x.copied()).collect::<Vec<_>>();
+        for (x,a) in &mut stkin {
+            if let Some((z,_)) = stkout.par_iter().enumerate().find_first(|(_,y)| **y == *x) {
+                stkout.remove(z);
             } else {
-                true
+                *a = stkinfo.vec[*x].1.0 + *a;
             }
-        });
+        }
+
+
+
 
         let s = nonanonyin.clone();
         nonanonyin.par_iter_mut().enumerate().for_each(|(i,x)| {
@@ -204,15 +209,16 @@ impl Syncedtx {
             }
         }).unzip();
         let mut nonanonyin = nonanonyin.par_iter().filter_map(|x|x.as_ref()).copied().collect::<Vec<_>>();
-        let mut nonanonynew = nonanonynew.par_iter().filter_map(|x|x.copied()).collect::<Vec<_>>();
-        nonanonyin.retain(|x| {
-            if nonanonyout.par_iter().find_first(|&&y| y == x.0).is_some() {
-                nonanonynew.push((nonanonyinfo.get_by_index(x.0).0,x.1));
-                false
+        let nonanonynew = nonanonynew.par_iter().filter_map(|x|x.copied()).collect::<Vec<_>>();
+        
+        
+        for (x,a) in &mut nonanonyin {
+            if let Some((z,_)) = nonanonyout.par_iter().enumerate().find_first(|(_,y)| **y == *x) {
+                nonanonyout.remove(z);
             } else {
-                true
+                *a = nonanonyinfo.vec[*x].1 + *a;
             }
-        });
+        }
 
 
 
@@ -756,42 +762,8 @@ impl LightningSyncBlock {
     }
 
     /// updates the staker state by dulling out punishments and gifting rewards. also updates the queue, exitqueue, and comittee if stakers left
-    pub fn scan_as_noone(&self, valinfo: &mut VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>, nonanony: &mut VecHashMap<CompressedRistretto,u64>, dononanony: bool, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
+    pub fn scan_as_noone(&self, valinfo: &mut VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>, nonanony: &mut VecHashMap<CompressedRistretto,u64>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
         if save_history {History::append(&self.info.txout)};
-
-
-        // println!("valinfo {:?}",valinfo);
-
-
-
-        let winners: Vec<usize>;
-        let masochists: Vec<usize>;
-        let x = self.validators.iter().map(|x| x.pk as usize).collect::<HashSet<_>>();
-
-        let cn = comittee_n(self.shard as usize, comittee, valinfo);
-        let lucky = comittee_n(self.shard as usize+1, comittee, valinfo);
-        winners = cn.iter().filter(|&y| x.contains(y)).map(|x| *x).collect::<Vec<_>>();
-        masochists = cn.iter().filter(|&y| !x.contains(y)).map(|x| *x).collect::<Vec<_>>();
-        let fees = self.info.fees/(winners.len() as u64);
-        let inflation = (reward/winners.len() as f64) as u64;
-
-
-        for i in winners {
-            valinfo.vec[i].1.0 += inflation;
-            valinfo.vec[i].1.0 += fees;
-        }
-        let mut punishments = 0u64;
-        for i in masochists {
-            punishments += valinfo.vec[i].1.0/PUNISHMENT_FRACTION;
-            valinfo.vec[i].1.0 -= valinfo.vec[i].1.0/PUNISHMENT_FRACTION;
-        }
-        punishments = punishments/lucky.len() as u64;
-        for i in lucky {
-            valinfo.vec[i].1.0 += punishments;
-        }
-
-
-
 
         queue.par_iter_mut().for_each(|y| {
             *y = y.into_par_iter().filter_map(|z| {
@@ -815,24 +787,59 @@ impl LightningSyncBlock {
         refill(queue, exitqueue, comittee, valinfo);
 
 
+        // println!("valinfo {:?}",valinfo);
+
 
 
         self.info.stkin.iter().for_each(|x| {
-            valinfo.mut_value_from_index(x.0).0 += x.1;
+            valinfo.mut_value_from_index(x.0).0 = x.1;
         });
+        let winners: Vec<usize>;
+        let masochists: Vec<usize>;
+        let x = self.validators.iter().map(|x| x.pk as usize).collect::<HashSet<_>>();
+
+        let cn = comittee_n(self.shard as usize, comittee, valinfo);
+        let lucky = comittee_n(self.shard as usize+1, comittee, valinfo);
+        winners = cn.iter().filter(|&y| x.contains(y)).map(|x| *x).collect::<Vec<_>>();
+        masochists = cn.iter().filter(|&y| !x.contains(y)).map(|x| *x).collect::<Vec<_>>();
+        let fees = self.info.fees/(winners.len() as u64);
+        let inflation = (reward/winners.len() as f64) as u64;
+
+        for i in winners {
+            valinfo.vec[i].1.0 += inflation;
+            valinfo.vec[i].1.0 += fees;
+        }
+        let mut punishments = 0u64;
+        for i in masochists {
+            punishments += valinfo.vec[i].1.0/PUNISHMENT_FRACTION;
+            valinfo.vec[i].1.0 -= valinfo.vec[i].1.0/PUNISHMENT_FRACTION;
+        }
+        punishments = punishments/lucky.len() as u64;
+        for i in lucky {
+            valinfo.vec[i].1.0 += punishments;
+        }
+
+
+
+
+
+
+
         valinfo.remove_all(&self.info.stkout);
         valinfo.insert_all(&self.info.stknew.iter().map(|x| (x.0,(x.1,None))).collect::<Vec<_>>());
 
-        if dononanony {
 
-            self.info.nonanonyin.iter().for_each(|x| {
-                let y = nonanony.mut_value_from_index(x.0);
-                *y += x.1;
-            });
-            nonanony.remove_all(&self.info.nonanonyout);
-            nonanony.insert_all(&self.info.nonanonynew);
+
+
+
+
+        self.info.nonanonyin.iter().for_each(|x| {
+            let y = nonanony.mut_value_from_index(x.0);
+            *y = x.1;
+        });
+        nonanony.remove_all(&self.info.nonanonyout);
+        nonanony.insert_all(&self.info.nonanonynew);
     
-        }
 
 
         println!("valinfo {:?}",valinfo);
@@ -845,9 +852,33 @@ impl LightningSyncBlock {
     pub fn scan_as_noone_user(&self, valinfo: &mut Vec<(CompressedRistretto,u64)>, queue: &mut Vec<VecDeque<usize>>, exitqueue: &mut Vec<VecDeque<usize>>, comittee: &mut Vec<Vec<usize>>, reward: f64, save_history: bool) {
         if save_history {History::append(&self.info.txout)};
 
+        queue.par_iter_mut().for_each(|y| {
+            *y = y.into_par_iter().filter_map(|z| {
+                follow(*z,&self.info.stkout,valinfo.len())
+            }).collect::<VecDeque<_>>();
+        });
+        comittee.par_iter_mut().zip(exitqueue.par_iter_mut()).for_each(|(y,z)| {
+            let a = y.into_par_iter().map(|y| {
+                follow(*y,&self.info.stkout,valinfo.len())
+            }).collect::<Vec<_>>();
+            let b = a.par_iter().enumerate().filter(|(_,x)| x.is_none()).map(|(x,_)|x).collect::<Vec<_>>();
+            *z = z.par_iter().filter_map(|x| {
+                if b.contains(x) {
+                    None
+                } else {
+                    Some(*x - b.par_iter().filter(|y| *y<x).count())
+                }
+            }).collect();
+            *y = a.into_par_iter().filter_map(|x|x).collect();
+        });
+        refill_user(queue, exitqueue, comittee, valinfo);
+
 
         // println!("valinfo {:?}",valinfo);
 
+        self.info.stkin.iter().for_each(|x| {
+            valinfo[x.0].1 = x.1;
+        });
 
 
         let winners: Vec<usize>;
@@ -879,33 +910,9 @@ impl LightningSyncBlock {
 
 
 
-        queue.par_iter_mut().for_each(|y| {
-            *y = y.into_par_iter().filter_map(|z| {
-                follow(*z,&self.info.stkout,valinfo.len())
-            }).collect::<VecDeque<_>>();
-        });
-        comittee.par_iter_mut().zip(exitqueue.par_iter_mut()).for_each(|(y,z)| {
-            let a = y.into_par_iter().map(|y| {
-                follow(*y,&self.info.stkout,valinfo.len())
-            }).collect::<Vec<_>>();
-            let b = a.par_iter().enumerate().filter(|(_,x)| x.is_none()).map(|(x,_)|x).collect::<Vec<_>>();
-            *z = z.par_iter().filter_map(|x| {
-                if b.contains(x) {
-                    None
-                } else {
-                    Some(*x - b.par_iter().filter(|y| *y<x).count())
-                }
-            }).collect();
-            *y = a.into_par_iter().filter_map(|x|x).collect();
-        });
-        refill_user(queue, exitqueue, comittee, valinfo);
 
 
 
-
-        self.info.stkin.iter().for_each(|x| {
-            valinfo[x.0].1 += x.1;
-        });
         valinfo.remove_all(&self.info.stkout);
         valinfo.par_extend(&self.info.stknew);
 
@@ -951,6 +958,34 @@ impl LightningSyncBlock {
         // println!("mine:---------------------------------\n{:?}",mine);
         let changed = mine.clone();
         let nonetosome = mine.is_none();
+        if maybesome {
+            // println!("mine: {:?}",mine);
+            if let Some(m) = mine {
+                if let Some(x) = self.info.stkin.par_iter().find_first(|x| x.0 == m.0) {
+                    m.1 = x.1;
+                    println!("=================================================================================================");
+                    println!("someone sent me more stake! at staking {:?}",m);
+                    println!("=================================================================================================");
+                }
+            }
+    
+            if let Some(x) = &mine {
+                *mine = follow(x.0,&self.info.stkout,*height).map(|y| (y,x.1));
+            }
+            *height -= self.info.stkout.len();
+    
+            let cr = me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
+            if let Some(x) = self.info.stknew.par_iter().enumerate().find_first(|x| x.1.0 == cr) {
+                *mine = Some((*height + x.0,x.1.1));
+                println!("=================================================================================================");
+                println!("someone sent me new stake! at staking {:?}",mine);
+                println!("=================================================================================================");
+            }
+            *height += self.info.stknew.len();
+        } else {
+            *height -= self.info.stkout.len();
+            *height += self.info.stkin.len();
+        }
         if let Some(mine) = mine {
             let winners: Vec<usize>;
             let masochists: Vec<usize>;
@@ -985,34 +1020,6 @@ impl LightningSyncBlock {
                 }
             }
         }
-        if maybesome {
-            // println!("mine: {:?}",mine);
-            if let Some(m) = mine {
-                if let Some(x) = self.info.stkin.par_iter().find_first(|x| x.0 == m.0) {
-                    m.1 += x.1;
-                    println!("=================================================================================================");
-                    println!("someone sent me more stake! at staking {:?}",m);
-                    println!("=================================================================================================");
-                }
-            }
-    
-            if let Some(x) = &mine {
-                *mine = follow(x.0,&self.info.stkout,*height).map(|y| (y,x.1));
-            }
-            *height -= self.info.stkout.len();
-    
-            let cr = me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
-            if let Some(x) = self.info.stknew.par_iter().enumerate().find_first(|x| x.1.0 == cr) {
-                *mine = Some((*height + x.0,x.1.1));
-                println!("=================================================================================================");
-                println!("someone sent me new stake! at staking {:?}",mine);
-                println!("=================================================================================================");
-            }
-            *height += self.info.stknew.len();
-        } else {
-            *height -= self.info.stkout.len();
-            *height += self.info.stkin.len();
-        }
 
 
 
@@ -1030,7 +1037,7 @@ impl LightningSyncBlock {
         let changed = mine.clone();
         if let Some(m) = mine {
             if let Some(x) = self.info.nonanonyin.par_iter().find_first(|x| x.0 == m.0) {
-                m.1 += x.1;
+                m.1 = x.1;
                 println!("=================================================================================================");
                 println!("someone sent me more money! at {:?}",m);
                 println!("=================================================================================================");

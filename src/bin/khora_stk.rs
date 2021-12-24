@@ -646,7 +646,7 @@ impl KhoraNode {
                     if let Some(x) = &self.smine {
                         self.keylocation = Some(x.0)
                     }
-                    lastlightning.scan_as_noone(&mut self.stkinfo,&mut self.nonanony,true, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, true);
+                    lastlightning.scan_as_noone(&mut self.stkinfo,&mut self.nonanony, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, true);
 
                     self.lastbnum = self.bnum;
                     let mut hasher = Sha3_512::new();

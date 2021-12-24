@@ -806,7 +806,8 @@ impl KhoraNode {
                 }
                 self.is_node = !self.is_validator;
 
-                println!("stake info: {:?}",self.stkinfo);
+                println!("nonanony info: {:?}",self.nonanony.vec);
+                println!("stake info: {:?}",self.stkinfo.vec);
                 println!("full time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
                 println!("known validator's ips: {:?}", self.stkinfo.vec.iter().filter_map(|(_,(_,x))| x.clone()).collect::<Vec<_>>());
                 return true
@@ -1313,7 +1314,6 @@ impl Future for KhoraNode {
                                             let bnum = self.bnum;
                                             *self.clients.write() += 1;
                                             let cli = self.clients.clone();
-                                            println!("{:?}",m);
                                             thread::spawn(move || {
                                                 if let Ok(m) = m.try_into() {
                                                     if stream.write_all(&bnum.to_le_bytes()).is_ok() {

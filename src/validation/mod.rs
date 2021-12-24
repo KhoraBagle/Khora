@@ -158,7 +158,7 @@ impl Syncedtx {
             }).sum::<u64>();
         });
         stkin = stkin.par_iter().rev().enumerate().filter_map(|(i,&x)| {
-            if s.par_iter().take(i).all(|y| y.0 != x.0) {
+            if s.par_iter().rev().take(i).all(|y| y.0 != x.0) {
                 Some(x)
             } else {
                 None
@@ -195,7 +195,7 @@ impl Syncedtx {
             }).sum::<u64>();
         });
         nonanonyin = nonanonyin.par_iter().rev().enumerate().filter_map(|(i,&x)| {
-            if s.par_iter().take(i).all(|y| y.0 != x.0) {
+            if s.par_iter().rev().take(i).all(|y| y.0 != x.0) {
                 Some(x)
             } else {
                 None
@@ -220,6 +220,13 @@ impl Syncedtx {
             }
         }
 
+        // println!("outn {:?}",nonanonyout);
+        // println!("inn {:?}",nonanonyin);
+        // println!("newn {:?}",nonanonynew);
+        // println!("outs {:?}",stkout);
+        // println!("ins {:?}",stkin);
+        // println!("news {:?}",stknew);
+        // println!("newt {:?}",txout.iter().map(|x| x.pk.compress()).collect::<Vec<_>>());
 
 
         Syncedtx{stkout,stkin,stknew,nonanonyout,nonanonynew,nonanonyin,txout,tags,fees}
@@ -842,7 +849,8 @@ impl LightningSyncBlock {
     
 
 
-        println!("valinfo {:?}",valinfo);
+        // println!("nonanonyinfo {:?}",nonanony.vec);
+        // println!("valinfo {:?}",valinfo.vec);
         // println!("valinfo {:?}",self.info.stkin);
 
     }
@@ -926,7 +934,7 @@ impl LightningSyncBlock {
         let mut imtrue = newmine.is_empty();
         for (n,m) in newmine {
             if alltagsever.contains(&m.tag.unwrap()) {
-                println!("someone sent you money that you can't speand");
+                println!("someone sent you money that you can't spend");
             } else {
                 // let t = std::time::Instant::now();
                 alltagsever.insert(m.tag.unwrap());
@@ -963,9 +971,9 @@ impl LightningSyncBlock {
             if let Some(m) = mine {
                 if let Some(x) = self.info.stkin.par_iter().find_first(|x| x.0 == m.0) {
                     m.1 = x.1;
-                    println!("=================================================================================================");
-                    println!("someone sent me more stake! at staking {:?}",m);
-                    println!("=================================================================================================");
+                    // println!("=================================================================================================");
+                    // println!("someone sent me more stake! at staking {:?}",m);
+                    // println!("=================================================================================================");
                 }
             }
     
@@ -977,9 +985,9 @@ impl LightningSyncBlock {
             let cr = me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
             if let Some(x) = self.info.stknew.par_iter().enumerate().find_first(|x| x.1.0 == cr) {
                 *mine = Some((*height + x.0,x.1.1));
-                println!("=================================================================================================");
-                println!("someone sent me new stake! at staking {:?}",mine);
-                println!("=================================================================================================");
+                // println!("=================================================================================================");
+                // println!("someone sent me new stake! at staking {:?}",mine);
+                // println!("=================================================================================================");
             }
             *height += self.info.stknew.len();
         } else {
@@ -1038,9 +1046,9 @@ impl LightningSyncBlock {
         if let Some(m) = mine {
             if let Some(x) = self.info.nonanonyin.par_iter().find_first(|x| x.0 == m.0) {
                 m.1 = x.1;
-                println!("=================================================================================================");
-                println!("someone sent me more money! at {:?}",m);
-                println!("=================================================================================================");
+                // println!("=================================================================================================");
+                // println!("someone sent me more money! at {:?}",m);
+                // println!("=================================================================================================");
             }
         }
         *height -= self.info.nonanonyout.len();
@@ -1051,9 +1059,9 @@ impl LightningSyncBlock {
 
         let cr = me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress();
         if let Some(x) = self.info.nonanonynew.par_iter().enumerate().find_first(|x| x.1.0 == cr) {
-            println!("=================================================================================================");
-            println!("someone sent me new money! at {:?}",(*height + x.0,x.1.1));
-            println!("=================================================================================================");
+            // println!("=================================================================================================");
+            // println!("someone sent me new money! at {:?}",(*height + x.0,x.1.1));
+            // println!("=================================================================================================");
 
             *mine = Some((*height + x.0,x.1.1));
         }
@@ -1062,20 +1070,17 @@ impl LightningSyncBlock {
 
 
 
-        if self.bnum%10 == 0 {
-            println!("ideal: {:?}",me.nonanony_acc().derive_stk_ot(&Scalar::one()).pk.compress());
-            println!("in: {:?}",self.info.nonanonyin);
-            println!("grow: {:?}",self.info.nonanonynew);
-            println!("staker reference: {:?}",self.info.stkin);
-            println!("random: {:?}",self.info.txout.iter().map(|x| x.pk.compress()).collect::<Vec<_>>());
-        }
+        // if self.bnum%10 == 0 {
+            // println!("ideal: {:?}",me.nonanony_acc().derive_stk_ot(&Scalar::one()).pk.compress());
+            // println!("in: {:?}",self.info.nonanonyin);
+            // println!("grow: {:?}",self.info.nonanonynew);
+            // println!("staker reference: {:?}",self.info.stkin);
+            // println!("random: {:?}",self.info.txout.iter().map(|x| x.pk.compress()).collect::<Vec<_>>());
+        // }
 
 
-        println!("nmine {:?}",mine);
-        println!("height {}",height);
-        println!("out {:?}",self.info.nonanonyout);
-        println!("in {:?}",self.info.nonanonyin);
-        println!("new {:?}",self.info.nonanonynew);
+        // println!("nminen {:?}",mine);
+        // println!("heightn {}",height);
         
         // println!("{}",t.elapsed().as_millis());
 

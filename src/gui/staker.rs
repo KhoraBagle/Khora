@@ -79,7 +79,6 @@ pub struct KhoraStakerGUI {
     addr: String,
     nonanonyaddr: String,
     stkaddr: String,
-    dont_trust_amounts: bool,
     password0: String,
     pswd_guess0: String,
     username: String,
@@ -162,7 +161,6 @@ impl Default for KhoraStakerGUI {
             addr: "".to_string(),
             stkaddr: "".to_string(),
             nonanonyaddr: "".to_string(),
-            dont_trust_amounts: false,
             password0: "".to_string(),
             pswd_guess0: "".to_string(),
             username: "".to_string(),
@@ -291,8 +289,6 @@ impl epi::App for KhoraStakerGUI {
                 let u = i.drain(..8).collect::<Vec<_>>();
                 self.staked = u64::from_le_bytes(u.try_into().unwrap());
                 self.nonanony = u64::from_le_bytes(i.try_into().unwrap());
-            } else if modification == 1 {
-                self.dont_trust_amounts = i.pop() == Some(0);
             } else if modification == 2 {
                 self.block_number = u64::from_le_bytes(i.try_into().unwrap());
 
@@ -400,7 +396,6 @@ impl epi::App for KhoraStakerGUI {
             unstake,
             addr,
             stkaddr,
-            dont_trust_amounts,
             password0,
             pswd_guess0,
             username,
@@ -714,9 +709,6 @@ impl epi::App for KhoraStakerGUI {
                     ui.add(Checkbox::new(lightning_yielder,"I only want to store lightning blocks!"));
                     ui.add(Label::new("Checking this box means you'll use less memory on your computer").text_color(egui::Color32::YELLOW));    
                 });
-            }
-            if *dont_trust_amounts {
-                ui.add(Label::new("Money owned is not yet verified").text_color(egui::Color32::RED));
             }
             if !*setup {
                 ui.horizontal(|ui| {

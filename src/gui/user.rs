@@ -72,7 +72,6 @@ pub struct KhoraUserGUI {
     friends: Vec<String>,
     friend_names: Vec<String>,
     addr: String,
-    dont_trust_amounts: bool,
     password0: String,
     pswd_guess0: String,
     username: String,
@@ -145,7 +144,6 @@ impl Default for KhoraUserGUI {
             friend_adding: "".to_string(),
             name_adding: "".to_string(),
             addr: "".to_string(),
-            dont_trust_amounts: false,
             password0: "".to_string(),
             pswd_guess0: "".to_string(),
             username: "".to_string(),
@@ -265,8 +263,6 @@ impl epi::App for KhoraUserGUI {
             if modification == 0 {
                 self.unstaked = u64::from_le_bytes(i.drain(..8).collect::<Vec<_>>().try_into().unwrap());
                 self.nonanony = u64::from_le_bytes(i.try_into().unwrap());
-            } else if modification == 1 {
-                self.dont_trust_amounts = i.pop() == Some(0);
             } else if modification == 2 {
                 self.block_number = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 4 {
@@ -316,7 +312,6 @@ impl epi::App for KhoraUserGUI {
             friend_adding,
             name_adding,
             addr,
-            dont_trust_amounts,
             password0,
             pswd_guess0,
             username,
@@ -568,9 +563,6 @@ impl epi::App for KhoraUserGUI {
                         sender.send(get_pswrd(&*password0,&*username,&*secret_key));
                     }
                 });
-            }
-            if *dont_trust_amounts {
-                ui.add(Label::new("Money owned is not yet verified").text_color(egui::Color32::RED));
             }
             if !*setup {
                 ui.horizontal(|ui| {

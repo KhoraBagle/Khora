@@ -189,7 +189,7 @@ struct SavedNode {
     cumtime: f64,
     blocktime: f64,
     ringsize: u8,
-    lasttags: Vec<PolynomialTransaction>,
+    lasttags: Vec<CompressedRistretto>,
     lastnonanony: Option<usize>,
     paniced: Option<(Account,Option<PolynomialTransaction>,Option<(usize,u64)>,u64)>
 }
@@ -219,7 +219,7 @@ struct KhoraNode {
     blocktime: f64,
     gui_timer: Instant,
     ringsize: u8,
-    lasttags: Vec<PolynomialTransaction>,
+    lasttags: Vec<CompressedRistretto>,
     lastnonanony: Option<usize>,
     paniced: Option<(Account,Option<PolynomialTransaction>,Option<(usize,u64)>,u64)>
 }
@@ -338,21 +338,42 @@ impl KhoraNode {
                     // let t = Instant::now();
                     // println!("{}",format!("scan stake: {}",t.elapsed().as_millis()).yellow());
                     // let t = Instant::now();
-                    let mut guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);
                     // println!("{}",format!("scan: {}",t.elapsed().as_millis()).yellow());
-                    let lastnonanonyissome = self.lastnonanony.is_some();
-                    if let Some(x) = self.lastnonanony.borrow() {
-                        self.lastnonanony = follow(*x,&lastlightning.info.nonanonyout,self.nheight);
-                    }
-                    if lastnonanonyissome && self.lastnonanony.is_none() {
-                        self.gui_sender.send(vec![9]).expect("something's wrong with the communication to the gui");
-                    }
-                    guitruster = lastlightning.scannonanony(&self.me, &mut self.nmine, &mut self.nheight) || guitruster;
+                    if let Some(y) = self.lastnonanony {
+                        if let Some((_,a)) = self.nmine {
+                            if let Some(x) = lastlightning.info.nonanonyin.par_iter().find_first(|x|x.0 == y) {
+                                if x.1 > a {
+                                    self.lastnonanony = None;
+                                    self.gui_sender.send(vec![10]);
+                                } else {
+                                    self.lastnonanony = None;
+                                    self.gui_sender.send(vec![9]);
 
-                    if save {
-                        self.gui_sender.send(vec![!guitruster as u8,1]);
+                                }
+                            }
+                        } else {
+                            self.lastnonanony = None;
+                            self.gui_sender.send(vec![10]);
+                        }
                     }
-                    
+                    if let Some(x) = self.lastnonanony.borrow() {
+                        if self.bnum%NONCEYNESS == 0 {
+                            self.lastnonanony = None;
+                            self.gui_sender.send(vec![11]);
+                        } else {
+                            self.lastnonanony = follow(*x,&lastlightning.info.nonanonyout,self.nheight);
+                        }
+                    }
+                    if self.lasttags.par_iter().any(|x| {
+                        lastlightning.info.tags.contains(&x)
+                    }) {
+                        self.lasttags = vec![];
+                        self.gui_sender.send(vec![5]);
+                    }
+
+                    lastlightning.scannonanony(&self.me, &mut self.nmine, &mut self.nheight);
+                    lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);
+
                     // let t = Instant::now();
                     lastlightning.scan_as_noone_user(&mut self.stkinfo, &mut self.queue, &mut self.exitqueue, &mut self.comittee, reward, false);
                     // println!("{}",format!("no one: {}",t.elapsed().as_millis()).yellow());
@@ -380,18 +401,6 @@ impl KhoraNode {
                 // println!("block {} name: {:?}",self.bnum, self.lastname);
 
                 
-                self.lasttags.clone().into_iter().for_each(|x| {
-                    if lastlightning.info.tags.contains(&x.tags[0]) {
-                        self.lasttags = vec![];
-                    }
-                });
-                
-                if self.lastnonanony.is_some() && (self.bnum%NONCEYNESS == 0 || self.lastnonanony.iter().all(|&x| {
-                    lastlightning.info.nonanonyin.iter().any(|y| y.0 == x)
-                })) {
-                    self.gui_sender.send(vec![10]).expect("something's wrong with the communication to the gui");
-                }
-
                 self.cumtime += self.blocktime;
                 self.blocktime = blocktime(self.cumtime);
 
@@ -758,7 +767,7 @@ impl Future for KhoraNode {
                                     let tx = tx.polyform(&self.rname);
                                     let mut txbin = bincode::serialize(&tx).unwrap();
                                     txbin.push(0);
-                                    self.lasttags.push(tx);
+                                    self.lasttags.push(tx.tags[0]);
                                     self.send_message(txbin,TRANSACTION_SEND_TO);
                                     println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
                                 } else {
@@ -831,7 +840,7 @@ impl Future for KhoraNode {
                                     let tx = tx.polyform(&self.rname);
                                     let mut txbin = bincode::serialize(&tx).unwrap();
                                     txbin.push(0);
-                                    self.lasttags.push(tx);
+                                    self.lasttags.push(tx.tags[0]);
                                     self.send_message(txbin,TRANSACTION_SEND_TO);
                                     println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
                                 } else {

@@ -212,7 +212,7 @@ fn main() -> Result<(), MainError> {
             mymoney.extend(node.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
             mymoney.push(0);
             println!("my money: {:?}",node.smine.iter().map(|x| x.1).sum::<u64>());
-            node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
+            node.gui_sender.send(mymoney); // this is how you send info to the gui
             node.save();
 
             executor.spawn(service.map_err(|e| panic!("{}", e)));
@@ -241,7 +241,7 @@ fn main() -> Result<(), MainError> {
         mymoney.extend(node.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
         mymoney.push(0);
         println!("my staked money: {:?}",node.smine.iter().map(|x| x.1).sum::<u64>());
-        node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
+        node.gui_sender.send(mymoney); // this is how you send info to the gui
 
         let app = gui::staker::KhoraStakerGUI::new(
             ui_reciever,
@@ -516,11 +516,25 @@ impl KhoraNode {
     fn readblock(&mut self, lastblock: NextBlock, m: Vec<u8>, save: bool) -> bool {
         let lastlightning = lastblock.tolightning(&self.nonanony, &self.stkinfo);
         let l = bincode::serialize(&lastlightning).unwrap();
-        self.readlightning(lastlightning,l,Some(m.clone()), save)
+
+
+        let inputs = lastblock.txs.into_par_iter().map(|x| x.inputs).collect::<Vec<_>>();
+
+        let (stkout,nonanonyout): (Vec<_>,Vec<_>) = inputs.into_par_iter().filter_map(|x| {
+            if x.last() == Some(&1) {
+                Some((Some(x.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap()) as usize).collect::<Vec<_>>()),None))
+            } else if x.last() == Some(&2) {
+                Some((None,Some(x.par_chunks_exact(8).map(|x| u64::from_le_bytes(x.try_into().unwrap()) as usize).collect::<Vec<_>>())))
+            } else {None}
+        }).unzip();
+        let stkout = stkout.into_par_iter().filter_map(|x|x).flatten().collect::<Vec<_>>();
+        let nonanonyout = nonanonyout.into_par_iter().filter_map(|x|x).flatten().collect::<Vec<_>>();
+        
+        self.readlightning(lastlightning,l,Some(m), Some((stkout,nonanonyout)), save)
     }
 
     /// reads a lightning block and saves information when appropriate
-    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, largeblock: Option<Vec<u8>>, save: bool) -> bool {
+    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, largeblock: Option<Vec<u8>>, largetx: Option<(Vec<usize>,Vec<usize>)>, save: bool) -> bool {
         let t = Instant::now();
         if lastlightning.bnum >= self.bnum {
             let v = if (lastlightning.shard as usize >= self.headshard) && (lastlightning.last_name == self.lastname) {
@@ -537,7 +551,7 @@ impl KhoraNode {
 
                 if let Some(k) = &self.keylocation {
                     if lastlightning.info.stkout.contains(k) {
-                        self.gui_sender.send(vec![6]).expect("something's wrong with the communication to the gui");
+                        self.gui_sender.send(vec![6]);
                     }
                 }
 
@@ -567,7 +581,7 @@ impl KhoraNode {
                     self.cumtime += self.blocktime;
                     self.blocktime = blocktime(self.cumtime);
 
-                    self.gui_sender.send(vec![!NextBlock::pay_self_empty(&self.headshard, &self.comittee, &mut self.smine, reward) as u8,1]).expect("there's a problem communicating to the gui!");
+                    NextBlock::pay_self_empty(&self.headshard, &self.comittee, &mut self.smine, reward);
                     NextBlock::pay_all_empty(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
 
                     if !self.lightning_yielder {
@@ -594,46 +608,98 @@ impl KhoraNode {
                 // println!("none time: {}",format!("{}",t.elapsed().as_millis()).bright_yellow());
                 // calculate the reward for this block as a function of the current time and scan either the block or an empty block based on conditions
                 let reward = reward(self.cumtime,self.blocktime);
-                if !(lastlightning.info.txout.is_empty() && lastlightning.info.stkin.is_empty() && lastlightning.info.stkout.is_empty()) {
-                    // if let Some(x) = self.laststk.borrow() {
-                    //     if let Some(y) = x.1 {
-                    //         if let Some(z) = follow(y.0,&lastlightning.info.stkout,self.sheight) {
-                    //             self.laststk = Some((x.0,Some((z,y.1)),x.2));
-                    //         } else {
-                    //             self.laststk = None;
-                    //         }
-                    //     }
-                    // }
+                if !lastlightning.info.is_empty() {
 
-                    
-                    let laststkissome = self.laststk.is_some();
-                    if let Some(x) = self.laststk.borrow() {
-                        self.laststk = follow(*x,&lastlightning.info.stkout,self.sheight);
+
+
+                    if let Some(x) = largetx {
+                        if let Some(y) = self.laststk {
+                            if x.0.contains(&y) {
+                                self.gui_sender.send(vec![6]);
+                                self.laststk = None;
+                            } else if self.is_validator || lastlightning.info.stkin.par_iter().any(|x| x.0 == y) {
+                                self.laststk = None;
+                                self.gui_sender.send(vec![11]);
+                            }
+                        }
+                        if let Some(y) = self.lastnonanony {
+                            if x.1.contains(&y) {
+                                self.gui_sender.send(vec![9]);
+                                self.lastnonanony = None;
+                            } else if lastlightning.info.nonanonyin.par_iter().any(|x| x.0 == y) {
+                                self.lastnonanony = None;
+                                self.gui_sender.send(vec![10]);
+                            }
+                        }
+                    } else {
+                        if let Some(y) = self.laststk {
+                            if let Some((_,a)) = self.smine {
+                                if let Some(x) = lastlightning.info.stkin.par_iter().find_first(|x|x.0 == y) {
+                                    if x.1 > a {
+                                        self.laststk = None;
+                                        self.gui_sender.send(vec![11]);
+                                    } else {
+                                        self.laststk = None;
+                                        self.gui_sender.send(vec![6]);
+
+                                    }
+                                }
+                            } else {
+                                self.laststk = None;
+                                self.gui_sender.send(vec![11]);
+                            }
+                        }
+                        if let Some(y) = self.lastnonanony {
+                            if let Some((_,a)) = self.nmine {
+                                if let Some(x) = lastlightning.info.nonanonyin.par_iter().find_first(|x|x.0 == y) {
+                                    if x.1 > a {
+                                        self.lastnonanony = None;
+                                        self.gui_sender.send(vec![10]);
+                                    } else {
+                                        self.lastnonanony = None;
+                                        self.gui_sender.send(vec![9]);
+
+                                    }
+                                }
+                            } else {
+                                self.lastnonanony = None;
+                                self.gui_sender.send(vec![10]);
+                            }
+                        }
                     }
-                    if laststkissome && self.laststk.is_none() {
-                        self.gui_sender.send(vec![6]).expect("something's wrong with the communication to the gui");
-                    }
-                    let (mut guitruster, new) = lastlightning.scanstk(&self.me, &mut self.smine, true, &mut self.sheight, &self.comittee, reward, &self.stkinfo);
-                    
-                    let lastnonanonyissome = self.lastnonanony.is_some();
                     if let Some(x) = self.lastnonanony.borrow() {
-                        self.lastnonanony = follow(*x,&lastlightning.info.nonanonyout,self.nheight);
+                        if self.bnum%NONCEYNESS == 0 {
+                            self.lastnonanony = None;
+                            self.gui_sender.send(vec![10]);
+                        } else {
+                            self.lastnonanony = follow(*x,&lastlightning.info.nonanonyout,self.nheight);
+                        }
                     }
-                    if lastnonanonyissome && self.lastnonanony.is_none() {
-                        self.gui_sender.send(vec![9]).expect("something's wrong with the communication to the gui");
+                    if let Some(x) = self.laststk.borrow() {
+                        if self.bnum%NONCEYNESS == 0 {
+                            self.laststk = None;
+                            self.gui_sender.send(vec![11]);
+                        } else {
+                            self.laststk = follow(*x,&lastlightning.info.stkout,self.sheight);
+                        }
                     }
-                    guitruster = lastlightning.scannonanony(&self.me, &mut self.nmine, &mut self.nheight) || guitruster;
+                    if self.lasttags.par_iter().any(|x| {
+                        lastlightning.info.tags.contains(&x)
+                    }) {
+                        self.lasttags = vec![];
+                        self.gui_sender.send(vec![5]);
+                    }
 
 
-                    guitruster = lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever) || guitruster;
-                    self.gui_sender.send(vec![!guitruster as u8,1]).expect("there's a problem communicating to the gui!");
-
-                    if new {
+                    if lastlightning.scanstk(&self.me, &mut self.smine, true, &mut self.sheight, &self.comittee, reward, &self.stkinfo) {
                         let message = bincode::serialize(&self.outer.plumtree_node().id().address().ip()).unwrap();
                         let mut fullmsg = Signature::sign_message2(&self.key,&message);
                         fullmsg.push(110);
                         self.outer.broadcast_now(fullmsg);
                     }
+                    lastlightning.scannonanony(&self.me, &mut self.nmine, &mut self.nheight);
+                    lastlightning.scan(&self.me, &mut self.mine, &mut self.reversemine, &mut self.height, &mut self.alltagsever);
+
                     
 
                     // println!("saving block...");
@@ -653,7 +719,7 @@ impl KhoraNode {
                     hasher.update(m);
                     self.lastname = Scalar::from_hash(hasher).as_bytes().to_vec();
                 } else {
-                    self.gui_sender.send(vec![!NextBlock::pay_self_empty(&self.headshard, &self.comittee, &mut self.smine, reward) as u8,1]).expect("there's a problem communicating to the gui!");
+                    NextBlock::pay_self_empty(&self.headshard, &self.comittee, &mut self.smine, reward);
                     NextBlock::pay_all_empty(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
                     if !self.lightning_yielder {
                         NextBlock::save(&vec![]);
@@ -698,11 +764,11 @@ impl KhoraNode {
                 mymoney.extend(self.smine.unwrap_or_default().1.to_le_bytes());
                 mymoney.extend(self.nmine.unwrap_or_default().1.to_le_bytes());
                 mymoney.push(0);
-                self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
+                self.gui_sender.send(mymoney); // this is how you send info to the gui
 
                 let mut thisbnum = self.bnum.to_le_bytes().to_vec();
                 thisbnum.push(2);
-                self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
+                self.gui_sender.send(thisbnum); // this is how you send info to the gui
 
                 // println!("block {} name: {:?}",self.bnum, self.lastname);
 
@@ -743,28 +809,11 @@ impl KhoraNode {
                 }
 
 
-                if self.lasttags.par_iter().any(|x| {
-                    lastlightning.info.tags.contains(&x)
-                }) {
-                    self.lasttags = vec![];
-                    self.gui_sender.send(vec![5]);
-                }
-                if self.lastnonanony.is_some() && (self.bnum%NONCEYNESS == 0 || self.lastnonanony.iter().all(|&x| {
-                    lastlightning.info.nonanonyin.iter().any(|y| y.0 == x)
-                })) {
-                    self.gui_sender.send(vec![10]).expect("something's wrong with the communication to the gui");
-                }
-
-                if self.laststk.is_some() && (self.bnum%NONCEYNESS == 0 || self.laststk.iter().all(|&x| {
-                    lastlightning.info.nonanonyin.iter().any(|y| y.0 == x)
-                }) || comittee_n(self.headshard,&self.comittee, &self.stkinfo).contains(&self.keylocation.unwrap()) || self.comittee[self.headshard+1].contains(&self.keylocation.unwrap())) {
-                    self.gui_sender.send(vec![11]).expect("something's wrong with the communication to the gui");
-                }
 
                 self.cumtime += self.blocktime;
                 self.blocktime = blocktime(self.cumtime);
 
-                self.gui_sender.send(vec![self.blocktime as u8,128]).expect("something's wrong with the communication to the gui");
+                self.gui_sender.send(vec![self.blocktime as u8,128]);
 
                 self.sigs = vec![];
                 set_comittee_n(lastlightning.shard as usize, &self.comittee, &self.stkinfo);
@@ -942,7 +991,7 @@ impl KhoraNode {
                             };
                             if self.lightning_yielder {
                                 if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
-                                    if !self.readlightning(lastblock, serialized_block, None, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
+                                    if !self.readlightning(lastblock, serialized_block, None, None, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
                                         break
                                     }
                                 } else {

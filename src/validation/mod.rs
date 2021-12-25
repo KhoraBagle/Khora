@@ -25,7 +25,7 @@ use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
 use std::time::Duration;
 
 
-pub static VERSION: &str = "v0.96";
+pub static VERSION: &str = "v0.97";
 pub static KHORA_WEBSITE: &str = "https://khora.info";
 
 
@@ -239,7 +239,7 @@ impl Syncedtx {
 
     /// checks the info is empty
     pub fn is_empty(&self)->bool {
-        self.txout.is_empty() && self.stkout.is_empty() && self.stkin.is_empty() && self.nonanonyout.is_empty() && self.nonanonyin.is_empty() && self.tags.is_empty()
+        self.stkin.is_empty() && self.nonanonyin.is_empty() && self.tags.is_empty()
     }
 }
 
@@ -586,20 +586,17 @@ impl NextBlock {
     }
 
     /// the function you use to pay yourself if you are not saving the block
-    pub fn pay_self_empty(shard: &usize, comittee: &Vec<Vec<usize>>, mine: &mut Option<(usize,u64)>, reward: f64) -> bool {
+    pub fn pay_self_empty(shard: &usize, comittee: &Vec<Vec<usize>>, mine: &mut Option<(usize,u64)>, reward: f64) {
 
-        let mut changed = false;
         if let Some(mine) = mine {
             let winners = comittee[*shard].iter();
             let inflation = (reward/winners.len() as f64) as u64;
             for &i in winners {
                 if mine.0 == i {
-                    changed = true;
                     mine.1 += inflation;
                 }
             }
         }
-        changed
     }
 
     /// reads the specified block from the file
@@ -929,9 +926,8 @@ impl LightningSyncBlock {
 
 
     /// scans the block for money sent to you. additionally updates your understanding of the height. returns weather you recieved money
-    pub fn scan(&self, me: &Account, mine: &mut HashMap<u64,OTAccount>, reversemine: &mut HashMap<CompressedRistretto,u64>, height: &mut u64, alltagsever: &mut HashSet<CompressedRistretto>) -> bool {
+    pub fn scan(&self, me: &Account, mine: &mut HashMap<u64,OTAccount>, reversemine: &mut HashMap<CompressedRistretto,u64>, height: &mut u64, alltagsever: &mut HashSet<CompressedRistretto>) {
         let newmine = self.info.txout.par_iter().enumerate().filter_map(|(i,x)| if let Ok(y) = me.receive_ot(x) {Some((i as u64+*height,y))} else {None}).collect::<Vec<(u64,OTAccount)>>();
-        let mut imtrue = newmine.is_empty();
         for (n,m) in newmine {
             if alltagsever.contains(&m.tag.unwrap()) {
                 println!("someone sent you money that you can't spend");
@@ -942,7 +938,6 @@ impl LightningSyncBlock {
                 // let t = std::time::Instant::now();
                 reversemine.insert(m.tag.unwrap(),n);
                 mine.insert(n,m);
-                imtrue = true;
                 // println!("recieve money: {}",t.elapsed().as_millis());
             }
         }
@@ -955,16 +950,14 @@ impl LightningSyncBlock {
 
         *height += self.info.txout.len() as u64;
 
-        imtrue
     }
 
     /// scans the block for any transactions sent to you or any rewards and punishments you recieved. it additionally updates the height of stakers. returns if your money changed then if your index changed
-    pub fn scanstk(&self, me: &Account, mine: &mut Option<(usize,u64)>, maybesome: bool, height: &mut usize, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>) -> (bool,bool) {
+    pub fn scanstk(&self, me: &Account, mine: &mut Option<(usize,u64)>, maybesome: bool, height: &mut usize, comittee: &Vec<Vec<usize>>, reward: f64, valinfo: &VecHashMap<CompressedRistretto,(u64,Option<SocketAddr>)>) -> bool {
 
         // let t = std::time::Instant::now();
 
         // println!("mine:---------------------------------\n{:?}",mine);
-        let changed = mine.clone();
         let nonetosome = mine.is_none();
         if maybesome {
             // println!("mine: {:?}",mine);
@@ -1032,13 +1025,13 @@ impl LightningSyncBlock {
 
 
         // println!("mine:---------------------------------\n{:?}",mine);
-        (changed != *mine, nonetosome && mine.is_some())
+        nonetosome && mine.is_some()
 
 
     }
 
     /// scans the block for any transactions sent to or from you. it additionally updates the height of nonanonys. returns if your money changed
-    pub fn scannonanony(&self, me: &Account, mine: &mut Option<(usize,u64)>, height: &mut usize) -> bool {
+    pub fn scannonanony(&self, me: &Account, mine: &mut Option<(usize,u64)>, height: &mut usize) {
 
         // let t = std::time::Instant::now();
 
@@ -1084,7 +1077,6 @@ impl LightningSyncBlock {
         
         // println!("{}",t.elapsed().as_millis());
 
-        changed != *mine
 
 
     }

@@ -52,7 +52,7 @@ use colored::Colorize;
 
 
 fn main() -> Result<(), MainError> {
-    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("info".parse().unwrap()).build())?; // info or debug
+    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("warning".parse().unwrap()).build())?; // info or debug
 
 
     let outerlistener = TcpListener::bind(format!("0.0.0.0:{}",OUTSIDER_PORT)).unwrap();
@@ -1174,7 +1174,7 @@ impl Future for KhoraNode {
                                             let mut m = bincode::serialize(&m).unwrap();
                                             m.push(2);
                                             for _ in comittee_n(self.headshard,&self.comittee, &self.stkinfo).iter().filter(|&x|x == keylocation).collect::<Vec<_>>() {
-                                                println!("{}","broadcasting block signature".red());
+                                                // println!("{}","broadcasting block signature".red());
                                                 self.inner.broadcast(m.clone());
                                             }
                                         }
@@ -1189,7 +1189,7 @@ impl Future for KhoraNode {
                             }
                         } else if mtype == 2 /* the signatures you're supposed to process as the leader */ {
                             if let Ok(sig) = bincode::deserialize(&m) {
-                                println!("{}","recieved block signature".red());
+                                // println!("{}","recieved block signature".red());
                                 self.sigs.push(sig);
                                 self.inner.handle_gossip_now(fullmsg, true);
 
@@ -1283,7 +1283,7 @@ impl Future for KhoraNode {
                     self.waitingforentrybool = false;
                     for keylocation in &self.keylocation {
                         let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, vec![], &(self.headshard as u8), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo, &self.nonanony);
-                        println!("{}","ATTEMPTING TO MAKE AN EMPTY BLOCK".red().bold());
+                        println!("{}","ATTEMPTING TO MAKE AN EMPTY BLOCK (this does nothing if the block was already made)".red());
                         let mut m = bincode::serialize(&m).unwrap();
                         m.push(2);
                         if comittee_n(self.headshard,&self.comittee, &self.stkinfo).contains(&(*keylocation as usize)) {

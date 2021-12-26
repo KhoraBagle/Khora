@@ -30,11 +30,11 @@ pub static KHORA_WEBSITE: &str = "https://khora.info";
 
 
 /// the number of validators in the comittee, 128
-pub const NUMBER_OF_VALIDATORS: usize = 3;
+pub const NUMBER_OF_VALIDATORS: usize = 128;
 /// the number of validators who need to sign for a block to be approved, 2/3
 pub const SIGNING_CUTOFF: usize = 2*NUMBER_OF_VALIDATORS/3;
 /// the amount of time in advance people know they will be a validator, 128
-pub const QUEUE_LENGTH: usize = 10;
+pub const QUEUE_LENGTH: usize = 128;
 /// the number of people who leave the comittee per block, 2
 pub const REPLACERATE: usize = 2;
 /// the fraction of money you use for failing to do your duties as a comittee member
@@ -43,8 +43,6 @@ pub const PUNISHMENT_FRACTION: u64 = 1000;
 pub const PERSON0: CompressedRistretto = CompressedRistretto([46, 235, 227, 188, 55, 53, 9, 126, 167, 207, 202, 101, 150, 150, 172, 207, 209, 208, 211, 52, 47, 206, 19, 115, 199, 189, 202, 10, 56, 220, 138, 55]);
 /// minimum stake
 pub const MINSTK: u64 = 1_000_000;
-/// total money ever produced
-pub const TOTAL_KHORA: f64 = (u64::MAX/2u64) as f64;
 /// bloom file for stakers
 pub const STAKER_BLOOM_NAME: &'static str = "all_tags";
 /// bloom file for stakers size
@@ -71,17 +69,17 @@ pub const DEFAULT_PORT: u16 = 8334;
 pub const OUTSIDER_PORT: u16 = 8335;
 /// the number of nodes to send each message to as a user
 pub const TRANSACTION_SEND_TO: usize = 1;
+/// total money ever produced
+pub const TOTAL_KHORA: f64 = u64::MAX as f64;
 
 
-/// calculates the reward for the current block
+/// calculates the reward for the current block as a function of blocktime (seconds) and total accumulated blocktime (seconds)
 pub fn reward(cumtime: f64, blocktime: f64) -> f64 {
-    (1.0/(1.653439E-6*cumtime + 1.0) - 1.0/(1.653439E-6*(cumtime + blocktime) + 1.0))*TOTAL_KHORA
+    (1.0/(8.27195E-8*cumtime + 1.0) - 1.0/(8.27195E-8*(cumtime + blocktime) + 1.0))*TOTAL_KHORA
 }
-/// calculates the amount of time the current block takes to be created
+/// calculates the amount of time (in seconds) the current block takes to be created
 pub fn blocktime(cumtime: f64) -> f64 {
-    // 60f64/(6.337618E-8f64*cumtime+2f64).ln()
-    10.0
-    // 30.0
+    60f64/(6.337618E-8f64*cumtime+2f64).ln()
 }
 
 #[derive(Default, Clone, Serialize, Deserialize, Eq, Hash, Debug)]

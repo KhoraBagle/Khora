@@ -291,17 +291,15 @@ impl epi::App for KhoraStakerGUI {
                 self.nonanony = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 2 {
                 self.block_number = u64::from_le_bytes(i.try_into().unwrap());
+                self.sender.send(vec![self.maxcli,98]);
 
 
-                if self.block_number%5 != 0 || self.block_number < 10 {
+                if self.block_number%5 == 0 || self.block_number < 10 {
                     let unstake = 100_000_000u64;
                     let mut m = vec![];
-                    m.extend(self.addr.as_bytes().to_vec());
+                    m.extend(b"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklbkjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklb");
                     m.extend(unstake.to_le_bytes());
-                    m.extend(self.nonanonyaddr.as_bytes().to_vec());
-                    m.extend(unstake.to_le_bytes());
-                    let x = self.staked as i128 - 2*unstake as i128 ;
-                    if x >= 0 {
+                    if self.staked > unstake {
                         m.extend(self.stkaddr.as_bytes());
                         m.extend(0u64.to_le_bytes());
                         m.push(63);
@@ -310,28 +308,6 @@ impl epi::App for KhoraStakerGUI {
                     }
                 }
     
-                if self.block_number%5 == 0 || self.block_number < 10 {
-                    let mut m = vec![];
-                    let x = 10_000_000u64;
-                    m.extend(b"idnalalnbcanbeofcfbpfklbhonfflohoagdgghojhifmppnicbnedhpkmgmjhbckjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklbkjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklb");
-                    m.extend(x.to_le_bytes().to_vec());
-                    m.extend(b"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklbkjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklb");
-                    m.extend(x.to_le_bytes().to_vec());
-                    let tot = 2*x;
-                    if self.unstaked as i128 >= tot as i128 {
-                        m.extend(str::to_ascii_lowercase(&self.addr).as_bytes());
-                        m.extend(0u64.to_le_bytes());
-                        m.push(self.ringsize);
-                        m.push(33);
-                        m.push(33);
-                        self.sender.send(m).expect("something's wrong with communication from the gui");
-                    }
-    
-    
-                    if self.nextblock == 0 {
-                        self.sender.send(vec![self.maxcli,98]);
-                    }
-                }
             } else if modification == 3 {
                 self.validating = i == vec![1];
             } else if modification == 4 {

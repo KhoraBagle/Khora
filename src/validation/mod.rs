@@ -33,10 +33,10 @@ pub static KHORA_WEBSITE: &str = "https://khora.info";
 pub const NUMBER_OF_VALIDATORS: usize = 128;
 /// the number of validators who need to sign for a block to be approved, 2/3
 pub const SIGNING_CUTOFF: usize = 2*NUMBER_OF_VALIDATORS/3;
-/// the amount of time in advance people know they will be a validator, 128
-pub const QUEUE_LENGTH: usize = 128;
 /// the number of people who leave the comittee per block, 2
 pub const REPLACERATE: usize = 2;
+/// the amount of time in advance people know they will be a validator
+pub const QUEUE_LENGTH: usize = REPLACERATE*2;
 /// the fraction of money you use for failing to do your duties as a comittee member
 pub const PUNISHMENT_FRACTION: u64 = 1000;
 /// user 0: the first person in the blockchain

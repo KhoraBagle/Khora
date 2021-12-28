@@ -292,22 +292,6 @@ impl epi::App for KhoraStakerGUI {
             } else if modification == 2 {
                 self.block_number = u64::from_le_bytes(i.try_into().unwrap());
                 self.sender.send(vec![self.maxcli,98]);
-
-
-                if self.block_number%5 == 0 || self.block_number < 10 {
-                    let unstake = 100_000_000u64;
-                    let mut m = vec![];
-                    m.extend(b"mnimhenaioojgpbnjhbjbaikoecgkjjmcipphocjgpoeemnkkhdndbaaiobegaiakjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklbkjcahjmbpmfaomkdbaifjbimndjmddjjgedbpejnholbkaockbonlapkknafhklb");
-                    m.extend(unstake.to_le_bytes());
-                    if self.staked > unstake {
-                        m.extend(self.stkaddr.as_bytes());
-                        m.extend(0u64.to_le_bytes());
-                        m.push(63);
-                        m.push(33);
-                        self.sender.send(m).expect("something's wrong with communication from the gui");
-                    }
-                }
-    
             } else if modification == 3 {
                 self.validating = i == vec![1];
             } else if modification == 4 {

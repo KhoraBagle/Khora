@@ -577,50 +577,6 @@ impl epi::App for KhoraStakerGUI {
                     ui.label("Staked Khora");
                     ui.add(Label::new(staked.separated_string()).text_color(egui::Color32::LIGHT_YELLOW));
                 });
-                ui.horizontal(|ui| {
-                    ui.text_edit_singleline(stake);
-                    if pswd_guess0 == password0 {
-                        if ui.button("Stake").clicked() && !*setup {
-                            let mut m = vec![];
-                            m.extend(stkaddr.as_bytes().to_vec());
-                            m.extend(retain_numeric(stake.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec());
-                            // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",unstaked,fee,stake);
-                            let x = *unstaked  as i128 - retain_numeric(fee.to_string()).parse::<i128>().unwrap() - retain_numeric(stake.to_string()).parse::<i128>().unwrap();
-                            m.extend(addr.as_bytes().to_vec());
-                            m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes().to_vec());
-                            if x >= 0 {
-                                m.push(*ringsize);
-                                m.push(33);
-                                m.push(33);
-                                sender.send(m).expect("something's wrong with communication from the gui");
-                            } else {
-                                *you_cant_do_that = true;
-                            }
-                        }
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.text_edit_singleline(unstake);
-                    if pswd_guess0 == password0 {
-                        if ui.button("Unstake").clicked() && !*setup {
-                            // println!("unstaking {:?}!",unstake.parse::<u64>());
-                            let mut m = vec![];
-                            m.extend(addr.as_bytes().to_vec());
-                            m.extend(retain_numeric(unstake.to_string()).parse::<u64>().unwrap().to_le_bytes());
-                            // println!("-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n{},{},{}",staked,fee,unstake);
-                            let x = *staked as i128 - retain_numeric(fee.to_string()).parse::<u64>().unwrap() as i128 - retain_numeric(unstake.to_string()).parse::<u64>().unwrap() as i128 ;
-                            if x > MINSTK.into() || x == 0 {
-                                m.extend(stkaddr.as_bytes());
-                                m.extend(retain_numeric(fee.to_string()).parse::<u64>().unwrap().to_le_bytes());
-                                m.push(63);
-                                m.push(33);
-                                sender.send(m).expect("something's wrong with communication from the gui");
-                            } else {
-                                *you_cant_do_that = true;
-                            }
-                        }
-                    }
-                });
                 if ui.button("Sync Wallet").clicked() && !*setup {
                     sender.send(vec![121]).expect("something's wrong with communication from the gui");
                 }
@@ -666,8 +622,8 @@ impl epi::App for KhoraStakerGUI {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.add(Checkbox::new(lightning_yielder,"I only want to store lightning blocks!"));
-                    ui.add(Label::new("Checking this box means you'll use less memory on your computer").text_color(egui::Color32::YELLOW));    
+                    ui.add(Checkbox::new(lightning_yielder,"Save Lightning Blocks"));
+                    ui.add(Label::new("Enable feature to use less memory at the expense of saving full blocks.").text_color(egui::Color32::YELLOW));    
                 });
             }
             if !*setup {

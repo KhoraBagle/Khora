@@ -74,8 +74,6 @@ pub struct KhoraStakerGUI {
     nonanony: u64,
     friends: Vec<String>,
     friend_names: Vec<String>,
-    stake: String,
-    unstake: String,
     addr: String,
     nonanonyaddr: String,
     stkaddr: String,
@@ -145,8 +143,6 @@ impl Default for KhoraStakerGUI {
         let (_,r) = channel::bounded::<Vec<u8>>(0);
         let (s,_) = channel::bounded::<Vec<u8>>(0);
         KhoraStakerGUI{
-            stake: "0".to_string(),
-            unstake: "0".to_string(),
             fee: "0".to_string(),
             reciever: r,
             sender: s,
@@ -352,8 +348,6 @@ impl epi::App for KhoraStakerGUI {
             friend_names,
             friend_adding,
             name_adding,
-            stake,
-            unstake,
             addr,
             stkaddr,
             password0,
@@ -467,7 +461,7 @@ impl epi::App for KhoraStakerGUI {
             }
             if *pswd_shown || *setup {
                 if *setup {
-                    ui.heading("Password");
+                    ui.heading("Password\t\t\t\t\t\t\t\t\t\t\t\t\t\t  Secret Key");
                 }
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(pswd_guess0);
@@ -505,7 +499,49 @@ impl epi::App for KhoraStakerGUI {
             if *password0 != *pswd_guess0 && !*setup {
                 ui.add(Label::new("Password incorrect, account features disabled, enter correct password to unlock").text_color(egui::Color32::RED));
             }
-            if !*setup {
+
+
+            if *setup {
+                ui.label("\n");
+                ui.add(Label::new("Welcome to Khora! \nEnter your username, password, and secret key to sync this wallet with your account. (CASE SENSITIVE)").strong());
+                ui.add(Label::new("If the account does not exist, a new account will automatically be created for you using the entered account info. \n").text_color(egui::Color32::RED));
+                ui.add(Label::new("We recommend that you let the system generate a random secret key for you. \nPlease enter your information very carefully and save it in a safe place. If you lose it you will never be able to access your account. \n"));
+
+                let mut bad_log_info = true;
+                if username.len() < 4 {
+                    ui.add(Label::new("Username has to be at least 4 characters long").text_color(egui::Color32::RED));
+                    bad_log_info = false;
+                } else {
+                    ui.add(Label::new(" "));
+                }
+                if pswd_guess0.len() < 7 {
+                    ui.add(Label::new("Password has to be at least 7 characters long").text_color(egui::Color32::RED)); 
+                    bad_log_info = false;
+                } else {
+                    ui.add(Label::new(" "));
+                } 
+                if secret_key.len() != 5 {
+                    ui.add(Label::new("Secret key must be exactly 5 characters").text_color(egui::Color32::RED));
+                    bad_log_info = false;
+                } else {
+                    ui.add(Label::new(" "));
+                }
+
+
+                ui.horizontal(|ui| {
+                    if ui.add(Button::new("Login").sense(if !bad_log_info {Sense::hover()} else {Sense::click()})).clicked() {
+                        *password0 = pswd_guess0.clone();
+                        *next_pswrd1 = username.clone();
+                        sender.send(get_pswrd(&*password0,&*username,&*secret_key));
+                        sender.send(vec![*lightning_yielder as u8]);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.add(Checkbox::new(lightning_yielder,"Save Lightning Blocks"));
+                    ui.add(Label::new("Enable feature to use less memory at the expense of saving full blocks.").text_color(egui::Color32::YELLOW));    
+                });
+
+            } else {
                 ui.horizontal(|ui| {
                     if ui.button("📋").on_hover_text("Click to copy your red wallet address to clipboard").clicked() {
                         ui.output().copied_text = addr.clone();
@@ -547,10 +583,16 @@ impl epi::App for KhoraStakerGUI {
                         ui.add(Label::new("please don't use all of your ram on video games").text_color(egui::Color32::RED));
                     });
                 }
-            }
-            ui.label("\n");
+                ui.label("\n");
 
-            if !*setup {
+                if *validating {
+                    ui.horizontal(|ui| {
+                        ui.add(Label::new("You are validating blocks,").text_color(egui::Color32::GREEN));
+                        ui.add(Label::new("please don't use all of your ram on video games").text_color(egui::Color32::RED));
+                    });
+                }
+
+
                 if *nextblock == 0 {
                     ui.label(format!("Current Block: {}",block_number));
                 } else {
@@ -585,48 +627,8 @@ impl epi::App for KhoraStakerGUI {
 
 
                 ui.label("\n");
-            }
+                
 
-            if *setup {
-                ui.add(Label::new("Welcome to Khora! \nEnter your username, password, and secret key to sync this wallet with your account. (CASE SENSITIVE)").strong());
-                ui.add(Label::new("If the account does not exist, a new account will automatically be created for you using the entered account info. \n").text_color(egui::Color32::RED));
-                ui.add(Label::new("We recommend that you let the system generate a random secret key for you. \nPlease enter your information very carefully and save it in a safe place. If you lose it you will never be able to access your account. \n"));
-
-                let mut bad_log_info = true;
-                if username.len() < 4 {
-                    ui.add(Label::new("Username has to be at least 4 characters long").text_color(egui::Color32::RED));
-                    bad_log_info = false;
-                } else {
-                    ui.add(Label::new(" "));
-                }
-                if pswd_guess0.len() < 7 {
-                    ui.add(Label::new("Password has to be at least 7 characters long").text_color(egui::Color32::RED)); 
-                    bad_log_info = false;
-                } else {
-                    ui.add(Label::new(" "));
-                } 
-                if secret_key.len() != 5 {
-                    ui.add(Label::new("Secret key must be exactly 5 characters").text_color(egui::Color32::RED));
-                    bad_log_info = false;
-                } else {
-                    ui.add(Label::new(" "));
-                }
-
-
-                ui.horizontal(|ui| {
-                    if ui.add(Button::new("Login").sense(if !bad_log_info {Sense::hover()} else {Sense::click()})).clicked() {
-                        *password0 = pswd_guess0.clone();
-                        *next_pswrd1 = username.clone();
-                        sender.send(get_pswrd(&*password0,&*username,&*secret_key));
-                        sender.send(vec![*lightning_yielder as u8]);
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.add(Checkbox::new(lightning_yielder,"Save Lightning Blocks"));
-                    ui.add(Label::new("Enable feature to use less memory at the expense of saving full blocks.").text_color(egui::Color32::YELLOW));    
-                });
-            }
-            if !*setup {
                 ui.horizontal(|ui| {
                     if ui.add(egui::RadioButton::new(*txtype == TxInput::Invisable, "Spend with red wallet money").text_color(egui::Color32::LIGHT_RED)).clicked() {
                         *txtype = TxInput::Invisable;

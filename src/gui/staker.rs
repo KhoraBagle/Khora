@@ -577,12 +577,6 @@ impl epi::App for KhoraStakerGUI {
                         ui.output().open_url = Some(OpenUrl::new_tab(KHORA_WEBSITE));
                     }
                 });
-                if *validating {
-                    ui.horizontal(|ui| {
-                        ui.add(Label::new("You are validating blocks,").text_color(egui::Color32::GREEN));
-                        ui.add(Label::new("please don't use all of your ram on video games").text_color(egui::Color32::RED));
-                    });
-                }
                 ui.label("\n");
 
                 if *validating {

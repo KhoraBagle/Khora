@@ -962,12 +962,14 @@ impl KhoraNode {
         let mut rng = &mut rand::thread_rng();
         let mut sendview = if let Some(x) = node {
             vec![x]
-        } else {
+        } else if let Some(x) = self.stkinfo.hashmap.get(&self.me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress()) {
             let mut y = self.stkinfo.vec.clone();
             let yend = y.len()-1;
-            y.swap(yend, self.stkinfo.hashmap[&self.me.stake_acc().derive_stk_ot(&Scalar::one()).pk.compress()]);
+            y.swap(yend, *x);
             y.pop();
             y.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>()
+        } else {
+            self.stkinfo.vec.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>()
         };
         
         sendview.shuffle(&mut rng);

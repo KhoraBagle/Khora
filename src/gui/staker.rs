@@ -287,7 +287,6 @@ impl epi::App for KhoraStakerGUI {
                 self.nonanony = u64::from_le_bytes(i.try_into().unwrap());
             } else if modification == 2 {
                 self.block_number = u64::from_le_bytes(i.try_into().unwrap());
-                self.sender.send(vec![self.maxcli,98]);
             } else if modification == 3 {
                 self.validating = i == vec![1];
             } else if modification == 4 {
@@ -885,9 +884,12 @@ impl epi::App for KhoraStakerGUI {
             ui.label("\n\n");
             ui.label("This is the number of nodes you are willing to sync at a time.");
             ui.label("The higher the number, the more you are willing to help the network in times of need.");
-            ui.label("Any changes will be implimented next time you get a recieve a block.");
             ui.label("\n");
+            let x = *maxcli;
             ui.add(Slider::new(maxcli, 1..=255).text("Maximum Clients"));
+            if x != *maxcli {
+                sender.send(vec![*maxcli,98]);
+            }
         });
         egui::Window::new("Logout Menu").open(logout_window).show(ctx, |ui| {
             ui.label("Logging out of your account will refresh all of your wallet settings and will require resync with the blockchain.");

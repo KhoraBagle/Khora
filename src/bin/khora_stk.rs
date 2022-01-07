@@ -422,6 +422,8 @@ impl KhoraNode {
             newest: self.newest,
         }; // just redo initial conditions on the rest
         let mut sn = bincode::serialize(&sn).unwrap();
+        println!("{:?}",sn);
+        bincode::deserialize::<SavedNode>(&sn).unwrap();
         let mut f = File::create("myNode").unwrap();
         f.write_all(&mut sn).unwrap();
     }
@@ -432,6 +434,7 @@ impl KhoraNode {
         let mut f = File::open("myNode").unwrap();
         f.read_to_end(&mut buf).unwrap();
 
+        println!("{:?}",buf);
         let sn = bincode::deserialize::<SavedNode>(&buf).unwrap();
 
         // tries to get back all the friends you may have lost since turning off the app

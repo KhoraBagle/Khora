@@ -53,6 +53,8 @@ pub const STAKER_BLOOM_HASHES: u8 = 13;
 pub const ACCOUNT_COMBINE: usize = 10;
 /// read timeout for stream in millis
 pub const READ_TIMEOUT: Option<Duration> = Some(Duration::from_millis(500));
+/// connect timeout for stream in millis
+pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 /// write timeout for stream in millis
 pub const WRITE_TIMEOUT: Option<Duration> = Some(Duration::from_millis(500));
 /// how often the nonce is replaced for visible transactions

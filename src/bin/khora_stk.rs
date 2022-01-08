@@ -241,8 +241,8 @@ fn main() -> Result<(), MainError> {
         mymoney.extend(node.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
         mymoney.push(0);
         println!("my staked money: {:?}",node.smine.iter().map(|x| x.1).sum::<u64>());
-        node.gui_sender.send(mymoney); // this is how you send info to the gui
-
+        node.gui_sender.send(mymoney).unwrap(); // this is how you send info to the gui
+        println!("communication with the gui all good!");
         let app = gui::staker::KhoraStakerGUI::new(
             ui_reciever,
             ui_sender,
@@ -256,11 +256,12 @@ fn main() -> Result<(), MainError> {
         );
         let native_options = eframe::NativeOptions::default();
         std::thread::spawn(move || {
+            println!("attempting sync");
             node.attempt_sync(None);
             executor.spawn(service.map_err(|e| panic!("{}", e)));
             executor.spawn(node);
     
-    
+            println!("running node executer");
             track_any_err!(executor.run()).unwrap();
         });
         eframe::run_native(Box::new(app), native_options);
@@ -977,14 +978,16 @@ impl KhoraNode {
         
         sendview.shuffle(&mut rng);
         for node in sendview {
-            if let Ok(mut stream) =  TcpStream::connect(node) {
+            println!("connecting");
+            if let Ok(mut stream) =  TcpStream::connect_timeout(&node,CONNECT_TIMEOUT) {
+                stream.set_nonblocking(true);
                 stream.set_read_timeout(READ_TIMEOUT);
                 stream.set_write_timeout(WRITE_TIMEOUT);
                 let mut bnum = self.bnum.to_le_bytes().to_vec();
                 bnum.push(122 - (self.lightning_yielder as u8));
                 if stream.write_all(&bnum).is_ok() {
                     let mut ok = [0;8];
-                    if stream.read_exact(&mut ok).is_ok(){
+                    if stream.read_exact(&mut ok).is_ok() {
                         let syncnum = u64::from_le_bytes(ok);
                         self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
                         let mut blocksize = [0u8;8];
@@ -1022,6 +1025,7 @@ impl KhoraNode {
             }
         }
         self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
+        println!("done syncing!");
     }
 
     /// returns the responces of each person you sent it to and deletes those who are dead from the view
@@ -1039,7 +1043,7 @@ impl KhoraNode {
             
             sendview.shuffle(&mut rng);
             for node in sendview {
-                if let Ok(mut stream) =  TcpStream::connect(node) {
+                if let Ok(mut stream) =  TcpStream::connect_timeout(&node, CONNECT_TIMEOUT) {
                     stream.set_read_timeout(READ_TIMEOUT);
                     stream.set_write_timeout(WRITE_TIMEOUT);
                     if stream.write_all(&[1]).is_ok() {
@@ -1314,6 +1318,7 @@ impl Future for KhoraNode {
 
                 // jhgfjhfgj
                 while let Ok(mut stream) = self.outerlister.try_recv() {
+                    println!("{}","got a stream!".blue());
                     if let Ok(sa) = stream.peer_addr() {
                         if !self.spammers.contains(&sa) {
                             let mut m = vec![0;100_000]; // maybe choose an upper bound in an actually thoughtful way?
@@ -1378,7 +1383,7 @@ impl Future for KhoraNode {
                                                     if stream.write_all(&bnum.to_le_bytes()).is_ok() {
                                                         loop {
                                                             if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
-                                                                // println!("{}",x.len());
+                                                                println!("{}: {} bytes",sync_theirnum,x.len());
                                                                 if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
                                                                     break
                                                                 }

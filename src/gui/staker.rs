@@ -422,7 +422,8 @@ impl epi::App for KhoraStakerGUI {
                 if ui.button("Connect").clicked() && !*setup {
                     let mut m = entrypoint.as_bytes().to_vec();
                     m.push(42);
-                    sender.send(m).expect("something's wrong with communication from the gui");
+                    sender.send(m).unwrap();
+                    println!("connecting...");
                 }
                 ui.add(Label::new(format!("You have {} connections",lonely)).text_color({
                     if *lonely == 0 {

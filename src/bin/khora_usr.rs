@@ -480,7 +480,7 @@ impl KhoraNode {
         self.sendview.shuffle(&mut rng);
         let mut dead = HashSet::<SocketAddr>::new();
         let responces = self.sendview[..cmp::min(recipients,self.sendview.len())].iter().filter_map(|socket| {
-            if let Ok(mut stream) =  TcpStream::connect(socket) {
+            if let Ok(mut stream) =  TcpStream::connect_timeout(socket,CONNECT_TIMEOUT) {
                 stream.set_read_timeout(READ_TIMEOUT);
                 stream.set_write_timeout(WRITE_TIMEOUT);
                 println!("connected...");
@@ -521,25 +521,29 @@ impl KhoraNode {
             let mut rng = &mut rand::thread_rng();
             self.sendview.shuffle(&mut rng);
             let mut memloc = 0usize;
-            if let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
-                stream.set_read_timeout(READ_TIMEOUT);
-                stream.set_write_timeout(WRITE_TIMEOUT);
-                println!("connected...");
-                if stream.write_all(&rname).is_ok() {
-                    println!("request made...");
-                    let mut member = [0u8;64]; // using 6 byte buffer
-                    while stream.read_exact(&mut member).is_ok() {
-                            if let Some(x) = self.rmems.get(&ring[memloc]) {
-                                if x.tag.is_none() {
-                                    print!("{}","!".red());
+            for socket in self.sendview.iter() {
+                if let Ok(mut stream) = TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
+                    stream.set_read_timeout(READ_TIMEOUT);
+                    stream.set_write_timeout(WRITE_TIMEOUT);
+                    println!("connected...");
+                    if stream.write_all(&rname).is_ok() {
+                        println!("request made...");
+                        let mut member = [0u8;64]; // using 6 byte buffer
+                        while stream.read_exact(&mut member).is_ok() {
+                                if let Some(x) = self.rmems.get(&ring[memloc]) {
+                                    if x.tag.is_none() {
+                                        print!("{}","!".red());
+                                        self.rmems.insert(ring[memloc],History::read_raw(&member));
+                                    }
+                                } else {
                                     self.rmems.insert(ring[memloc],History::read_raw(&member));
                                 }
-                            } else {
-                                self.rmems.insert(ring[memloc],History::read_raw(&member));
-                            }
-                            memloc += 1;
+                                memloc += 1;
+                        }
+                        break
                     }
                 }
+                
             }
         } else {
             for (i,j) in self.mine.iter() {
@@ -555,53 +559,55 @@ impl KhoraNode {
         let mut rng = &mut rand::thread_rng();
         self.sendview.shuffle(&mut rng);
         println!("attempting sync...");
-        while let Ok(mut stream) =  TcpStream::connect(&self.sendview[..]) {
-            stream.set_read_timeout(READ_TIMEOUT);
-            stream.set_write_timeout(WRITE_TIMEOUT);
-            println!("connected...");
-            let mut m = self.bnum.to_le_bytes().to_vec();
-            m.push(121);
-            if stream.write_all(&m).is_ok() {
-                println!("request made...");
-                let mut ok = [0;8];
-                if stream.read_exact(&mut ok).is_ok() {
-                    let syncnum = u64::from_le_bytes(ok);
-                    self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
-                    println!("responce valid. syncing now...");
-                    let mut blocksize = [0u8;8];
-                    let mut counter = 0;
-                    while stream.read_exact(&mut blocksize).is_ok() {
-                        // println!(".");
-                        counter += 1;
-                        // let tt = Instant::now();
-                        let bsize = u64::from_le_bytes(blocksize) as usize;
-                        println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
-                        let mut serialized_block = vec![0u8;bsize];
-                        if stream.read_exact(&mut serialized_block).is_err() {
-                            println!("couldn't read the bytes");
+        for socket in self.sendview.iter() {
+            if let Ok(mut stream) = TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
+                stream.set_read_timeout(READ_TIMEOUT);
+                stream.set_write_timeout(WRITE_TIMEOUT);
+                println!("connected...");
+                let mut m = self.bnum.to_le_bytes().to_vec();
+                m.push(121);
+                if stream.write_all(&m).is_ok() {
+                    println!("request made...");
+                    let mut ok = [0;8];
+                    if stream.read_exact(&mut ok).is_ok() {
+                        let syncnum = u64::from_le_bytes(ok);
+                        self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
+                        println!("responce valid. syncing now...");
+                        let mut blocksize = [0u8;8];
+                        let mut counter = 0;
+                        while stream.read_exact(&mut blocksize).is_ok() {
+                            // println!(".");
+                            counter += 1;
+                            // let tt = Instant::now();
+                            let bsize = u64::from_le_bytes(blocksize) as usize;
+                            println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
+                            let mut serialized_block = vec![0u8;bsize];
+                            if stream.read_exact(&mut serialized_block).is_err() {
+                                println!("couldn't read the bytes");
+                            }
+                            if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
+                                
+                                // let t = Instant::now();
+                                self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
+                                // println!("{}",format!("block reading time: {}ms",t.elapsed().as_millis()).bright_yellow().bold());
+                            } else {
+                                println!("they send a fake block");
+                            }
+
+                            let mut thisbnum = self.bnum.to_le_bytes().to_vec();
+                            thisbnum.push(2);
+                            self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui");
+
+                            let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
+                            mymoney.extend(self.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
+                            mymoney.push(0);
+                            self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
+
+                            // println!("{}",format!("total time: {}ms",tt.elapsed().as_millis()).green().bold());
+                            // println!(".");
                         }
-                        if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
-                            
-                            // let t = Instant::now();
-                            self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
-                            // println!("{}",format!("block reading time: {}ms",t.elapsed().as_millis()).bright_yellow().bold());
-                        } else {
-                            println!("they send a fake block");
-                        }
-
-                        let mut thisbnum = self.bnum.to_le_bytes().to_vec();
-                        thisbnum.push(2);
-                        self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui");
-
-                        let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
-                        mymoney.extend(self.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
-                        mymoney.push(0);
-                        self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
-
-                        // println!("{}",format!("total time: {}ms",tt.elapsed().as_millis()).green().bold());
-                        // println!(".");
+                        break
                     }
-                    break
                 }
             }
         }
@@ -957,32 +963,34 @@ impl Future for KhoraNode {
 
 
                     } else if istx == 42 /* * */ { // entry address
-                        let socket = format!("{}:{}",String::from_utf8_lossy(&m),OUTSIDER_PORT);
-                        println!("{}",socket);
-                        match TcpStream::connect(socket) {
-                            Ok(mut stream) => {
-                                let msg = vec![101u8];
-                                if stream.write_all(&msg).is_err() {
-                                    println!("failed to write entrypoint message");
-                                }
-                                println!("Asking for entrance, awaiting reply...");
-                    
-                                let mut data = Vec::<u8>::new(); // using 6 byte buffer
-                                match stream.read_to_end(&mut data) {
-                                    Ok(_) => {
-                                        if let Ok(x) = bincode::deserialize(&data) {
-                                            self.sendview = x;
-                                        } else {
-                                            println!("They didn't send a view!")
-                                        }
-                                    },
-                                    Err(e) => {
-                                        println!("Failed to receive data: {}", e);
+                        let socket = format!("{}:{}",String::from_utf8_lossy(&m),OUTSIDER_PORT).parse::<SocketAddr>();
+                        println!("{:?}",socket);
+                        if let Ok(socket) = socket {
+                            match TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
+                                Ok(mut stream) => {
+                                    let msg = vec![101u8];
+                                    if stream.write_all(&msg).is_err() {
+                                        println!("failed to write entrypoint message");
                                     }
+                                    println!("Asking for entrance, awaiting reply...");
+                        
+                                    let mut data = Vec::<u8>::new(); // using 6 byte buffer
+                                    match stream.read_to_end(&mut data) {
+                                        Ok(_) => {
+                                            if let Ok(x) = bincode::deserialize(&data) {
+                                                self.sendview = x;
+                                            } else {
+                                                println!("They didn't send a view!")
+                                            }
+                                        },
+                                        Err(e) => {
+                                            println!("Failed to receive data: {}", e);
+                                        }
+                                    }
+                                },
+                                Err(e) => {
+                                    println!("Failed to connect: {}", e);
                                 }
-                            },
-                            Err(e) => {
-                                println!("Failed to connect: {}", e);
                             }
                         }
 

@@ -719,6 +719,18 @@ impl KhoraNode {
                     hasher.update(m);
                     self.lastname = Scalar::from_hash(hasher).as_bytes().to_vec();
                 } else {
+
+
+
+                    if self.bnum%NONCEYNESS == 0 && self.lastnonanony.is_some() {
+                        self.lastnonanony = None;
+                        self.gui_sender.send(vec![10]).unwrap();
+                    }
+                    if self.laststk.is_some() && self.is_validator {
+                        self.laststk = None;
+                        self.gui_sender.send(vec![11]).unwrap();
+                    }
+
                     NextBlock::pay_self_empty(&self.headshard, &self.comittee, &mut self.smine, reward);
                     NextBlock::pay_all_empty(&self.headshard, &mut self.comittee, &mut self.stkinfo, reward);
                     if !self.lightning_yielder {

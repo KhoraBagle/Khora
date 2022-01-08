@@ -422,8 +422,8 @@ impl KhoraNode {
             newest: self.newest,
         }; // just redo initial conditions on the rest
         let mut sn = bincode::serialize(&sn).unwrap();
-        println!("{:?}",sn);
-        bincode::deserialize::<SavedNode>(&sn).unwrap();
+        // println!("{:?}",sn);
+        // bincode::deserialize::<SavedNode>(&sn).unwrap();
         let mut f = File::create("myNode").unwrap();
         f.write_all(&mut sn).unwrap();
     }
@@ -434,7 +434,7 @@ impl KhoraNode {
         let mut f = File::open("myNode").unwrap();
         f.read_to_end(&mut buf).unwrap();
 
-        println!("{:?}",buf);
+        // println!("{:?}",buf);
         let sn = bincode::deserialize::<SavedNode>(&buf).unwrap();
 
         // tries to get back all the friends you may have lost since turning off the app
@@ -980,7 +980,9 @@ impl KhoraNode {
             if let Ok(mut stream) =  TcpStream::connect(node) {
                 stream.set_read_timeout(READ_TIMEOUT);
                 stream.set_write_timeout(WRITE_TIMEOUT);
-                if stream.write_all(&[122 - (self.lightning_yielder as u8)]).is_ok() {
+                let mut bnum = self.bnum.to_le_bytes().to_vec();
+                bnum.push(122 - (self.lightning_yielder as u8));
+                if stream.write_all(&bnum).is_ok() {
                     let mut ok = [0;8];
                     if stream.read_exact(&mut ok).is_ok(){
                         let syncnum = u64::from_le_bytes(ok);
@@ -1365,14 +1367,15 @@ impl Future for KhoraNode {
                                     } else if mtype == 121 /* y */ { // someone sent a sync request
                                         println!("{}","someone wants lightning".blue());
                                         if *self.clients.read() < self.maxcli {
+                                            println!("{}","helping client".blue());
                                             let bnum = self.bnum;
                                             *self.clients.write() += 1;
                                             let cli = self.clients.clone();
-                                            thread::spawn(move || {
-                                                if let Ok(m) = m.try_into() {
+                                            if let Ok(m) = m.try_into() {
+                                                let mut sync_theirnum = u64::from_le_bytes(m);
+                                                println!("{}",format!("syncing them from {}",sync_theirnum).blue());
+                                                thread::spawn(move || {
                                                     if stream.write_all(&bnum.to_le_bytes()).is_ok() {
-                                                        let mut sync_theirnum = u64::from_le_bytes(m);
-                                                        println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                         loop {
                                                             if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
                                                                 // println!("{}",x.len());
@@ -1389,10 +1392,10 @@ impl Future for KhoraNode {
                                                             }
                                                         }
                                                     }
-                                                }
-                                                stream.flush();
-                                                *cli.write() -= 1;
-                                            });
+                                                    stream.flush();
+                                                    *cli.write() -= 1;
+                                                });
+                                            }
                                         }
                                     } else if mtype == 122 /* z */ { // someone sent a full sync request
                                         println!("{}","someone wants full blocks".blue());

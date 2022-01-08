@@ -593,10 +593,6 @@ impl KhoraNode {
                     }
                     LightningSyncBlock::save(&vec![]);
 
-                    // if you're panicing, the transaction you have saved may need to be updated based on if you gain or loose money
-                    // if let Some(laststk) = &mut self.laststk {
-                    //     NextBlock::pay_self_empty(&self.headshard, &self.comittee, &mut laststk.1, reward);
-                    // }
 
 
 
@@ -768,11 +764,11 @@ impl KhoraNode {
                 mymoney.extend(self.smine.unwrap_or_default().1.to_le_bytes());
                 mymoney.extend(self.nmine.unwrap_or_default().1.to_le_bytes());
                 mymoney.push(0);
-                self.gui_sender.send(mymoney); // this is how you send info to the gui
+                self.gui_sender.send(mymoney).unwrap(); // this is how you send info to the gui
 
                 let mut thisbnum = self.bnum.to_le_bytes().to_vec();
                 thisbnum.push(2);
-                self.gui_sender.send(thisbnum); // this is how you send info to the gui
+                self.gui_sender.send(thisbnum).unwrap(); // this is how you send info to the gui
 
                 // println!("block {} name: {:?}",self.bnum, self.lastname);
 
@@ -817,7 +813,7 @@ impl KhoraNode {
                 self.cumtime += self.blocktime;
                 self.blocktime = blocktime(self.cumtime);
 
-                self.gui_sender.send(vec![self.blocktime as u8,128]);
+                self.gui_sender.send(vec![self.blocktime as u8,128]).unwrap();
 
                 self.sigs = vec![];
                 set_comittee_n(lastlightning.shard as usize, &self.comittee, &self.stkinfo);
@@ -983,45 +979,50 @@ impl KhoraNode {
         for node in sendview {
             println!("connecting");
             if let Ok(mut stream) =  TcpStream::connect_timeout(&node,CONNECT_TIMEOUT) {
-                stream.set_nonblocking(true);
-                stream.set_read_timeout(READ_TIMEOUT);
-                stream.set_write_timeout(WRITE_TIMEOUT);
-                let mut bnum = self.bnum.to_le_bytes().to_vec();
-                bnum.push(122 - (self.lightning_yielder as u8));
-                if stream.write_all(&bnum).is_ok() {
-                    let mut ok = [0;8];
-                    if stream.read_exact(&mut ok).is_ok() {
-                        let syncnum = u64::from_le_bytes(ok);
-                        self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
-                        let mut blocksize = [0u8;8];
-                        let mut counter = 0;
-                        while stream.read_exact(&mut blocksize).is_ok() {
-                            counter += 1;
-                            let bsize = u64::from_le_bytes(blocksize) as usize;
-                            let mut serialized_block = vec![0u8;bsize];
-                            if stream.read_exact(&mut serialized_block).is_err() {
-                                println!("couldn't read the bytes");
-                            };
-                            if self.lightning_yielder {
-                                if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
-                                    if !self.readlightning(lastblock, serialized_block, None, None, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
+                if stream.set_nonblocking(true).is_ok() && stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
+                    let mut bnum = self.bnum.to_le_bytes().to_vec();
+                    bnum.push(122 - (self.lightning_yielder as u8));
+                    if stream.write_all(&bnum).is_ok() {
+                        let mut ok = [0;8];
+                        if stream.read_exact(&mut ok).is_ok() {
+                            let syncnum = u64::from_le_bytes(ok);
+                            self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
+                            let mut blocksize = [0u8;8];
+                            let mut counter = 0;
+                            while stream.read_exact(&mut blocksize).is_ok() {
+                                counter += 1;
+                                let bsize = u64::from_le_bytes(blocksize) as usize;
+                                let mut serialized_block = vec![0u8;bsize];
+                                if stream.read_exact(&mut serialized_block).is_err() {
+                                    println!("couldn't read the bytes");
+                                };
+                                if self.lightning_yielder {
+                                    if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
+                                        if !self.readlightning(lastblock, serialized_block, None, None, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
+                                            break
+                                        }
+                                    } else {
                                         break
                                     }
                                 } else {
-                                    break
-                                }
-                            } else {
-                                if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&serialized_block) {
-                                    if !self.readblock(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
+                                    if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&serialized_block) {
+                                        if !self.readblock(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
+                                            break
+                                        }
+                                    } else {
                                         break
                                     }
-                                } else {
-                                    break
                                 }
                             }
+                            break
+                        } else {
+                            println!("can't read exact!");
                         }
-                        break
+                    } else {
+                        println!("can't write to stream!");
                     }
+                } else {
+                    println!("your networking is skrewed up");
                 }
             } else {
                 println!("this friend is probably busy or you have none");
@@ -1047,30 +1048,36 @@ impl KhoraNode {
             sendview.shuffle(&mut rng);
             for node in sendview {
                 if let Ok(mut stream) =  TcpStream::connect_timeout(&node, CONNECT_TIMEOUT) {
-                    stream.set_read_timeout(READ_TIMEOUT);
-                    stream.set_write_timeout(WRITE_TIMEOUT);
-                    if stream.write_all(&[1]).is_ok() {
-                        let mut txses = vec![];
-                        if stream.read_to_end(&mut txses).is_ok(){
-                            if let Ok(mut x) = bincode::deserialize::<Vec<PolynomialTransaction>>(&txses) {
-                                x.retain(|t| 
-                                    {
-                                        if t.inputs.last() == Some(&1) {
-                                            t.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok()
-                                        } else if t.inputs.last() == Some(&2) {
-                                            t.verifynonanony(&self.nonanony,self.bnum/NONCEYNESS).is_ok()
-                                        } else {
-                                            let bloom = self.bloom.borrow();
-                                            t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                    if stream.set_nonblocking(true).is_ok() && stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
+                        if stream.write_all(&[1]).is_ok() {
+                            let mut txses = vec![];
+                            if stream.read_to_end(&mut txses).is_ok(){
+                                if let Ok(mut x) = bincode::deserialize::<Vec<PolynomialTransaction>>(&txses) {
+                                    x.retain(|t| 
+                                        {
+                                            if t.inputs.last() == Some(&1) {
+                                                t.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok()
+                                            } else if t.inputs.last() == Some(&2) {
+                                                t.verifynonanony(&self.nonanony,self.bnum/NONCEYNESS).is_ok()
+                                            } else {
+                                                let bloom = self.bloom.borrow();
+                                                t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                                            }
                                         }
+                                    );
+    
+                                    if x.len() > self.txses.len() {
+                                        return (bincode::serialize(&x).unwrap(),x.len())
                                     }
-                                );
-
-                                if x.len() > self.txses.len() {
-                                    return (bincode::serialize(&x).unwrap(),x.len())
                                 }
+                            } else {
+                                println!("can't read to end!");
                             }
+                        } else {
+                            println!("can't write to stream!");
                         }
+                    } else {
+                        println!("your networking is skrewed up");
                     }
                 } else {
                     println!("your friend is probably busy or you have none");

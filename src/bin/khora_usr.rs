@@ -5,7 +5,7 @@ extern crate trackable;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll};
-use khora::vechashmap::{VecHashMap, follow};
+use khora::vechashmap::follow;
 // use khora::seal::BETA;
 use rand::prelude::SliceRandom;
 use std::borrow::Borrow;
@@ -22,7 +22,7 @@ use khora::{account::*, gui};
 use curve25519_dalek::scalar::Scalar;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryInto;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use khora::transaction::*;
 use curve25519_dalek::ristretto::{CompressedRistretto};
 use sha3::{Digest, Sha3_512};
@@ -103,15 +103,15 @@ fn main() -> Result<(), MainError> {
 
             let mut info = bincode::serialize(&
                 vec![
-                    bincode::serialize(&node.me.name()).expect("should work"),
-                    bincode::serialize(&node.me.nonanony_acc().name()).expect("should work"),
-                    bincode::serialize(&node.me.sk.as_bytes().to_vec()).expect("should work"),
-                    bincode::serialize(&node.me.vsk.as_bytes().to_vec()).expect("should work"),
-                    bincode::serialize(&node.me.ask.as_bytes().to_vec()).expect("should work"),
+                    bincode::serialize(&node.me.name()).unwrap(),
+                    bincode::serialize(&node.me.nonanony_acc().name()).unwrap(),
+                    bincode::serialize(&node.me.sk.as_bytes().to_vec()).unwrap(),
+                    bincode::serialize(&node.me.vsk.as_bytes().to_vec()).unwrap(),
+                    bincode::serialize(&node.me.ask.as_bytes().to_vec()).unwrap(),
                 ]
-            ).expect("should work");
+            ).unwrap();
             info.push(254);
-            usend.send(info).expect("should work");
+            usend.send(info).unwrap();
 
 
             let node = KhoraNode::load(usend, urecv);
@@ -137,7 +137,7 @@ fn main() -> Result<(), MainError> {
         let mut mymoney = node.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
         mymoney.extend(node.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
         mymoney.push(0);
-        node.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui"); // this is how you send info to the gui
+        node.gui_sender.send(mymoney).unwrap(); // this is how you send info to the gui
 
         let app = gui::user::KhoraUserGUI::new(
             ui_reciever,
@@ -297,7 +297,7 @@ impl KhoraNode {
     /// reads a lightning block and saves information when appropriate and returns if you accepted the block
     fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, save: bool) {
         if lastlightning.bnum >= self.bnum {
-            let v = if (lastlightning.last_name == self.lastname) {
+            let v = if lastlightning.last_name == self.lastname {
                 lastlightning.verify_multithread_user(&comittee_n_user(lastlightning.shard as usize, &self.comittee, &self.stkinfo), &self.stkinfo).is_ok()
             } else {
                 false
@@ -344,22 +344,22 @@ impl KhoraNode {
                             if let Some(x) = lastlightning.info.nonanonyin.par_iter().find_first(|x|x.0 == y) {
                                 if x.1 > a {
                                     self.lastnonanony = None;
-                                    self.gui_sender.send(vec![10]);
+                                    self.gui_sender.send(vec![10]).unwrap();
                                 } else {
                                     self.lastnonanony = None;
-                                    self.gui_sender.send(vec![9]);
+                                    self.gui_sender.send(vec![9]).unwrap();
 
                                 }
                             }
                         } else {
                             self.lastnonanony = None;
-                            self.gui_sender.send(vec![10]);
+                            self.gui_sender.send(vec![10]).unwrap();
                         }
                     }
                     if let Some(x) = self.lastnonanony.borrow() {
                         if self.bnum%NONCEYNESS == 0 {
                             self.lastnonanony = None;
-                            self.gui_sender.send(vec![11]);
+                            self.gui_sender.send(vec![11]).unwrap();
                         } else {
                             self.lastnonanony = follow(*x,&lastlightning.info.nonanonyout,self.nheight);
                         }
@@ -368,7 +368,7 @@ impl KhoraNode {
                         lastlightning.info.tags.contains(&x)
                     }) {
                         self.lasttags = vec![];
-                        self.gui_sender.send(vec![5]);
+                        self.gui_sender.send(vec![5]).unwrap();
                     }
 
                     lastlightning.scannonanony(&self.me, &mut self.nmine, &mut self.nheight);
@@ -500,7 +500,7 @@ impl KhoraNode {
 
         let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
         gm.push(4);
-        self.gui_sender.send(gm).expect("should be working");
+        self.gui_sender.send(gm).unwrap();
 
 
         println!("{}","FINISHED LISTENING".red());
@@ -513,7 +513,7 @@ impl KhoraNode {
         let mut rname = self.rname.clone();
         rname.push(114);
 
-        let ring = recieve_ring(&self.rname).expect("shouldn't fail");
+        let ring = recieve_ring(&self.rname).unwrap();
 
 
 
@@ -559,6 +559,9 @@ impl KhoraNode {
         let mut rng = &mut rand::thread_rng();
         self.sendview.shuffle(&mut rng);
         println!("attempting sync...");
+        if self.sendview.len() == 0 {
+            println!("your sendview is empty");
+        }
         for socket in self.sendview.iter() {
             if let Ok(mut stream) = TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
                 stream.set_read_timeout(READ_TIMEOUT);
@@ -596,12 +599,12 @@ impl KhoraNode {
 
                             let mut thisbnum = self.bnum.to_le_bytes().to_vec();
                             thisbnum.push(2);
-                            self.gui_sender.send(thisbnum).expect("something's wrong with the communication to the gui");
+                            self.gui_sender.send(thisbnum).unwrap();
 
                             let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
                             mymoney.extend(self.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
                             mymoney.push(0);
-                            self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
+                            self.gui_sender.send(mymoney).unwrap();
 
                             // println!("{}",format!("total time: {}ms",tt.elapsed().as_millis()).green().bold());
                             // println!(".");
@@ -609,17 +612,19 @@ impl KhoraNode {
                         break
                     }
                 }
+            } else {
+                println!("this friend is probably busy or you have none");
             }
         }
         if self.lasttags.is_empty() {
-            self.gui_sender.send(vec![5]).expect("something's wrong with the communication to the gui");
+            self.gui_sender.send(vec![5]).unwrap();
         }
         if self.lastnonanony.is_none() {
-            self.gui_sender.send(vec![9]).expect("something's wrong with the communication to the gui");
+            self.gui_sender.send(vec![9]).unwrap();
         }
         self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
         if self.mine.len() >= ACCOUNT_COMBINE {
-            self.gui_sender.send(vec![8]);
+            self.gui_sender.send(vec![8]).unwrap();
         }
     }
 
@@ -653,7 +658,7 @@ impl Future for KhoraNode {
 
                 let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
                 gm.push(4);
-                self.gui_sender.send(gm).expect("should be working");
+                self.gui_sender.send(gm).unwrap();
             }
 
 
@@ -680,7 +685,7 @@ impl Future for KhoraNode {
                         let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
                         mymoney.extend(self.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
                         mymoney.push(0);
-                        self.gui_sender.send(mymoney).expect("something's wrong with the communication to the gui");
+                        self.gui_sender.send(mymoney).unwrap();
 
                         let txtype = m.pop().unwrap();
 
@@ -759,7 +764,7 @@ impl Future for KhoraNode {
                                 }
                                 
                                 self.rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
-                                let ring = recieve_ring(&self.rname).expect("shouldn't fail");
+                                let ring = recieve_ring(&self.rname).unwrap();
 
 
                                 self.fill_ring();
@@ -840,7 +845,7 @@ impl Future for KhoraNode {
                                 let mut rnamesend = self.rname.clone();
                                 rnamesend.push(114);
                                 let mut got_the_ring = true;
-                                let rlring = ring.expect("shouldn't fail").iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
+                                let rlring = ring.unwrap().iter().map(|x| if let Some(x) = self.rmems.get(x) {x.clone()} else {got_the_ring = false; OTAccount::default()}).collect::<Vec<OTAccount>>();
                                 let tx = Transaction::spend_ring(&rlring, &outs.iter().map(|x|(&x.0,&x.1)).collect::<Vec<(&Account,&Scalar)>>());
                                 if got_the_ring && tx.verify().is_ok() {
                                     let tx = tx.polyform(&self.rname);
@@ -877,7 +882,7 @@ impl Future for KhoraNode {
 
                             println!("remembered owned accounts");
                             let rname = generate_ring(&loc.iter().map(|&x|x as usize).collect::<Vec<_>>(), &(loc.len() as u16), &self.height);
-                            let ring = recieve_ring(&rname).expect("shouldn't fail");
+                            let ring = recieve_ring(&rname).unwrap();
 
                             println!("made rings");
                             /* you don't use a ring for panics (the ring is just your own accounts) */ 
@@ -944,28 +949,29 @@ impl Future for KhoraNode {
 
                         let mut info = bincode::serialize(&
                             vec![
-                            bincode::serialize(&self.me.name()).expect("should work"),
-                            bincode::serialize(&self.me.nonanony_acc().name()).expect("should work"),
-                            bincode::serialize(&self.me.sk.as_bytes().to_vec()).expect("should work"),
-                            bincode::serialize(&self.me.vsk.as_bytes().to_vec()).expect("should work"),
-                            bincode::serialize(&self.me.ask.as_bytes().to_vec()).expect("should work"),
+                            bincode::serialize(&self.me.name()).unwrap(),
+                            bincode::serialize(&self.me.nonanony_acc().name()).unwrap(),
+                            bincode::serialize(&self.me.sk.as_bytes().to_vec()).unwrap(),
+                            bincode::serialize(&self.me.vsk.as_bytes().to_vec()).unwrap(),
+                            bincode::serialize(&self.me.ask.as_bytes().to_vec()).unwrap(),
                             ]
-                        ).expect("should work");
+                        ).unwrap();
                         info.push(254);
-                        self.gui_sender.send(info).expect("should work");
+                        self.gui_sender.send(info).unwrap();
 
                     } else if istx == 121 /* y */ { // you clicked sync
                         let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
                         gm.push(4);
-                        self.gui_sender.send(gm).expect("should be working");
+                        self.gui_sender.send(gm).unwrap();
                         self.attempt_sync();
-                        self.gui_sender.send(vec![self.blocktime as u8,128]).expect("something's wrong with the communication to the gui");
+                        self.gui_sender.send(vec![self.blocktime as u8,128]).unwrap();
 
 
                     } else if istx == 42 /* * */ { // entry address
                         let socket = format!("{}:{}",String::from_utf8_lossy(&m),OUTSIDER_PORT).parse::<SocketAddr>();
                         println!("{:?}",socket);
                         if let Ok(socket) = socket {
+                            println!("attempting to connect...");
                             match TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
                                 Ok(mut stream) => {
                                     let msg = vec![101u8];
@@ -997,7 +1003,7 @@ impl Future for KhoraNode {
                     } else if istx == 64 /* @ */ {
                         let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
                         gm.push(4);
-                        self.gui_sender.send(gm).expect("should be working");
+                        self.gui_sender.send(gm).unwrap();
                     } else if istx == 0 {
                         println!("Saving!");
                         self.save();

@@ -6,7 +6,7 @@ use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
 // use khora::seal::BETA;
-use parking_lot::{RwLock, Mutex};
+use parking_lot::RwLock;
 use plumcast::node::{LocalNodeId, Node, NodeBuilder, NodeId, SerialLocalNodeIdGenerator};
 use plumcast::service::ServiceBuilder;
 use rand::prelude::SliceRandom;
@@ -26,7 +26,7 @@ use khora::{account::*, gui};
 use curve25519_dalek::scalar::Scalar;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryInto;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use std::borrow::Borrow;
 use khora::transaction::*;
 use curve25519_dalek::ristretto::{CompressedRistretto};
@@ -194,16 +194,16 @@ fn main() -> Result<(), MainError> {
 
             let mut info = bincode::serialize(&
                 vec![
-                bincode::serialize(&node.me.name()).expect("should work"),
-                bincode::serialize(&node.me.stake_acc().name()).expect("should work"),
-                bincode::serialize(&node.me.nonanony_acc().name()).expect("should work"),
-                bincode::serialize(&node.me.sk.as_bytes().to_vec()).expect("should work"),
-                bincode::serialize(&node.me.vsk.as_bytes().to_vec()).expect("should work"),
-                bincode::serialize(&node.me.ask.as_bytes().to_vec()).expect("should work"),
+                bincode::serialize(&node.me.name()).unwrap(),
+                bincode::serialize(&node.me.stake_acc().name()).unwrap(),
+                bincode::serialize(&node.me.nonanony_acc().name()).unwrap(),
+                bincode::serialize(&node.me.sk.as_bytes().to_vec()).unwrap(),
+                bincode::serialize(&node.me.vsk.as_bytes().to_vec()).unwrap(),
+                bincode::serialize(&node.me.ask.as_bytes().to_vec()).unwrap(),
                 ]
-            ).expect("should work");
+            ).unwrap();
             info.push(254);
-            usend.send(info).expect("should work");
+            usend.send(info).unwrap();
 
 
             let node = KhoraNode::load(frontnode, backnode, usend, urecv,recvtcp);
@@ -212,7 +212,7 @@ fn main() -> Result<(), MainError> {
             mymoney.extend(node.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
             mymoney.push(0);
             println!("my money: {:?}",node.smine.iter().map(|x| x.1).sum::<u64>());
-            node.gui_sender.send(mymoney); // this is how you send info to the gui
+            node.gui_sender.send(mymoney).unwrap(); // this is how you send info to the gui
             node.save();
 
             executor.spawn(service.map_err(|e| panic!("{}", e)));
@@ -555,7 +555,7 @@ impl KhoraNode {
 
                 if let Some(k) = &self.keylocation {
                     if lastlightning.info.stkout.contains(k) {
-                        self.gui_sender.send(vec![6]);
+                        self.gui_sender.send(vec![6]).unwrap();
                     }
                 }
 
@@ -619,20 +619,20 @@ impl KhoraNode {
                     if let Some(x) = largetx {
                         if let Some(y) = self.laststk {
                             if x.0.contains(&y) {
-                                self.gui_sender.send(vec![6]);
+                                self.gui_sender.send(vec![6]).unwrap();
                                 self.laststk = None;
                             } else if self.is_validator || lastlightning.info.stkin.par_iter().any(|x| x.0 == y) {
                                 self.laststk = None;
-                                self.gui_sender.send(vec![11]);
+                                self.gui_sender.send(vec![11]).unwrap();
                             }
                         }
                         if let Some(y) = self.lastnonanony {
                             if x.1.contains(&y) {
-                                self.gui_sender.send(vec![9]);
+                                self.gui_sender.send(vec![9]).unwrap();
                                 self.lastnonanony = None;
                             } else if lastlightning.info.nonanonyin.par_iter().any(|x| x.0 == y) {
                                 self.lastnonanony = None;
-                                self.gui_sender.send(vec![10]);
+                                self.gui_sender.send(vec![10]).unwrap();
                             }
                         }
                     } else {
@@ -641,16 +641,16 @@ impl KhoraNode {
                                 if let Some(x) = lastlightning.info.stkin.par_iter().find_first(|x|x.0 == y) {
                                     if x.1 > a {
                                         self.laststk = None;
-                                        self.gui_sender.send(vec![11]);
+                                        self.gui_sender.send(vec![11]).unwrap();
                                     } else {
                                         self.laststk = None;
-                                        self.gui_sender.send(vec![6]);
+                                        self.gui_sender.send(vec![6]).unwrap();
 
                                     }
                                 }
                             } else {
                                 self.laststk = None;
-                                self.gui_sender.send(vec![11]);
+                                self.gui_sender.send(vec![11]).unwrap();
                             }
                         }
                         if let Some(y) = self.lastnonanony {
@@ -658,23 +658,23 @@ impl KhoraNode {
                                 if let Some(x) = lastlightning.info.nonanonyin.par_iter().find_first(|x|x.0 == y) {
                                     if x.1 > a {
                                         self.lastnonanony = None;
-                                        self.gui_sender.send(vec![10]);
+                                        self.gui_sender.send(vec![10]).unwrap();
                                     } else {
                                         self.lastnonanony = None;
-                                        self.gui_sender.send(vec![9]);
+                                        self.gui_sender.send(vec![9]).unwrap();
 
                                     }
                                 }
                             } else {
                                 self.lastnonanony = None;
-                                self.gui_sender.send(vec![10]);
+                                self.gui_sender.send(vec![10]).unwrap();
                             }
                         }
                     }
                     if let Some(x) = self.lastnonanony.borrow() {
                         if self.bnum%NONCEYNESS == 0 {
                             self.lastnonanony = None;
-                            self.gui_sender.send(vec![10]);
+                            self.gui_sender.send(vec![10]).unwrap();
                         } else {
                             self.lastnonanony = follow(*x,&lastlightning.info.nonanonyout,self.nheight);
                         }
@@ -682,7 +682,7 @@ impl KhoraNode {
                     if let Some(x) = self.laststk.borrow() {
                         if self.bnum%NONCEYNESS == 0 {
                             self.laststk = None;
-                            self.gui_sender.send(vec![11]);
+                            self.gui_sender.send(vec![11]).unwrap();
                         } else {
                             self.laststk = follow(*x,&lastlightning.info.stkout,self.sheight);
                         }
@@ -691,7 +691,7 @@ impl KhoraNode {
                         lastlightning.info.tags.contains(&x)
                     }) {
                         self.lasttags = vec![];
-                        self.gui_sender.send(vec![5]);
+                        self.gui_sender.send(vec![5]).unwrap();
                     }
 
 
@@ -975,7 +975,10 @@ impl KhoraNode {
         } else {
             self.stkinfo.vec.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>()
         };
-        
+
+        if sendview.len() == 0 {
+            println!("your sendview is empty");
+        }
         sendview.shuffle(&mut rng);
         for node in sendview {
             println!("connecting");
@@ -1021,7 +1024,7 @@ impl KhoraNode {
                     }
                 }
             } else {
-                println!("your friend is probably busy or you have none");
+                println!("this friend is probably busy or you have none");
             }
         }
         self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
@@ -1143,7 +1146,7 @@ impl Future for KhoraNode {
                 // println!("friends: {:?}",friend);
                 let mut gm = (friend.len() as u16).to_le_bytes().to_vec();
                 gm.push(4);
-                self.gui_sender.send(gm).expect("should be working");
+                self.gui_sender.send(gm).unwrap();
             }
 
 
@@ -1484,7 +1487,7 @@ impl Future for KhoraNode {
                                 let s = self.readblock(lastblock, m, true);
                                 self.outer.handle_gossip_now(fullmsg, s);
                                 if self.mine.len() >= ACCOUNT_COMBINE && s {
-                                    self.gui_sender.send(vec![8]);
+                                    self.gui_sender.send(vec![8]).unwrap();
                                 }
                                 println!("{}","you have recieved a full block".green());
 
@@ -1741,7 +1744,7 @@ impl Future for KhoraNode {
 
 
                                 let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16 + self.ringsize as u16), &self.height);
-                                let ring = recieve_ring(&rname).expect("shouldn't fail");
+                                let ring = recieve_ring(&rname).unwrap();
                                 // println!("ring: {:?}",ring);
                                 // println!("mine: {:?}",acc.iter().map(|x|x.pk.compress()).collect::<Vec<_>>());
                                 // println!("ring: {:?}",ring.iter().map(|x|OTAccount::summon_ota(&History::get(&x)).pk.compress()).collect::<Vec<_>>());
@@ -1799,7 +1802,7 @@ impl Future for KhoraNode {
 
                             // println!("remembered owned accounts");
                             let rname = generate_ring(&loc.iter().map(|x|*x as usize).collect::<Vec<_>>(), &(loc.len() as u16), &self.height);
-                            let ring = recieve_ring(&rname).expect("shouldn't fail");
+                            let ring = recieve_ring(&rname).unwrap();
 
                             // println!("made rings");
                             /* you don't use a ring for panics (the ring is just your own accounts) */ 
@@ -1896,16 +1899,16 @@ impl Future for KhoraNode {
 
                         let mut info = bincode::serialize(&
                             vec![
-                                bincode::serialize(&self.me.name()).expect("should work"),
-                                bincode::serialize(&self.me.stake_acc().name()).expect("should work"),
-                                bincode::serialize(&self.me.nonanony_acc().name()).expect("should work"),
-                                bincode::serialize(&self.me.sk.as_bytes().to_vec()).expect("should work"),
-                                bincode::serialize(&self.me.vsk.as_bytes().to_vec()).expect("should work"),
-                                bincode::serialize(&self.me.ask.as_bytes().to_vec()).expect("should work"),
+                                bincode::serialize(&self.me.name()).unwrap(),
+                                bincode::serialize(&self.me.stake_acc().name()).unwrap(),
+                                bincode::serialize(&self.me.nonanony_acc().name()).unwrap(),
+                                bincode::serialize(&self.me.sk.as_bytes().to_vec()).unwrap(),
+                                bincode::serialize(&self.me.vsk.as_bytes().to_vec()).unwrap(),
+                                bincode::serialize(&self.me.ask.as_bytes().to_vec()).unwrap(),
                             ]
-                        ).expect("should work");
+                        ).unwrap();
                         info.push(254);
-                        self.gui_sender.send(info).expect("should work");
+                        self.gui_sender.send(info).unwrap();
 
 
                     } else if istx == 121 /* y */ { // you clicked sync
@@ -1913,7 +1916,7 @@ impl Future for KhoraNode {
                     } else if istx == 42 /* * */ { // entry address
                         self.headshard = 0;
                         self.usurpingtime = Instant::now();
-                        self.gui_sender.send(vec![blocktime(self.bnum as f64) as u8,128]);
+                        self.gui_sender.send(vec![blocktime(self.bnum as f64) as u8,128]).unwrap();
                         let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
                         println!("{}",m);
                         if let Ok(socket) = m.parse() {
@@ -1930,7 +1933,7 @@ impl Future for KhoraNode {
                         println!("friends: {:?}",friend);
                         let mut gm = (friend.len() as u16).to_le_bytes().to_vec();
                         gm.push(4);
-                        self.gui_sender.send(gm).expect("should be working");
+                        self.gui_sender.send(gm).unwrap();
                     } else if istx == 0 {
                         println!("Saving!");
                         self.save();

@@ -992,7 +992,7 @@ impl KhoraNode {
         for node in sendview {
             println!("connecting");
             if let Ok(mut stream) = if entering {TcpStream::connect(&node)} else {TcpStream::connect_timeout(&node,CONNECT_TIMEOUT)} {
-                if entering || (stream.set_nonblocking(true).is_ok() && stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok()) {
+                if entering || (stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok()) {
                     let mut bnum = self.bnum.to_le_bytes().to_vec();
                     bnum.push(122 - (self.lightning_yielder as u8));
                     if stream.write_all(&bnum).is_ok() {
@@ -1062,7 +1062,7 @@ impl KhoraNode {
             sendview.shuffle(&mut rng);
             for node in sendview {
                 if let Ok(mut stream) =  TcpStream::connect_timeout(&node, CONNECT_TIMEOUT) {
-                    if stream.set_nonblocking(true).is_ok() && stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
+                    if stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
                         if stream.write_all(&[1]).is_ok() {
                             let mut txses = vec![];
                             if stream.read_to_end(&mut txses).is_ok(){

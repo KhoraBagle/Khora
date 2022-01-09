@@ -970,7 +970,7 @@ impl KhoraNode {
     /// returns the responces of each person you sent it to and deletes those who are dead from the view
     fn attempt_sync(&mut self, node: Option<SocketAddr> ) {
 
-        // println!("hi");
+        println!("attempting sync");
         let mut rng = &mut rand::thread_rng();
         let mut sendview = if let Some(x) = node {
             vec![x]
@@ -1937,8 +1937,8 @@ impl Future for KhoraNode {
                         self.usurpingtime = Instant::now();
                         self.gui_sender.send(vec![blocktime(self.bnum as f64) as u8,128]).unwrap();
                         let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
-                        println!("{}",m);
                         if let Ok(socket) = m.parse() {
+                            println!("ip: {}",m);
                             self.attempt_sync(Some(socket));
                             self.outer.dm(vec![97],&[NodeId::new(socket, LocalNodeId::new(0))],true);
                         } else {

@@ -622,6 +622,7 @@ impl KhoraNode {
                         } else {
                             println!("can't read exact from stream!");
                         }
+                        println!("!!!!");
                     } else {
                         println!("can't write all to stream!");
                     }

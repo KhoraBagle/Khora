@@ -481,7 +481,7 @@ impl KhoraNode {
         let mut dead = HashSet::<SocketAddr>::new();
         let responces = self.sendview[..cmp::min(recipients,self.sendview.len())].iter().filter_map(|socket| {
             if let Ok(mut stream) =  TcpStream::connect_timeout(socket,CONNECT_TIMEOUT) {
-                if stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
+                if stream.set_nonblocking(true).is_ok() && stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
                     println!("connected...");
                     if stream.write_all(&message).is_ok() {
                         println!("request made...");
@@ -530,7 +530,7 @@ impl KhoraNode {
             for socket in self.sendview.iter() {
                 if let Ok(mut stream) = TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
                     println!("connected...");
-                    if stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
+                    if stream.set_nonblocking(true).is_ok() && stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
                         if stream.write_all(&rname).is_ok() {
                             println!("request made...");
                             let mut member = [0u8;64]; // using 6 byte buffer
@@ -574,7 +574,7 @@ impl KhoraNode {
         }
         for socket in self.sendview.iter() {
             if let Ok(mut stream) = TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
-                if stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
+                if stream.set_nonblocking(true).is_ok() && stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
                     println!("connected...");
                     let mut m = self.bnum.to_le_bytes().to_vec();
                     m.push(121);
@@ -622,7 +622,7 @@ impl KhoraNode {
                         } else {
                             println!("can't read exact from stream!");
                         }
-                        // println!("!!!!");
+                        println!("!!!!");
                     } else {
                         println!("can't write all to stream!");
                     }

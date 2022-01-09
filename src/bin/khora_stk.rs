@@ -257,7 +257,7 @@ fn main() -> Result<(), MainError> {
         let native_options = eframe::NativeOptions::default();
         std::thread::spawn(move || {
             println!("attempting sync");
-            node.attempt_sync(None);
+            node.attempt_sync(None, false);
             executor.spawn(service.map_err(|e| panic!("{}", e)));
             executor.spawn(node);
     
@@ -990,7 +990,7 @@ impl KhoraNode {
         sendview.shuffle(&mut rng);
         for node in sendview {
             println!("connecting");
-            if let Ok(mut stream) =  TcpStream::connect_timeout(&node,CONNECT_TIMEOUT) {
+            if let Ok(mut stream) = if entering {TcpStream::connect(&node)} else {TcpStream::connect_timeout(&node,CONNECT_TIMEOUT)} {
                 if entering || (stream.set_nonblocking(true).is_ok() && stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok()) {
                     let mut bnum = self.bnum.to_le_bytes().to_vec();
                     bnum.push(122 - (self.lightning_yielder as u8));
@@ -1939,7 +1939,7 @@ impl Future for KhoraNode {
                         let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
                         if let Ok(socket) = m.parse() {
                             println!("ip: {}",m);
-                            self.attempt_sync(Some(socket));
+                            self.attempt_sync(Some(socket), true);
                             self.outer.dm(vec![97],&[NodeId::new(socket, LocalNodeId::new(0))],true);
                         } else {
                             println!("that's not an ip address!");

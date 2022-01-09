@@ -618,12 +618,11 @@ impl KhoraNode {
         
                                     // println!("{}",format!("total time: {}ms",tt.elapsed().as_millis()).green().bold());
                                     // println!(".");
-                                    break
                                 }
                             }
                             Err(e) => {println!("can't read exact from stream: {:?}",e);}
                         }
-                        println!("!!!!");
+                        break;
                     } else {
                         println!("can't write all to stream!");
                     }

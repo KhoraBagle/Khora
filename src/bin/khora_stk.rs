@@ -94,7 +94,7 @@ fn main() -> Result<(), MainError> {
                 Ok(stream) => {
                     stream.set_read_timeout(READ_TIMEOUT);
                     stream.set_write_timeout(WRITE_TIMEOUT);
-                    stream.set_nonblocking(true);
+                    // stream.set_nonblocking(true);
                     sendtcp.send(stream).unwrap();
                 }
                 Err(_) => {
@@ -1027,11 +1027,11 @@ impl KhoraNode {
                                             break
                                         }
                                     }
-                                    break
                                 }
                             }
                             Err(e) => {println!("can't read exact from stream: {:?}",e);}
                         }
+                        break
                     } else {
                         println!("can't write to stream!");
                     }

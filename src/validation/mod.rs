@@ -52,11 +52,11 @@ pub const STAKER_BLOOM_HASHES: u8 = 13;
 /// if you have to many tx, you should combine them
 pub const ACCOUNT_COMBINE: usize = 10;
 /// read timeout for stream in millis
-pub const READ_TIMEOUT: Option<Duration> = Some(Duration::from_millis(500));
+pub const READ_TIMEOUT: Option<Duration> = Some(Duration::from_millis(2000));
 /// connect timeout for stream in millis
-pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
+pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(2000);
 /// write timeout for stream in millis
-pub const WRITE_TIMEOUT: Option<Duration> = Some(Duration::from_millis(500));
+pub const WRITE_TIMEOUT: Option<Duration> = Some(Duration::from_millis(2000));
 /// how often the nonce is replaced for visible transactions
 pub const NONCEYNESS: u64 = 100;
 /// how many comittees you keep track of over time

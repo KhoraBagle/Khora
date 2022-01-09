@@ -5,6 +5,7 @@ extern crate trackable;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll};
+use khora::network::{write_timeout, read_to_end_timeout, read_timeout};
 use khora::vechashmap::follow;
 // use khora::seal::BETA;
 use rand::prelude::SliceRandom;
@@ -473,36 +474,25 @@ impl KhoraNode {
         }
     }
 
-    /// returns the responces of each person you sent it to and deletes those who are dead from the view
+    /// returns the responces of each person you sent it to
     fn send_message(&mut self, message: Vec<u8>, recipients: usize) -> Vec<Vec<u8>> {
 
         let mut rng = &mut rand::thread_rng();
         self.sendview.shuffle(&mut rng);
-        let mut dead = HashSet::<SocketAddr>::new();
         let responces = self.sendview[..cmp::min(recipients,self.sendview.len())].iter().filter_map(|socket| {
             if let Ok(mut stream) =  TcpStream::connect_timeout(socket,CONNECT_TIMEOUT) {
-                if stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
-                    println!("connected...");
-                    if stream.write_all(&message).is_ok() {
+                println!("connected...");
+                if stream.set_nonblocking(true).is_ok() {
+                    if write_timeout(&mut stream, &message, WRITE_TIMEOUT) {
                         println!("request made...");
-                        let mut responce = Vec::<u8>::new(); // using 6 byte buffer
-                        if let Ok(_) = stream.read_to_end(&mut responce) {
-                            println!("{}","RESPONCE HERD".green());
-                            return Some(responce)
-                        } else {
-                            println!("can't read from stream!");
-                        }
-                    } else {
-                        println!("can't write to stream!");
+                        return read_to_end_timeout(&mut stream, READ_TIMEOUT);
                     }
                 } else {
-                    println!("your networking is skrewed up");
+                    println!("can't set nonblocking!");
                 }
             }
-            dead.insert(*socket);
             return None
         }).collect();
-        self.sendview.retain(|x| !dead.contains(x));
 
         let mut gm = (self.sendview.len() as u64).to_le_bytes().to_vec();
         gm.push(4);
@@ -530,11 +520,12 @@ impl KhoraNode {
             for socket in self.sendview.iter() {
                 if let Ok(mut stream) = TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
                     println!("connected...");
-                    if stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
-                        if stream.write_all(&rname).is_ok() {
+                    if stream.set_nonblocking(true).is_ok() {
+
+                        if write_timeout(&mut stream, &rname, WRITE_TIMEOUT) {
                             println!("request made...");
                             let mut member = [0u8;64]; // using 6 byte buffer
-                            while stream.read_exact(&mut member).is_ok() {
+                            while read_timeout(&mut stream, &mut member, READ_TIMEOUT) {
                                     if let Some(x) = self.rmems.get(&ring[memloc]) {
                                         if x.tag.is_none() {
                                             print!("{}","!".red());
@@ -550,10 +541,11 @@ impl KhoraNode {
                             println!("can't write to stream!");
                         }
                     } else {
-                        println!("your networking is skrewed up");
+                        println!("can't set nonblocking!");
                     }
+                } else {
+                    println!("can't connect!");
                 }
-                
             }
         } else {
             for (i,j) in self.mine.iter() {
@@ -574,64 +566,60 @@ impl KhoraNode {
         }
         for socket in self.sendview.clone() {
             if let Ok(mut stream) = TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
-                if stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
+                if stream.set_nonblocking(true).is_ok() {
                     println!("connected...");
                     let mut m = self.bnum.to_le_bytes().to_vec();
                     m.push(121);
-                    if stream.write_all(&m).is_ok() {
+                    if write_timeout(&mut stream, &m, WRITE_TIMEOUT) {
                         println!("request made...");
                         let mut ok = [0;8];
-                        match stream.read_exact(&mut ok) {
-                            Ok(_) => {
-                                let syncnum = u64::from_le_bytes(ok);
-                                self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
-                                println!("responce valid. syncing now...");
-                                let mut blocksize = [0u8;8];
-                                let mut counter = 0;
-                                while stream.read_exact(&mut blocksize).is_ok() {
-                                    // println!(".");
-                                    counter += 1;
-                                    // let tt = Instant::now();
-                                    let bsize = u64::from_le_bytes(blocksize) as usize;
-                                    println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
-                                    let mut serialized_block = vec![0u8;bsize];
-                                    if stream.read_exact(&mut serialized_block).is_err() {
-                                        println!("couldn't read the bytes");
-                                    }
-                                    if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
-                                        
-                                        // let t = Instant::now();
-                                        self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
-                                        // println!("{}",format!("block reading time: {}ms",t.elapsed().as_millis()).bright_yellow().bold());
-                                    } else {
-                                        println!("they send a fake block");
-                                    }
-        
-                                    let mut thisbnum = self.bnum.to_le_bytes().to_vec();
-                                    thisbnum.push(2);
-                                    self.gui_sender.send(thisbnum).unwrap();
-        
-                                    let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
-                                    mymoney.extend(self.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
-                                    mymoney.push(0);
-                                    self.gui_sender.send(mymoney).unwrap();
-        
-                                    // println!("{}",format!("total time: {}ms",tt.elapsed().as_millis()).green().bold());
-                                    // println!(".");
+                        if read_timeout(&mut stream,&mut ok, READ_TIMEOUT) {
+                            let syncnum = u64::from_le_bytes(ok);
+                            self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
+                            println!("responce valid. syncing now...");
+                            let mut blocksize = [0u8;8];
+                            let mut counter = 0;
+                            while stream.read_exact(&mut blocksize).is_ok() {
+                                // println!(".");
+                                counter += 1;
+                                // let tt = Instant::now();
+                                let bsize = u64::from_le_bytes(blocksize) as usize;
+                                println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
+                                let mut serialized_block = vec![0u8;bsize];
+                                if stream.read_exact(&mut serialized_block).is_err() {
+                                    println!("couldn't read the bytes");
                                 }
+                                if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
+                                    
+                                    // let t = Instant::now();
+                                    self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
+                                    // println!("{}",format!("block reading time: {}ms",t.elapsed().as_millis()).bright_yellow().bold());
+                                } else {
+                                    println!("they send a fake block");
+                                }
+    
+                                let mut thisbnum = self.bnum.to_le_bytes().to_vec();
+                                thisbnum.push(2);
+                                self.gui_sender.send(thisbnum).unwrap();
+    
+                                let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
+                                mymoney.extend(self.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
+                                mymoney.push(0);
+                                self.gui_sender.send(mymoney).unwrap();
+    
+                                // println!("{}",format!("total time: {}ms",tt.elapsed().as_millis()).green().bold());
+                                // println!(".");
                             }
-                            Err(e) => {println!("can't read exact from stream: {:?}",e);}
+                            break
                         }
-                        break;
                     } else {
                         println!("can't write all to stream!");
                     }
-
                 } else {
-                    println!("your networking is skrewed up");
+                    println!("can't set nonblocking!");
                 }
             } else {
-                println!("this friend is probably busy or you have none");
+                println!("this friend is probably busy");
             }
         }
         if self.lasttags.is_empty() {

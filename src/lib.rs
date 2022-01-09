@@ -11,3 +11,4 @@ pub mod bloom;
 pub mod validation;
 pub mod gui;
 pub mod vechashmap;
+pub mod network;

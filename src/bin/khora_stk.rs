@@ -5,6 +5,7 @@ extern crate trackable;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use fibers::{Executor, Spawn, ThreadPoolExecutor};
 use futures::{Async, Future, Poll, Stream};
+use khora::network::{write_timeout, read_timeout, read_to_end_timeout};
 // use khora::seal::BETA;
 use parking_lot::RwLock;
 use plumcast::node::{LocalNodeId, Node, NodeBuilder, NodeId, SerialLocalNodeIdGenerator};
@@ -26,7 +27,7 @@ use khora::{account::*, gui};
 use curve25519_dalek::scalar::Scalar;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryInto;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use std::borrow::Borrow;
 use khora::transaction::*;
 use curve25519_dalek::ristretto::{CompressedRistretto};
@@ -92,9 +93,7 @@ fn main() -> Result<(), MainError> {
         for stream in outerlistener.incoming() {
             match stream {
                 Ok(stream) => {
-                    stream.set_read_timeout(READ_TIMEOUT);
-                    stream.set_write_timeout(WRITE_TIMEOUT);
-                    // stream.set_nonblocking(true);
+                    stream.set_nonblocking(true);
                     sendtcp.send(stream).unwrap();
                 }
                 Err(_) => {
@@ -991,55 +990,49 @@ impl KhoraNode {
         sendview.shuffle(&mut rng);
         for node in sendview {
             println!("connecting");
-            if let Ok(mut stream) = if entering {TcpStream::connect(&node)} else {TcpStream::connect_timeout(&node,CONNECT_TIMEOUT)} {
-                if entering || (stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok()) {
-                    let mut bnum = self.bnum.to_le_bytes().to_vec();
-                    bnum.push(122 - (self.lightning_yielder as u8));
-                    if stream.write_all(&bnum).is_ok() {
-                        let mut ok = [0;8];
-                        match stream.read_exact(&mut ok) {
-                            Ok(_) => {
-                                let syncnum = u64::from_le_bytes(ok);
-                                self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
-                                let mut blocksize = [0u8;8];
-                                let mut counter = 0;
-                                while stream.read_exact(&mut blocksize).is_ok() {
-                                    counter += 1;
-                                    let bsize = u64::from_le_bytes(blocksize) as usize;
-                                    let mut serialized_block = vec![0u8;bsize];
-                                    if stream.read_exact(&mut serialized_block).is_err() {
-                                        println!("couldn't read the bytes");
-                                    };
-                                    if self.lightning_yielder {
-                                        if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
-                                            if !self.readlightning(lastblock, serialized_block, None, None, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
-                                                break
-                                            }
-                                        } else {
-                                            break
-                                        }
-                                    } else {
-                                        if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&serialized_block) {
-                                            if !self.readblock(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
-                                                break
-                                            }
-                                        } else {
-                                            break
-                                        }
+            if let Ok(mut stream) = TcpStream::connect_timeout(&node,CONNECT_TIMEOUT) {
+                let mut bnum = self.bnum.to_le_bytes().to_vec();
+                bnum.push(122 - (self.lightning_yielder as u8));
+                if write_timeout(&mut stream, &bnum, WRITE_TIMEOUT) {
+                    let mut ok = [0;8];
+                    if read_timeout(&mut stream, &mut ok, READ_TIMEOUT) {
+                        let syncnum = u64::from_le_bytes(ok);
+                        self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
+                        let mut blocksize = [0u8;8];
+                        let mut counter = 0;
+                        while read_timeout(&mut stream,&mut blocksize,READ_TIMEOUT) {
+                            counter += 1;
+                            let bsize = u64::from_le_bytes(blocksize) as usize;
+                            let mut serialized_block = vec![0u8;bsize];
+                            if !read_timeout(&mut stream,&mut serialized_block,READ_TIMEOUT) {
+                                println!("couldn't read the block");
+                                break
+                            };
+                            if self.lightning_yielder {
+                                if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
+                                    if !self.readlightning(lastblock, serialized_block, None, None, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
+                                        break
                                     }
+                                } else {
+                                    break
+                                }
+                            } else {
+                                if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&serialized_block) {
+                                    if !self.readblock(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
+                                        break
+                                    }
+                                } else {
+                                    break
                                 }
                             }
-                            Err(e) => {println!("can't read exact from stream: {:?}",e);}
                         }
                         break
-                    } else {
-                        println!("can't write to stream!");
                     }
                 } else {
-                    println!("your networking is skrewed up");
+                    println!("can't write to stream!");
                 }
             } else {
-                println!("this friend is probably busy or you have none");
+                println!("this friend is probably busy or you have none. you can't connect to them.");
             }
         }
         self.gui_sender.send([0u8;8].iter().chain(&[7u8]).cloned().collect()).unwrap();
@@ -1062,36 +1055,33 @@ impl KhoraNode {
             sendview.shuffle(&mut rng);
             for node in sendview {
                 if let Ok(mut stream) =  TcpStream::connect_timeout(&node, CONNECT_TIMEOUT) {
-                    if stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
-                        if stream.write_all(&[1]).is_ok() {
-                            let mut txses = vec![];
-                            if stream.read_to_end(&mut txses).is_ok(){
-                                if let Ok(mut x) = bincode::deserialize::<Vec<PolynomialTransaction>>(&txses) {
-                                    x.retain(|t| 
-                                        {
-                                            if t.inputs.last() == Some(&1) {
-                                                t.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok()
-                                            } else if t.inputs.last() == Some(&2) {
-                                                t.verifynonanony(&self.nonanony,self.bnum/NONCEYNESS).is_ok()
-                                            } else {
-                                                let bloom = self.bloom.borrow();
-                                                t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
-                                            }
-                                        }
-                                    );
-    
-                                    if x.len() > self.txses.len() {
-                                        return (bincode::serialize(&x).unwrap(),x.len())
-                                    }
+                    if write_timeout(&mut stream, &[1], WRITE_TIMEOUT) {
+                        if let Some(txses) = read_to_end_timeout(&mut stream, READ_TIMEOUT) {
+                            if let Ok(x) = bincode::deserialize::<Vec<PolynomialTransaction>>(&txses) {
+                                // x.retain(|t|
+                                //     {
+                                //         if t.inputs.last() == Some(&1) {
+                                //             t.verifystk(&self.stkinfo,self.bnum/NONCEYNESS).is_ok()
+                                //         } else if t.inputs.last() == Some(&2) {
+                                //             t.verifynonanony(&self.nonanony,self.bnum/NONCEYNESS).is_ok()
+                                //         } else {
+                                //             let bloom = self.bloom.borrow();
+                                //             t.tags.iter().all(|y| !bloom.contains(y.as_bytes())) && t.verify().is_ok()
+                                //         }
+                                //     }
+                                // );
+                                // if x.len() > self.txses.len() {
+                                //     return (txses,x.len())
+                                // }
+                                if x.len() > self.txses.len() {
+                                    return (txses,x.len())
                                 }
-                            } else {
-                                println!("can't read to end!");
                             }
                         } else {
-                            println!("can't write to stream!");
+                            println!("can't read to end!");
                         }
                     } else {
-                        println!("your networking is skrewed up");
+                        println!("can't write to stream!");
                     }
                 } else {
                     println!("your friend is probably busy or you have none");

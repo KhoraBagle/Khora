@@ -968,7 +968,7 @@ impl KhoraNode {
 
 
     /// returns the responces of each person you sent it to and deletes those who are dead from the view
-    fn attempt_sync(&mut self, node: Option<SocketAddr> ) {
+    fn attempt_sync(&mut self, node: Option<SocketAddr>, entering: bool) {
 
         println!("attempting sync");
         let mut rng = &mut rand::thread_rng();
@@ -991,7 +991,7 @@ impl KhoraNode {
         for node in sendview {
             println!("connecting");
             if let Ok(mut stream) =  TcpStream::connect_timeout(&node,CONNECT_TIMEOUT) {
-                if stream.set_nonblocking(true).is_ok() && stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
+                if entering || (stream.set_nonblocking(true).is_ok() && stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok()) {
                     let mut bnum = self.bnum.to_le_bytes().to_vec();
                     bnum.push(122 - (self.lightning_yielder as u8));
                     if stream.write_all(&bnum).is_ok() {

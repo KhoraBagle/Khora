@@ -1931,7 +1931,7 @@ impl Future for KhoraNode {
 
 
                     } else if istx == 121 /* y */ { // you clicked sync
-                        self.attempt_sync(None);
+                        self.attempt_sync(None, false);
                     } else if istx == 42 /* * */ { // entry address
                         self.headshard = 0;
                         self.usurpingtime = Instant::now();

@@ -572,7 +572,7 @@ impl KhoraNode {
         if self.sendview.len() == 0 {
             println!("your sendview is empty");
         }
-        for socket in self.sendview.iter() {
+        for socket in self.sendview.clone() {
             if let Ok(mut stream) = TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
                 if stream.set_nonblocking(true).is_ok() && stream.set_read_timeout(READ_TIMEOUT).is_ok() && stream.set_write_timeout(WRITE_TIMEOUT).is_ok() {
                     println!("connected...");
@@ -581,46 +581,47 @@ impl KhoraNode {
                     if stream.write_all(&m).is_ok() {
                         println!("request made...");
                         let mut ok = [0;8];
-                        if stream.read_exact(&mut ok).is_ok() {
-                            let syncnum = u64::from_le_bytes(ok);
-                            self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
-                            println!("responce valid. syncing now...");
-                            let mut blocksize = [0u8;8];
-                            let mut counter = 0;
-                            while stream.read_exact(&mut blocksize).is_ok() {
-                                // println!(".");
-                                counter += 1;
-                                // let tt = Instant::now();
-                                let bsize = u64::from_le_bytes(blocksize) as usize;
-                                println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
-                                let mut serialized_block = vec![0u8;bsize];
-                                if stream.read_exact(&mut serialized_block).is_err() {
-                                    println!("couldn't read the bytes");
+                        match stream.read_exact(&mut ok) {
+                            Ok(_) => {
+                                let syncnum = u64::from_le_bytes(ok);
+                                self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
+                                println!("responce valid. syncing now...");
+                                let mut blocksize = [0u8;8];
+                                let mut counter = 0;
+                                while stream.read_exact(&mut blocksize).is_ok() {
+                                    // println!(".");
+                                    counter += 1;
+                                    // let tt = Instant::now();
+                                    let bsize = u64::from_le_bytes(blocksize) as usize;
+                                    println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
+                                    let mut serialized_block = vec![0u8;bsize];
+                                    if stream.read_exact(&mut serialized_block).is_err() {
+                                        println!("couldn't read the bytes");
+                                    }
+                                    if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
+                                        
+                                        // let t = Instant::now();
+                                        self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
+                                        // println!("{}",format!("block reading time: {}ms",t.elapsed().as_millis()).bright_yellow().bold());
+                                    } else {
+                                        println!("they send a fake block");
+                                    }
+        
+                                    let mut thisbnum = self.bnum.to_le_bytes().to_vec();
+                                    thisbnum.push(2);
+                                    self.gui_sender.send(thisbnum).unwrap();
+        
+                                    let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
+                                    mymoney.extend(self.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
+                                    mymoney.push(0);
+                                    self.gui_sender.send(mymoney).unwrap();
+        
+                                    // println!("{}",format!("total time: {}ms",tt.elapsed().as_millis()).green().bold());
+                                    // println!(".");
+                                    break
                                 }
-                                if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
-                                    
-                                    // let t = Instant::now();
-                                    self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
-                                    // println!("{}",format!("block reading time: {}ms",t.elapsed().as_millis()).bright_yellow().bold());
-                                } else {
-                                    println!("they send a fake block");
-                                }
-    
-                                let mut thisbnum = self.bnum.to_le_bytes().to_vec();
-                                thisbnum.push(2);
-                                self.gui_sender.send(thisbnum).unwrap();
-    
-                                let mut mymoney = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>().as_bytes()[..8].to_vec();
-                                mymoney.extend(self.nmine.iter().map(|x| x.1).sum::<u64>().to_le_bytes());
-                                mymoney.push(0);
-                                self.gui_sender.send(mymoney).unwrap();
-    
-                                // println!("{}",format!("total time: {}ms",tt.elapsed().as_millis()).green().bold());
-                                // println!(".");
                             }
-                            break
-                        } else {
-                            println!("can't read exact from stream!");
+                            Err(e) => {println!("can't read exact from stream: {:?}",e);}
                         }
                         println!("!!!!");
                     } else {

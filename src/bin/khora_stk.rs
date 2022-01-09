@@ -996,39 +996,40 @@ impl KhoraNode {
                     bnum.push(122 - (self.lightning_yielder as u8));
                     if stream.write_all(&bnum).is_ok() {
                         let mut ok = [0;8];
-                        if stream.read_exact(&mut ok).is_ok() {
-                            let syncnum = u64::from_le_bytes(ok);
-                            self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
-                            let mut blocksize = [0u8;8];
-                            let mut counter = 0;
-                            while stream.read_exact(&mut blocksize).is_ok() {
-                                counter += 1;
-                                let bsize = u64::from_le_bytes(blocksize) as usize;
-                                let mut serialized_block = vec![0u8;bsize];
-                                if stream.read_exact(&mut serialized_block).is_err() {
-                                    println!("couldn't read the bytes");
-                                };
-                                if self.lightning_yielder {
-                                    if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
-                                        if !self.readlightning(lastblock, serialized_block, None, None, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
+                        match stream.read_exact(&mut ok) {
+                            Ok(_) => {
+                                let syncnum = u64::from_le_bytes(ok);
+                                self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
+                                let mut blocksize = [0u8;8];
+                                let mut counter = 0;
+                                while stream.read_exact(&mut blocksize).is_ok() {
+                                    counter += 1;
+                                    let bsize = u64::from_le_bytes(blocksize) as usize;
+                                    let mut serialized_block = vec![0u8;bsize];
+                                    if stream.read_exact(&mut serialized_block).is_err() {
+                                        println!("couldn't read the bytes");
+                                    };
+                                    if self.lightning_yielder {
+                                        if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
+                                            if !self.readlightning(lastblock, serialized_block, None, None, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
+                                                break
+                                            }
+                                        } else {
                                             break
                                         }
                                     } else {
-                                        break
-                                    }
-                                } else {
-                                    if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&serialized_block) {
-                                        if !self.readblock(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
+                                        if let Ok(lastblock) = bincode::deserialize::<NextBlock>(&serialized_block) {
+                                            if !self.readblock(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1)) {
+                                                break
+                                            }
+                                        } else {
                                             break
                                         }
-                                    } else {
-                                        break
                                     }
+                                    break
                                 }
                             }
-                            break
-                        } else {
-                            println!("can't read exact!");
+                            Err(e) => {println!("can't read exact from stream: {:?}",e);}
                         }
                     } else {
                         println!("can't write to stream!");
@@ -1420,9 +1421,9 @@ impl Future for KhoraNode {
                                                         }
                                                     }
                                                     stream.flush();
-                                                    *cli.write() -= 1;
                                                 });
                                             }
+                                            *cli.write() -= 1;
                                         }
                                     } else if mtype == 122 /* z */ { // someone sent a full sync request
                                         println!("{}","someone wants full blocks".blue());

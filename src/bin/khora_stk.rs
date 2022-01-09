@@ -1941,7 +1941,7 @@ impl Future for KhoraNode {
                         let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
                         if let Ok(socket) = m.parse() {
                             println!("ip: {}",m);
-                            self.attempt_sync(Some(socket), true);
+                            self.attempt_sync(Some(socket), false);
                             self.outer.dm(vec![97],&[NodeId::new(socket, LocalNodeId::new(0))],true);
                         } else {
                             println!("that's not an ip address!");

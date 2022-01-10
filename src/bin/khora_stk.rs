@@ -1358,7 +1358,7 @@ impl Future for KhoraNode {
                                                 println!("{}","a user sent a tx".blue());
                                                 m.push(0);
                                                 self.outer.broadcast_now(m);
-                                                stream.write_all(&[1u8]);
+                                                write_timeout(&mut stream, &[1u8], WRITE_TIMEOUT);
                                                 stream.flush();
                                             }
                                         }

@@ -25,7 +25,7 @@ use std::io::{Seek, SeekFrom, BufReader};//, BufWriter};
 use std::time::Duration;
 
 
-pub static VERSION: &str = "v0.97";
+pub static VERSION: &str = "v0.98";
 pub static KHORA_WEBSITE: &str = "https://khora.info";
 
 

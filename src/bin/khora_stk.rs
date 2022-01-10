@@ -1364,19 +1364,19 @@ impl Future for KhoraNode {
                                         }
                                     } else if mtype == 1 {
                                         println!("{}","a validator needs some tx".blue());
-                                        stream.write_all(&bincode::serialize(&self.txses.iter().collect::<Vec<_>>()).unwrap());
+                                        write_timeout(&mut stream, &bincode::serialize(&self.txses.iter().collect::<Vec<_>>()).unwrap(), WRITE_TIMEOUT);
                                         stream.flush();
                                     } else if mtype == 101 /* e */ {
                                         println!("{}","someone wants a bunch of ips".blue());
                                         let x = self.stkinfo.vec.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>();
-                                        stream.write_all(&bincode::serialize(&x).unwrap());
+                                        write_timeout(&mut stream, &bincode::serialize(&x).unwrap(), WRITE_TIMEOUT);
                                         stream.flush();
                                     } else if mtype == 114 /* r */ { // answer their ring question
                                         if let Ok(r) = recieve_ring(&m) {
                                             println!("{}","someone wants a ring".blue());
                                             thread::spawn(move || {
                                                 for i in r {
-                                                    if stream.write_all(&History::get_raw(&i)).is_err() {
+                                                    if !write_timeout(&mut stream, &History::get_raw(&i), WRITE_TIMEOUT) {
                                                         break
                                                     }
                                                 }
@@ -1394,14 +1394,14 @@ impl Future for KhoraNode {
                                                 let mut sync_theirnum = u64::from_le_bytes(m);
                                                 println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                 thread::spawn(move || {
-                                                    if stream.write_all(&bnum.to_le_bytes()).is_ok() {
+                                                    if write_timeout(&mut stream, &bnum.to_le_bytes(), WRITE_TIMEOUT) {
                                                         loop {
                                                             if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
                                                                 println!("{}: {} bytes",sync_theirnum,x.len());
-                                                                if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                                if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
                                                                     break
                                                                 }
-                                                                if stream.write_all(&x).is_err() {
+                                                                if !write_timeout(&mut stream, &x, WRITE_TIMEOUT) {
                                                                     break
                                                                 }
                                                             }
@@ -1424,15 +1424,15 @@ impl Future for KhoraNode {
                                             let cli = self.clients.clone();
                                             thread::spawn(move || {
                                                 if let Ok(m) = m.try_into() {
-                                                    if stream.write_all(&bnum.to_le_bytes()).is_ok() {
+                                                    if write_timeout(&mut stream, &bnum.to_le_bytes(), WRITE_TIMEOUT) {
                                                         let mut sync_theirnum = u64::from_le_bytes(m);
                                                         println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                         loop {
                                                             if let Ok(x) = NextBlock::read(&sync_theirnum) {
-                                                                if stream.write_all(&(x.len() as u64).to_le_bytes()).is_err() {
+                                                                if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
                                                                     break
                                                                 }
-                                                                if stream.write_all(&x).is_err() {
+                                                                if !write_timeout(&mut stream, &x, WRITE_TIMEOUT) {
                                                                     break
                                                                 }
                                                             }

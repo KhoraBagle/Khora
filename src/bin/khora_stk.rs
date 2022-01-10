@@ -93,7 +93,10 @@ fn main() -> Result<(), MainError> {
         for stream in outerlistener.incoming() {
             match stream {
                 Ok(stream) => {
-                    stream.set_nonblocking(true);
+                    if stream.set_nonblocking(true).is_err() {
+                        println!("couldn't set nonblocking");
+                        continue
+                    }
                     sendtcp.send(stream).unwrap();
                 }
                 Err(_) => {
@@ -991,6 +994,10 @@ impl KhoraNode {
         for node in sendview {
             println!("connecting");
             if let Ok(mut stream) = TcpStream::connect_timeout(&node,CONNECT_TIMEOUT) {
+                if stream.set_nonblocking(true).is_err() {
+                    println!("couldn't set nonblocking");
+                    continue
+                }
                 let mut bnum = self.bnum.to_le_bytes().to_vec();
                 bnum.push(122 - (self.lightning_yielder as u8));
                 if write_timeout(&mut stream, &bnum, WRITE_TIMEOUT) {
@@ -1055,6 +1062,10 @@ impl KhoraNode {
             sendview.shuffle(&mut rng);
             for node in sendview {
                 if let Ok(mut stream) =  TcpStream::connect_timeout(&node, CONNECT_TIMEOUT) {
+                    if stream.set_nonblocking(true).is_err() {
+                        println!("couldn't set nonblocking");
+                        continue
+                    }
                     if write_timeout(&mut stream, &[1], WRITE_TIMEOUT) {
                         if let Some(txses) = read_to_end_timeout(&mut stream, READ_TIMEOUT) {
                             if let Ok(x) = bincode::deserialize::<Vec<PolynomialTransaction>>(&txses) {

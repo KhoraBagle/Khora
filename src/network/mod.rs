@@ -57,19 +57,20 @@ pub fn write_timeout(stream: &mut TcpStream, mut buf: &[u8], timeout: Duration) 
     let time = Instant::now();
 
     while time.elapsed() < timeout {
-        if !buf.is_empty() {
-            match stream.write(buf) {
-                Ok(0) => {
-                    return true
-                },
-                Ok(n) => {
-                    let tmp = buf;
-                    buf = &tmp[n..];
-                }
-                Err(e) => {
-                    println!("Error: {}",e);
-                    break
-                }
+        if buf.is_empty() {
+            return true;
+        }
+        match stream.write(buf) {
+            Ok(0) => {
+                return true
+            },
+            Ok(n) => {
+                let tmp = buf;
+                buf = &tmp[n..];
+            }
+            Err(e) => {
+                println!("Error: {}",e);
+                break
             }
         }
     }

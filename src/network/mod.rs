@@ -7,6 +7,7 @@ pub fn read_timeout(stream: &mut TcpStream, mut buf: &mut [u8], timeout: Duratio
     let time = Instant::now();
     println!("Reading from: {:?}",stream);
 
+    std::thread::sleep(std::time::Duration::from_millis(100));
     while time.elapsed() <= timeout {
         if buf.is_empty() {
             return true;
@@ -24,6 +25,7 @@ pub fn read_timeout(stream: &mut TcpStream, mut buf: &mut [u8], timeout: Duratio
                 break
             }
         }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     println!("read_timeout timed out");
     false
@@ -35,6 +37,7 @@ pub fn read_to_end_timeout(stream: &mut TcpStream, timeout: Duration) -> Option<
     let mut buf = [0u8;1000];
     let time = Instant::now();
 
+    std::thread::sleep(std::time::Duration::from_millis(100));
     while time.elapsed() <= timeout {
         match stream.read(&mut buf) {
             Ok(0) => {
@@ -48,6 +51,7 @@ pub fn read_to_end_timeout(stream: &mut TcpStream, timeout: Duration) -> Option<
                 break
             }
         }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     println!("read_to_end_timeout timed out");
     return None
@@ -58,6 +62,7 @@ pub fn write_timeout(stream: &mut TcpStream, mut buf: &[u8], timeout: Duration) 
     let time = Instant::now();
     println!("Writing to: {:?}",stream);
 
+    std::thread::sleep(std::time::Duration::from_millis(100));
     while time.elapsed() < timeout {
         if buf.is_empty() {
             return true;
@@ -75,6 +80,7 @@ pub fn write_timeout(stream: &mut TcpStream, mut buf: &[u8], timeout: Duration) 
                 break
             }
         }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     println!("write_timeout timed out");
     false

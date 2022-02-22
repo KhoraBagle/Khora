@@ -5,6 +5,7 @@ use std::{net::TcpStream, time::{Instant, Duration}, io::{Read, Write}};
 /// reads the entire buffer if it can within the time period
 pub fn read_timeout(stream: &mut TcpStream, mut buf: &mut [u8], timeout: Duration) -> bool {
     let time = Instant::now();
+    println!("Reading from: {:?}",stream);
 
     while time.elapsed() <= timeout {
         if buf.is_empty() {
@@ -55,6 +56,7 @@ pub fn read_to_end_timeout(stream: &mut TcpStream, timeout: Duration) -> Option<
 /// writes the entire buffer if it can within the time period
 pub fn write_timeout(stream: &mut TcpStream, mut buf: &[u8], timeout: Duration) -> bool {
     let time = Instant::now();
+    println!("Writing to: {:?}",stream);
 
     while time.elapsed() < timeout {
         if buf.is_empty() {

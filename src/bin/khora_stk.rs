@@ -47,7 +47,6 @@ use khora::validation::{
 };
 
 use gip::{Provider, ProviderDefaultV4};
-use local_ip_address::local_ip;
 use colored::Colorize;
 
 

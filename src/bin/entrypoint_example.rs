@@ -13,7 +13,7 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use trackable::error::MainError;
 use gip::{Provider, ProviderDefaultV4};
-use local_ip_address::local_ip;
+// use local_ip_address::local_ip;
 use std::thread;
 use std::time::Duration;
 use std::io::BufRead;
@@ -142,8 +142,8 @@ fn main() {
     //     }
     // }
 
-    // let local_addr = "0.0.0.0".parse().unwrap();
-    let local_addr = local_ip().unwrap();
+    let local_addr = "0.0.0.0".parse().unwrap();
+    // let local_addr = local_ip().unwrap();
     let local_socket = SocketAddr::new(local_addr,DEFAULT_PORT);
     let mut p = ProviderDefaultV4::new();
     let global_addr = p.get_addr().unwrap().v4addr.unwrap();

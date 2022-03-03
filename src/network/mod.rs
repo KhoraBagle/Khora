@@ -1,7 +1,7 @@
 use std::{net::TcpStream, time::{Instant, Duration}, io::{Read, Write}};
 
 
-const LOOP_WAIT: u64 = 1000;
+const LOOP_WAIT: u64 = 100;
 
 /// reads the entire buffer if it can within the time period
 pub fn read_timeout(stream: &mut TcpStream, mut buf: &mut [u8], timeout: Duration) -> bool {

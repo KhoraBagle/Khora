@@ -482,7 +482,7 @@ impl KhoraNode {
         let responces = self.sendview[..cmp::min(recipients,self.sendview.len())].iter().filter_map(|socket| {
             if let Ok(mut stream) =  TcpStream::connect_timeout(socket,CONNECT_TIMEOUT) {
                 println!("connected...");
-                if stream.set_nonblocking(true).is_ok() {
+                if stream.set_nonblocking(false).is_ok() {
                     if write_timeout(&mut stream, &message, WRITE_TIMEOUT) {
                         println!("request made...");
                         return read_to_end_timeout(&mut stream, READ_TIMEOUT);
@@ -520,7 +520,7 @@ impl KhoraNode {
             for socket in self.sendview.iter() {
                 if let Ok(mut stream) = TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
                     println!("connected...");
-                    if stream.set_nonblocking(true).is_ok() {
+                    if stream.set_nonblocking(false).is_ok() {
 
                         if write_timeout(&mut stream, &rname, WRITE_TIMEOUT) {
                             println!("request made...");
@@ -566,7 +566,7 @@ impl KhoraNode {
         }
         for socket in self.sendview.clone() {
             if let Ok(mut stream) = TcpStream::connect_timeout(&socket, CONNECT_TIMEOUT) {
-                if stream.set_nonblocking(true).is_ok() {
+                if stream.set_nonblocking(false).is_ok() {
                     println!("connected...");
                     let mut m = self.bnum.to_le_bytes().to_vec();
                     m.push(121);

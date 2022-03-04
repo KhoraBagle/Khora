@@ -92,7 +92,7 @@ fn main() -> Result<(), MainError> {
         for stream in outerlistener.incoming() {
             match stream {
                 Ok(stream) => {
-                    if stream.set_nonblocking(true).is_err() {
+                    if stream.set_nonblocking(false).is_err() {
                         println!("couldn't set nonblocking");
                         continue
                     }
@@ -993,7 +993,7 @@ impl KhoraNode {
         for node in sendview {
             println!("connecting");
             if let Ok(mut stream) = TcpStream::connect_timeout(&node,CONNECT_TIMEOUT) {
-                if stream.set_nonblocking(true).is_err() {
+                if stream.set_nonblocking(false).is_err() {
                     println!("couldn't set nonblocking");
                     continue
                 }
@@ -1061,7 +1061,7 @@ impl KhoraNode {
             sendview.shuffle(&mut rng);
             for node in sendview {
                 if let Ok(mut stream) =  TcpStream::connect_timeout(&node, CONNECT_TIMEOUT) {
-                    if stream.set_nonblocking(true).is_err() {
+                    if stream.set_nonblocking(false).is_err() {
                         println!("couldn't set nonblocking");
                         continue
                     }

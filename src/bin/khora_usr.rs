@@ -986,19 +986,30 @@ impl Future for KhoraNode {
                                     }
                                     println!("Asking for entrance, awaiting reply...");
                         
-                                    let mut data = Vec::<u8>::new(); // using 6 byte buffer
-                                    match stream.read_to_end(&mut data) {
-                                        Ok(_) => {
-                                            if let Ok(x) = bincode::deserialize(&data) {
-                                                self.sendview = x;
-                                            } else {
-                                                println!("They didn't send a view!")
-                                            }
-                                        },
-                                        Err(e) => {
-                                            println!("Failed to receive data: {}", e);
+                                    if let Some(data) = read_to_end_timeout(&mut stream, READ_TIMEOUT) {
+                                        if let Ok(x) = bincode::deserialize(&data) {
+                                            self.sendview = x;
+                                            println!("Got a view!");
+                                        } else {
+                                            println!("They didn't send a view!");
                                         }
+                                    } else {
+                                        println!("Couldn't read the data in time!");
                                     }
+
+                                    // let mut data = Vec::<u8>::new(); // using 6 byte buffer
+                                    // match stream.read_to_end(&mut data) {
+                                    //     Ok(_) => {
+                                    //         if let Ok(x) = bincode::deserialize(&data) {
+                                    //             self.sendview = x;
+                                    //         } else {
+                                    //             println!("They didn't send a view!")
+                                    //         }
+                                    //     },
+                                    //     Err(e) => {
+                                    //         println!("Failed to receive data: {}", e);
+                                    //     }
+                                    // }
                                 },
                                 Err(e) => {
                                     println!("Failed to connect: {}", e);

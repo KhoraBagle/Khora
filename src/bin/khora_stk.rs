@@ -52,7 +52,7 @@ use colored::Colorize;
 
 
 fn main() -> Result<(), MainError> {
-    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("warning".parse().unwrap()).build())?; // info or debug
+    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("error".parse().unwrap()).build())?; // info or debug
 
 
     let outerlistener = TcpListener::bind(format!("0.0.0.0:{}",OUTSIDER_PORT)).unwrap();
@@ -991,7 +991,7 @@ impl KhoraNode {
         }
         sendview.shuffle(&mut rng);
         for node in sendview {
-            println!("connecting");
+            println!("searching for node...");
             if let Ok(mut stream) = TcpStream::connect_timeout(&node,CONNECT_TIMEOUT) {
                 if stream.set_nonblocking(false).is_err() {
                     println!("couldn't set nonblocking");
@@ -1039,6 +1039,8 @@ impl KhoraNode {
                             }
                         }
                         break
+                    } else {
+                        println!("They didn't respond!");
                     }
                 } else {
                     println!("can't write to stream!");

@@ -7,8 +7,9 @@ const LOOP_WAIT: u64 = 100;
 pub fn read_timeout(stream: &mut TcpStream, mut buf: &mut [u8], timeout: Duration) -> bool {
     let time = Instant::now();
     println!("Reading from: {:?}",stream);
-    stream.set_read_timeout(Some(timeout));
-    return stream.read(buf).is_ok();
+    // stream.set_read_timeout(Some(timeout));
+    // return stream.read(buf).is_ok();
+    stream.set_read_timeout(Some(std::time::Duration::from_millis(LOOP_WAIT)));
     std::thread::sleep(std::time::Duration::from_millis(LOOP_WAIT));
     while time.elapsed() <= timeout {
         if buf.is_empty() {
@@ -19,6 +20,7 @@ pub fn read_timeout(stream: &mut TcpStream, mut buf: &mut [u8], timeout: Duratio
                 return true
             },
             Ok(n) => {
+                println!("Read {} bytes",n);
                 let tmp = buf;
                 buf = &mut tmp[n..];
             }
@@ -39,6 +41,7 @@ pub fn read_to_end_timeout(stream: &mut TcpStream, timeout: Duration) -> Option<
     let mut buf = [0u8;1000];
     let time = Instant::now();
 
+    stream.set_read_timeout(Some(timeout));
     std::thread::sleep(std::time::Duration::from_millis(LOOP_WAIT));
     while time.elapsed() <= timeout {
         match stream.read(&mut buf) {
@@ -46,6 +49,7 @@ pub fn read_to_end_timeout(stream: &mut TcpStream, timeout: Duration) -> Option<
                 return Some(vec)
             },
             Ok(n) => {
+                println!("Read {} bytes",n);
                 vec.extend(&buf[..n]);
             }
             Err(e) => {

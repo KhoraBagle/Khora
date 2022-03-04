@@ -52,7 +52,7 @@ use colored::Colorize;
 
 
 fn main() -> Result<(), MainError> {
-    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("error".parse().unwrap()).build())?; // info or debug
+    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("debug".parse().unwrap()).build())?; // info or debug
 
 
     let outerlistener = TcpListener::bind(format!("0.0.0.0:{}",OUTSIDER_PORT)).unwrap();

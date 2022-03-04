@@ -1409,7 +1409,7 @@ impl Future for KhoraNode {
                                                 let mut sync_theirnum = u64::from_le_bytes(m);
                                                 println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                 thread::spawn(move || {
-                                                    if strea.write(&bnum.to_le_bytes()).is_ok() {
+                                                    if stream.write(&bnum.to_le_bytes()).is_ok() {
                                                     // write_timeout(&mut stream, &bnum.to_le_bytes(), WRITE_TIMEOUT) {
                                                         loop {
                                                             if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {

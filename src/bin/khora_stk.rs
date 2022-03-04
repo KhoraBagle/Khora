@@ -1432,10 +1432,10 @@ impl Future for KhoraNode {
                                                                 },
                                                                 Err(x) => println!("Err: {}",x)
                                                             }
-                                                            sync_theirnum += 1;
                                                             if sync_theirnum == bnum {
                                                                 break
                                                             }
+                                                            sync_theirnum += 1;
                                                         }
                                                     }
                                                     stream.flush();
@@ -1479,10 +1479,10 @@ impl Future for KhoraNode {
                                                             //     //     break
                                                             //     // }
                                                             // }
-                                                            sync_theirnum += 1;
                                                             if sync_theirnum == bnum {
                                                                 break
                                                             }
+                                                            sync_theirnum += 1;
                                                         } 
                                                     }
                                                 }

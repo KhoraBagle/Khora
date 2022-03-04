@@ -999,7 +999,8 @@ impl KhoraNode {
                 }
                 let mut bnum = self.bnum.to_le_bytes().to_vec();
                 bnum.push(122 - (self.lightning_yielder as u8));
-                if write_timeout(&mut stream, &bnum, WRITE_TIMEOUT) {
+                if stream.write(&bnum).is_ok() {
+                // if write_timeout(&mut stream, &bnum, WRITE_TIMEOUT) {
                     let mut ok = [0;8];
                     if read_timeout(&mut stream, &mut ok, READ_TIMEOUT) {
                         let syncnum = u64::from_le_bytes(ok);
@@ -1065,7 +1066,8 @@ impl KhoraNode {
                         println!("couldn't set nonblocking");
                         continue
                     }
-                    if write_timeout(&mut stream, &[1], WRITE_TIMEOUT) {
+                    if stream.write(&[1]).is_ok() {
+                    // if write_timeout(&mut stream, &[1], WRITE_TIMEOUT) {
                         if let Some(txses) = read_to_end_timeout(&mut stream, READ_TIMEOUT) {
                             if let Ok(x) = bincode::deserialize::<Vec<PolynomialTransaction>>(&txses) {
                                 // x.retain(|t|
@@ -1368,18 +1370,21 @@ impl Future for KhoraNode {
                                                 println!("{}","a user sent a tx".blue());
                                                 m.push(0);
                                                 self.outer.broadcast_now(m);
-                                                write_timeout(&mut stream, &[1u8], WRITE_TIMEOUT);
+                                                stream.write(&[1u8]).is_ok();
+                                                // write_timeout(&mut stream, &[1u8], WRITE_TIMEOUT);
                                                 stream.flush();
                                             }
                                         }
                                     } else if mtype == 1 {
                                         println!("{}","a validator needs some tx".blue());
-                                        write_timeout(&mut stream, &bincode::serialize(&self.txses.iter().collect::<Vec<_>>()).unwrap(), WRITE_TIMEOUT);
+                                        stream.write(&bincode::serialize(&self.txses.iter().collect::<Vec<_>>()).unwrap()).is_ok();
+                                        // write_timeout(&mut stream, &bincode::serialize(&self.txses.iter().collect::<Vec<_>>()).unwrap(), WRITE_TIMEOUT);
                                         stream.flush();
                                     } else if mtype == 101 /* e */ {
                                         println!("{}","someone wants a bunch of ips".blue());
                                         let x = self.stkinfo.vec.iter().filter_map(|(_,(_,x))| *x).collect::<Vec<_>>();
-                                        write_timeout(&mut stream, &bincode::serialize(&x).unwrap(), WRITE_TIMEOUT);
+                                        stream.write(&bincode::serialize(&x).unwrap()).is_ok();
+                                        // write_timeout(&mut stream, &bincode::serialize(&x).unwrap(), WRITE_TIMEOUT);
                                         stream.flush();
                                     } else if mtype == 114 /* r */ { // answer their ring question
                                         if let Ok(r) = recieve_ring(&m) {
@@ -1404,16 +1409,18 @@ impl Future for KhoraNode {
                                                 let mut sync_theirnum = u64::from_le_bytes(m);
                                                 println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                 thread::spawn(move || {
-                                                    if write_timeout(&mut stream, &bnum.to_le_bytes(), WRITE_TIMEOUT) {
+                                                    if strea.write(&bnum.to_le_bytes()).is_ok() {
+                                                    // write_timeout(&mut stream, &bnum.to_le_bytes(), WRITE_TIMEOUT) {
                                                         loop {
                                                             if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
                                                                 println!("{}: {} bytes",sync_theirnum,x.len());
-                                                                if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
-                                                                    break
-                                                                }
-                                                                if !write_timeout(&mut stream, &x, WRITE_TIMEOUT) {
-                                                                    break
-                                                                }
+                                                                if !stream.write(&(x.len() as u64).to_le_bytes()).is_ok() || !stream.write(&x).is_ok() {break}
+                                                                // if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
+                                                                //     break
+                                                                // }
+                                                                // if !write_timeout(&mut stream, &x, WRITE_TIMEOUT) {
+                                                                //     break
+                                                                // }
                                                             }
                                                             sync_theirnum += 1;
                                                             if sync_theirnum == bnum {
@@ -1434,17 +1441,19 @@ impl Future for KhoraNode {
                                             let cli = self.clients.clone();
                                             thread::spawn(move || {
                                                 if let Ok(m) = m.try_into() {
-                                                    if write_timeout(&mut stream, &bnum.to_le_bytes(), WRITE_TIMEOUT) {
+                                                    if stream.write(&bnum.to_le_bytes()).is_ok() {
+                                                    // write_timeout(&mut stream, &bnum.to_le_bytes(), WRITE_TIMEOUT) {
                                                         let mut sync_theirnum = u64::from_le_bytes(m);
                                                         println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                         loop {
                                                             if let Ok(x) = NextBlock::read(&sync_theirnum) {
-                                                                if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
-                                                                    break
-                                                                }
-                                                                if !write_timeout(&mut stream, &x, WRITE_TIMEOUT) {
-                                                                    break
-                                                                }
+                                                                if !stream.write(&(x.len() as u64).to_le_bytes()).is_ok() || !stream.write(&x).is_ok() {break}
+                                                                // if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
+                                                                //     break
+                                                                // }
+                                                                // if !write_timeout(&mut stream, &x, WRITE_TIMEOUT) {
+                                                                //     break
+                                                                // }
                                                             }
                                                             sync_theirnum += 1;
                                                             if sync_theirnum == bnum {

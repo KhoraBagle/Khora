@@ -1954,11 +1954,12 @@ impl Future for KhoraNode {
                         self.headshard = 0;
                         self.usurpingtime = Instant::now();
                         self.gui_sender.send(vec![blocktime(self.bnum as f64) as u8,128]).unwrap();
-                        let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
+                        let ip = String::from_utf8_lossy(&m);
+                        let m = format!("{}:{}",ip,OUTSIDER_PORT);
                         if let Ok(socket) = m.parse() {
-                            println!("ip: {}",m);
+                            println!("ip: {}",ip);
                             self.attempt_sync(Some(socket), true);
-                            self.outer.dm(vec![97],&[NodeId::new(socket, LocalNodeId::new(0))],true);
+                            self.outer.dm(vec![97],&[NodeId::new(format!("{}:{}",ip,DEFAULT_PORT).parse().unwrap(), LocalNodeId::new(0))],true);
                         } else {
                             println!("that's not an ip address!");
                         }

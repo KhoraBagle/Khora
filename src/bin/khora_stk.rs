@@ -997,6 +997,7 @@ impl KhoraNode {
                     println!("couldn't set nonblocking");
                     continue
                 }
+                println!("connected...");
                 let mut bnum = self.bnum.to_le_bytes().to_vec();
                 bnum.push(122 - (self.lightning_yielder as u8));
                 // if stream.write(&bnum).is_ok() {

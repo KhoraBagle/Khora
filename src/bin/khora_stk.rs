@@ -259,7 +259,7 @@ fn main() -> Result<(), MainError> {
         let native_options = eframe::NativeOptions::default();
         std::thread::spawn(move || {
             println!("attempting sync");
-            node.attempt_sync(None, false);
+            node.attempt_sync(None, true);
             executor.spawn(service.map_err(|e| panic!("{}", e)));
             executor.spawn(node);
     
@@ -999,17 +999,21 @@ impl KhoraNode {
                 }
                 let mut bnum = self.bnum.to_le_bytes().to_vec();
                 bnum.push(122 - (self.lightning_yielder as u8));
-                if stream.write(&bnum).is_ok() {
-                // if write_timeout(&mut stream, &bnum, WRITE_TIMEOUT) {
+                // if stream.write(&bnum).is_ok() {
+                if write_timeout(&mut stream, &bnum, WRITE_TIMEOUT) {
+                    println!("request made...");
                     let mut ok = [0;8];
                     if read_timeout(&mut stream, &mut ok, READ_TIMEOUT) {
                         let syncnum = u64::from_le_bytes(ok);
                         self.gui_sender.send(ok.iter().chain(&[7u8]).cloned().collect()).unwrap();
+                        println!("responce valid. syncing now...");
                         let mut blocksize = [0u8;8];
                         let mut counter = 0;
-                        while read_timeout(&mut stream,&mut blocksize,READ_TIMEOUT) {
+                        // while read_timeout(&mut stream,&mut blocksize,READ_TIMEOUT) {
+                        while stream.read_exact(&mut blocksize).is_ok() {
                             counter += 1;
                             let bsize = u64::from_le_bytes(blocksize) as usize;
+                            println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
                             let mut serialized_block = vec![0u8;bsize];
                             if !read_timeout(&mut stream,&mut serialized_block,READ_TIMEOUT) {
                                 println!("couldn't read the block");
@@ -1950,7 +1954,7 @@ impl Future for KhoraNode {
                         let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
                         if let Ok(socket) = m.parse() {
                             println!("ip: {}",m);
-                            self.attempt_sync(Some(socket), false);
+                            self.attempt_sync(Some(socket), true);
                             self.outer.dm(vec![97],&[NodeId::new(socket, LocalNodeId::new(0))],true);
                         } else {
                             println!("that's not an ip address!");

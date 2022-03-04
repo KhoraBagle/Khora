@@ -7,6 +7,7 @@ const LOOP_WAIT: u64 = 100;
 pub fn read_timeout(stream: &mut TcpStream, mut buf: &mut [u8], timeout: Duration) -> bool {
     let time = Instant::now();
     println!("Reading from: {:?}",stream);
+    stream.set_read_timeout(Some(timeout));
     return stream.read(buf).is_ok();
     std::thread::sleep(std::time::Duration::from_millis(LOOP_WAIT));
     while time.elapsed() <= timeout {

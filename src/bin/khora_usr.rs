@@ -296,7 +296,7 @@ impl KhoraNode {
     }
 
     /// reads a lightning block and saves information when appropriate and returns if you accepted the block
-    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, save: bool) {
+    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, save: bool) -> bool {
         if lastlightning.bnum >= self.bnum {
             let v = if lastlightning.last_name == self.lastname {
                 lastlightning.verify_multithread_user(&comittee_n_user(lastlightning.shard as usize, &self.comittee, &self.stkinfo), &self.stkinfo).is_ok()
@@ -411,9 +411,10 @@ impl KhoraNode {
 
                 // println!("{}",format!("{}",t.elapsed().as_millis()).bright_yellow());
 
-
+                return true
             }
         }
+        false
     }
 
     /// runs the operations needed for the panic button to work
@@ -588,14 +589,15 @@ impl KhoraNode {
                                 println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
                                 let mut serialized_block = vec![0u8;bsize];
                                 // if stream.read_exact(&mut serialized_block).is_err() {
-                                while read_timeout(&mut stream,&mut serialized_block, READ_TIMEOUT) {
+                                if !read_timeout(&mut stream,&mut serialized_block, READ_TIMEOUT) {
                                     println!("couldn't read the bytes");
                                 }
                                 if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
                                     
-                                    // let t = Instant::now();
-                                    self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
-                                    // println!("{}",format!("block reading time: {}ms",t.elapsed().as_millis()).bright_yellow().bold());
+                                    let t = Instant::now();
+                                    let bnum = lastblock.bnum;
+                                    let valid = self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
+                                    println!("{}",format!("block {} reading time: {}ms... valid: {}",bnum,t.elapsed().as_millis(),valid).bright_yellow().bold());
                                 } else {
                                     println!("they send a fake block");
                                 }

@@ -6,7 +6,7 @@ const LOOP_WAIT: u64 = 100;
 /// reads the entire buffer if it can within the time period
 pub fn read_timeout(stream: &mut TcpStream, mut buf: &mut [u8], timeout: Duration) -> bool {
     let time = Instant::now();
-    println!("Reading from: {:?}",stream);
+    println!("Reading {} bytes from: {:?}",buf.len(),stream);
     // stream.set_read_timeout(Some(timeout));
     // return stream.read(buf).is_ok();
     stream.set_read_timeout(Some(std::time::Duration::from_millis(LOOP_WAIT)));
@@ -16,13 +16,11 @@ pub fn read_timeout(stream: &mut TcpStream, mut buf: &mut [u8], timeout: Duratio
             return true;
         }
         match stream.read(buf) {
-            Ok(0) => {
-                // return true
-            },
+            Ok(0) => {return false}
             Ok(n) => {
-                println!("Read {} bytes",n);
                 let tmp = buf;
                 buf = &mut tmp[n..];
+                println!("Read {} bytes... {} left!",n,buf.len());
             }
             Err(e) => {
                 println!("Error: {}",e);

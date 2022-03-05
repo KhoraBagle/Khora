@@ -1413,8 +1413,8 @@ impl Future for KhoraNode {
                                             *self.clients.write() += 1;
                                             let cli = self.clients.clone();
                                             if let Ok(m) = m.try_into() {
-                                                // let mut sync_theirnum = u64::from_le_bytes(m) + 1;
-                                                let mut sync_theirnum = u64::from_le_bytes(m);
+                                                let mut sync_theirnum = u64::from_le_bytes(m) + 1;
+                                                // let mut sync_theirnum = u64::from_le_bytes(m);
                                                 println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                 thread::spawn(move || {
                                                     if stream.write(&bnum.to_le_bytes()).is_ok() {
@@ -1454,8 +1454,8 @@ impl Future for KhoraNode {
                                                 if let Ok(m) = m.try_into() {
                                                     if stream.write(&bnum.to_le_bytes()).is_ok() {
                                                     // write_timeout(&mut stream, &bnum.to_le_bytes(), WRITE_TIMEOUT) {
-                                                        // let mut sync_theirnum = u64::from_le_bytes(m) + 1;
-                                                        let mut sync_theirnum = u64::from_le_bytes(m);
+                                                        let mut sync_theirnum = u64::from_le_bytes(m) + 1;
+                                                        // let mut sync_theirnum = u64::from_le_bytes(m);
                                                         println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                         loop {
 

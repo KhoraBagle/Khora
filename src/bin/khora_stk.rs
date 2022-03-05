@@ -1413,7 +1413,8 @@ impl Future for KhoraNode {
                                             *self.clients.write() += 1;
                                             let cli = self.clients.clone();
                                             if let Ok(m) = m.try_into() {
-                                                let mut sync_theirnum = u64::from_le_bytes(m) + 1;
+                                                // let mut sync_theirnum = u64::from_le_bytes(m) + 1;
+                                                let mut sync_theirnum = u64::from_le_bytes(m);
                                                 println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                 thread::spawn(move || {
                                                     if stream.write(&bnum.to_le_bytes()).is_ok() {
@@ -1422,7 +1423,7 @@ impl Future for KhoraNode {
                                                             match LightningSyncBlock::read(&sync_theirnum) {
                                                                 Ok(x) => {
                                                                     println!("{}: {} bytes",sync_theirnum,x.len());
-                                                                    if !stream.write(&(x.len() as u64).to_le_bytes()).is_ok() || !stream.write(&x).is_ok() {break}
+                                                                    if !stream.write(&(x.len() as u64).to_le_bytes()).is_ok() || !stream.write(&x).is_ok() {println!("Couldn't write block");break}
                                                                     // if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
                                                                     //     break
                                                                     // }
@@ -1461,7 +1462,7 @@ impl Future for KhoraNode {
                                                             match NextBlock::read(&sync_theirnum) {
                                                                 Ok(x) => {
                                                                     println!("{}: {} bytes",sync_theirnum,x.len());
-                                                                    if !stream.write(&(x.len() as u64).to_le_bytes()).is_ok() || !stream.write(&x).is_ok() {break}
+                                                                    if !stream.write(&(x.len() as u64).to_le_bytes()).is_ok() || !stream.write(&x).is_ok() {println!("Couldn't write block");break}
                                                                     // if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
                                                                     //     break
                                                                     // }

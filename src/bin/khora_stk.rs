@@ -1217,11 +1217,10 @@ impl Future for KhoraNode {
                                             let m = NextBlock::valicreate(&self.key, &keylocation, &self.leader, m, &(self.headshard as u8), &self.bnum, &self.lastname, &self.bloom, &self.stkinfo, &self.nonanony);
                                             let mut m = bincode::serialize(&m).unwrap();
                                             m.push(2);
-                                            self.inner.broadcast(m.clone());
-                                            // for _ in comittee_n(self.headshard,&self.comittee, &self.stkinfo).iter().filter(|&x|x == keylocation).collect::<Vec<_>>() {
-                                            //     // println!("{}","broadcasting block signature".red());
-                                            //     self.inner.broadcast(m.clone());
-                                            // }
+                                            for _ in comittee_n(self.headshard,&self.comittee, &self.stkinfo).iter().filter(|&x|x == keylocation).collect::<Vec<_>>() {
+                                                // println!("{}","broadcasting block signature".red());
+                                                self.inner.broadcast(m.clone());
+                                            }
                                         }
                                         self.waitingforentrybool = false;
                                         self.waitingforleaderbool = true;

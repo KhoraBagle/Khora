@@ -579,14 +579,16 @@ impl KhoraNode {
                             println!("responce valid. syncing now...");
                             let mut blocksize = [0u8;8];
                             let mut counter = 0;
-                            while stream.read_exact(&mut blocksize).is_ok() {
+                            // while stream.read_exact(&mut blocksize).is_ok() {
+                            while read_timeout(&mut stream,&mut blocksize, READ_TIMEOUT) {
                                 // println!(".");
                                 counter += 1;
                                 // let tt = Instant::now();
                                 let bsize = u64::from_le_bytes(blocksize) as usize;
                                 println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
                                 let mut serialized_block = vec![0u8;bsize];
-                                if stream.read_exact(&mut serialized_block).is_err() {
+                                // if stream.read_exact(&mut serialized_block).is_err() {
+                                while read_timeout(&mut stream,&mut serialized_block, READ_TIMEOUT) {
                                     println!("couldn't read the bytes");
                                 }
                                 if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {

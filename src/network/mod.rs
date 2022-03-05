@@ -17,7 +17,7 @@ pub fn read_timeout(stream: &mut TcpStream, mut buf: &mut [u8], timeout: Duratio
         }
         match stream.read(buf) {
             Ok(0) => {
-                return true
+                // return true
             },
             Ok(n) => {
                 println!("Read {} bytes",n);

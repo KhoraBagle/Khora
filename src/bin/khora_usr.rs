@@ -64,6 +64,7 @@ fn main() -> Result<(), MainError> {
         let initial_history = (PERSON0,1u64);
 
         thread::spawn(move || {
+            thread::sleep(std::time::Duration::from_secs(5));
             let pswrd = urecv.recv().unwrap();
             
             println!("password:\n{:?}",pswrd);

@@ -225,7 +225,7 @@ impl epi::App for KhoraStakerGUI {
     fn setup(
         &mut self,
         _ctx: &egui::CtxRef,
-        _frame: &mut epi::Frame<'_>,
+        _frame: &epi::Frame,
         _storage: Option<&dyn epi::Storage>,
     ) {
         // println!("This is printing before the first frame!");
@@ -275,7 +275,7 @@ impl epi::App for KhoraStakerGUI {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
-    fn update(&mut self, ctx: &egui::CtxRef, frame: &mut epi::Frame<'_>) {
+    fn update(&mut self, ctx: &egui::CtxRef, frame: &epi::Frame) {
         ctx.request_repaint();
         if let Ok(mut i) = self.reciever.try_recv() {
             let modification = i.pop().unwrap();
@@ -393,7 +393,7 @@ impl epi::App for KhoraStakerGUI {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
-                egui::menu::menu(ui, "File", |ui| {
+                ui.menu_button("File", |ui| {
                     if !*setup {
                         if ui.button("Options Menu").clicked() {
                             *options_menu = true;

@@ -52,7 +52,7 @@ use colored::Colorize;
 
 
 fn main() -> Result<(), MainError> {
-    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("warning".parse().unwrap()).build())?; // info or debug
+    let logger = track!(TerminalLoggerBuilder::new().destination(Destination::Stderr).level("error".parse().unwrap()).build())?; // info or debug
 
 
     let outerlistener = TcpListener::bind(format!("0.0.0.0:{}",OUTSIDER_PORT)).unwrap();
@@ -991,7 +991,7 @@ impl KhoraNode {
         }
         sendview.shuffle(&mut rng);
         for node in sendview {
-            println!("connecting");
+            println!("searching for node...");
             if let Ok(mut stream) = TcpStream::connect_timeout(&node,CONNECT_TIMEOUT) {
                 if stream.set_nonblocking(false).is_err() {
                     println!("couldn't set nonblocking");
@@ -1039,6 +1039,8 @@ impl KhoraNode {
                             }
                         }
                         break
+                    } else {
+                        println!("They didn't respond!");
                     }
                 } else {
                     println!("can't write to stream!");
@@ -1411,26 +1413,30 @@ impl Future for KhoraNode {
                                             *self.clients.write() += 1;
                                             let cli = self.clients.clone();
                                             if let Ok(m) = m.try_into() {
-                                                let mut sync_theirnum = u64::from_le_bytes(m);
+                                                let mut sync_theirnum = u64::from_le_bytes(m) + 1;
+                                                // let mut sync_theirnum = u64::from_le_bytes(m);
                                                 println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                 thread::spawn(move || {
                                                     if stream.write(&bnum.to_le_bytes()).is_ok() {
                                                     // write_timeout(&mut stream, &bnum.to_le_bytes(), WRITE_TIMEOUT) {
                                                         loop {
-                                                            if let Ok(x) = LightningSyncBlock::read(&sync_theirnum) {
-                                                                println!("{}: {} bytes",sync_theirnum,x.len());
-                                                                if !stream.write(&(x.len() as u64).to_le_bytes()).is_ok() || !stream.write(&x).is_ok() {break}
-                                                                // if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
-                                                                //     break
-                                                                // }
-                                                                // if !write_timeout(&mut stream, &x, WRITE_TIMEOUT) {
-                                                                //     break
-                                                                // }
+                                                            match LightningSyncBlock::read(&sync_theirnum) {
+                                                                Ok(x) => {
+                                                                    println!("{}: {} bytes",sync_theirnum,x.len());
+                                                                    if !stream.write(&(x.len() as u64).to_le_bytes()).is_ok() || !stream.write(&x).is_ok() {println!("Couldn't write block");break}
+                                                                    // if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
+                                                                    //     break
+                                                                    // }
+                                                                    // if !write_timeout(&mut stream, &x, WRITE_TIMEOUT) {
+                                                                    //     break
+                                                                    // }
+                                                                },
+                                                                Err(x) => ()//println!("Err: {}",x)
                                                             }
-                                                            sync_theirnum += 1;
                                                             if sync_theirnum == bnum {
                                                                 break
                                                             }
+                                                            sync_theirnum += 1;
                                                         }
                                                     }
                                                     stream.flush();
@@ -1448,22 +1454,37 @@ impl Future for KhoraNode {
                                                 if let Ok(m) = m.try_into() {
                                                     if stream.write(&bnum.to_le_bytes()).is_ok() {
                                                     // write_timeout(&mut stream, &bnum.to_le_bytes(), WRITE_TIMEOUT) {
-                                                        let mut sync_theirnum = u64::from_le_bytes(m);
+                                                        let mut sync_theirnum = u64::from_le_bytes(m) + 1;
+                                                        // let mut sync_theirnum = u64::from_le_bytes(m);
                                                         println!("{}",format!("syncing them from {}",sync_theirnum).blue());
                                                         loop {
-                                                            if let Ok(x) = NextBlock::read(&sync_theirnum) {
-                                                                if !stream.write(&(x.len() as u64).to_le_bytes()).is_ok() || !stream.write(&x).is_ok() {break}
-                                                                // if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
-                                                                //     break
-                                                                // }
-                                                                // if !write_timeout(&mut stream, &x, WRITE_TIMEOUT) {
-                                                                //     break
-                                                                // }
+
+                                                            match NextBlock::read(&sync_theirnum) {
+                                                                Ok(x) => {
+                                                                    println!("{}: {} bytes",sync_theirnum,x.len());
+                                                                    if !stream.write(&(x.len() as u64).to_le_bytes()).is_ok() || !stream.write(&x).is_ok() {println!("Couldn't write block");break}
+                                                                    // if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
+                                                                    //     break
+                                                                    // }
+                                                                    // if !write_timeout(&mut stream, &x, WRITE_TIMEOUT) {
+                                                                    //     break
+                                                                    // }
+                                                                },
+                                                                Err(x) => ()//println!("Err: {}",x)
                                                             }
-                                                            sync_theirnum += 1;
+                                                            // if let Ok(x) = NextBlock::read(&sync_theirnum) {
+                                                            //     if !stream.write(&(x.len() as u64).to_le_bytes()).is_ok() || !stream.write(&x).is_ok() {break}
+                                                            //     // if !write_timeout(&mut stream, &(x.len() as u64).to_le_bytes(), WRITE_TIMEOUT) {
+                                                            //     //     break
+                                                            //     // }
+                                                            //     // if !write_timeout(&mut stream, &x, WRITE_TIMEOUT) {
+                                                            //     //     break
+                                                            //     // }
+                                                            // }
                                                             if sync_theirnum == bnum {
                                                                 break
                                                             }
+                                                            sync_theirnum += 1;
                                                         } 
                                                     }
                                                 }
@@ -1952,11 +1973,12 @@ impl Future for KhoraNode {
                         self.headshard = 0;
                         self.usurpingtime = Instant::now();
                         self.gui_sender.send(vec![blocktime(self.bnum as f64) as u8,128]).unwrap();
-                        let m = format!("{}:{}",String::from_utf8_lossy(&m),DEFAULT_PORT);
-                        if let Ok(socket) = m.parse() {
-                            println!("ip: {}",m);
+                        let mut ip = String::from_utf8_lossy(&m);
+                        ip.to_mut().retain(|c| !c.is_whitespace());
+                        if let Ok(socket) = format!("{}:{}",ip,OUTSIDER_PORT).parse() {
+                            println!("ip: {}",ip);
                             self.attempt_sync(Some(socket), true);
-                            self.outer.dm(vec![97],&[NodeId::new(socket, LocalNodeId::new(0))],true);
+                            self.outer.dm(vec![97],&[NodeId::new(format!("{}:{}",ip,DEFAULT_PORT).parse().unwrap(), LocalNodeId::new(0))],true);
                         } else {
                             println!("that's not an ip address!");
                         }

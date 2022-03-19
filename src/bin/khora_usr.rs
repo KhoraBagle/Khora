@@ -297,7 +297,7 @@ impl KhoraNode {
     }
 
     /// reads a lightning block and saves information when appropriate and returns if you accepted the block
-    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, save: bool) {
+    fn readlightning(&mut self, lastlightning: LightningSyncBlock, m: Vec<u8>, save: bool) -> bool {
         if lastlightning.bnum >= self.bnum {
             let v = if lastlightning.last_name == self.lastname {
                 lastlightning.verify_multithread_user(&comittee_n_user(lastlightning.shard as usize, &self.comittee, &self.stkinfo), &self.stkinfo).is_ok()
@@ -412,9 +412,10 @@ impl KhoraNode {
 
                 // println!("{}",format!("{}",t.elapsed().as_millis()).bright_yellow());
 
-
+                return true
             }
         }
+        false
     }
 
     /// runs the operations needed for the panic button to work
@@ -580,21 +581,24 @@ impl KhoraNode {
                             println!("responce valid. syncing now...");
                             let mut blocksize = [0u8;8];
                             let mut counter = 0;
-                            while stream.read_exact(&mut blocksize).is_ok() {
+                            // while stream.read_exact(&mut blocksize).is_ok() {
+                            while read_timeout(&mut stream,&mut blocksize, READ_TIMEOUT) {
                                 // println!(".");
                                 counter += 1;
                                 // let tt = Instant::now();
                                 let bsize = u64::from_le_bytes(blocksize) as usize;
                                 println!("block: {} of {} -- {} bytes",self.bnum,syncnum,bsize);
                                 let mut serialized_block = vec![0u8;bsize];
-                                if stream.read_exact(&mut serialized_block).is_err() {
+                                // if stream.read_exact(&mut serialized_block).is_err() {
+                                if !read_timeout(&mut stream,&mut serialized_block, READ_TIMEOUT) {
                                     println!("couldn't read the bytes");
                                 }
                                 if let Ok(lastblock) = bincode::deserialize::<LightningSyncBlock>(&serialized_block) {
                                     
-                                    // let t = Instant::now();
-                                    self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
-                                    // println!("{}",format!("block reading time: {}ms",t.elapsed().as_millis()).bright_yellow().bold());
+                                    let t = Instant::now();
+                                    let bnum = lastblock.bnum;
+                                    let valid = self.readlightning(lastblock, serialized_block, (counter%1000 == 0) || (self.bnum >= syncnum-1));
+                                    println!("{}",format!("block {} reading time: {}ms... valid: {}",bnum,t.elapsed().as_millis(),valid).bright_yellow().bold());
                                 } else {
                                     println!("they send a fake block");
                                 }
@@ -987,19 +991,30 @@ impl Future for KhoraNode {
                                     }
                                     println!("Asking for entrance, awaiting reply...");
                         
-                                    let mut data = Vec::<u8>::new(); // using 6 byte buffer
-                                    match stream.read_to_end(&mut data) {
-                                        Ok(_) => {
-                                            if let Ok(x) = bincode::deserialize(&data) {
-                                                self.sendview = x;
-                                            } else {
-                                                println!("They didn't send a view!")
-                                            }
-                                        },
-                                        Err(e) => {
-                                            println!("Failed to receive data: {}", e);
+                                    if let Some(data) = read_to_end_timeout(&mut stream, READ_TIMEOUT) {
+                                        if let Ok(x) = bincode::deserialize(&data) {
+                                            self.sendview = x;
+                                            println!("Got a view!");
+                                        } else {
+                                            println!("They didn't send a view!");
                                         }
+                                    } else {
+                                        println!("Couldn't read the data in time!");
                                     }
+
+                                    // let mut data = Vec::<u8>::new(); // using 6 byte buffer
+                                    // match stream.read_to_end(&mut data) {
+                                    //     Ok(_) => {
+                                    //         if let Ok(x) = bincode::deserialize(&data) {
+                                    //             self.sendview = x;
+                                    //         } else {
+                                    //             println!("They didn't send a view!")
+                                    //         }
+                                    //     },
+                                    //     Err(e) => {
+                                    //         println!("Failed to receive data: {}", e);
+                                    //     }
+                                    // }
                                 },
                                 Err(e) => {
                                     println!("Failed to connect: {}", e);

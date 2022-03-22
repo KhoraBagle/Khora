@@ -21,6 +21,10 @@ name = "khora_stk"
 path = "src/bin/khora_stk.rs"
 
 [[bin]]
+name = "deterministic_gossip"
+path = "src/bin/deterministic_gossip.rs"
+
+[[bin]]
 name = "entrypoint_example"
 path = "src/bin/entrypoint_example.rs"
 

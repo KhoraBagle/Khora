@@ -1647,7 +1647,7 @@ impl Future for KhoraNode {
                                     validtx = false;
                                 }
                             }
-                            if m.len() >= 8 {
+                            if m.len() >= 8 && validtx {
                                 if let Ok(x) = m.drain(..8).collect::<Vec<_>>().try_into() {
                                     let x = u64::from_le_bytes(x);
                                     // // println!("amounts {:?}",x);
@@ -1678,7 +1678,7 @@ impl Future for KhoraNode {
                         }
 
                         let mut txbin: Vec<u8>;
-                        if txtype == 33 /* ! */ { // transaction should be spent with unstaked money
+                        if txtype == 33 /* ! */ && validtx { // transaction should be spent with unstaked money
                             let loc = self.mine.iter().map(|(&x,_)|x).collect::<Vec<_>>();
 
                             let m = self.mine.iter().map(|x| x.1.com.amount.unwrap()).sum::<Scalar>() - outs.iter().map(|x| x.1).sum::<Scalar>();
@@ -1714,7 +1714,7 @@ impl Future for KhoraNode {
                                 println!("you aren't allowed to use a ring that big!");
                             }
                             
-                        } else if txtype == 63 /* ? */ { // transaction should be spent with staked money
+                        } else if txtype == 63 /* ? */ && validtx { // transaction should be spent with staked money
                             if let Some(smine) = self.smine {
                                 let m = Scalar::from(smine.1) - outs.iter().map(|x| x.1).sum::<Scalar>();
                                 let x = outs.len() - 1;
@@ -1740,7 +1740,7 @@ impl Future for KhoraNode {
                                 txbin = vec![];
                                 println!("you can't make that transaction!");
                             }
-                        } else if txtype == 64 /* ?+1 */ { // transaction should be spent with nonanony money
+                        } else if txtype == 64 /* ?+1 */ && validtx { // transaction should be spent with nonanony money
                             if let Some(nmine) = self.nmine {
                                 let m = Scalar::from(nmine.1) - outs.iter().map(|x| x.1).sum::<Scalar>();
                                 let x = outs.len() - 1;

@@ -1,6 +1,7 @@
-use std::{fs::File, io::Read, time::Instant, collections::VecDeque};
-use rand::{Rng};
+use std::{fs::File, io::Read, time::Instant, collections::VecDeque, convert::TryInto};
+use rand::{Rng, prelude::StdRng, SeedableRng};
 use std::fmt::Binary;
+use std::num::Wrapping;
 
 
 // An exact copy of rand::Rng::shuffle, with the signature modified to
@@ -34,13 +35,26 @@ fn get_children(me: usize) -> Option<[usize;2]> {
     None
 }
 fn main() {
-    let t = Instant::now();
     let mut rng = rand::thread_rng();
-    let mut me = rng.gen_range(0,1000usize);
-    let mut x = (0..1000usize).collect::<VecDeque<_>>();
-    println!("{},{}",me,x[me]);
+    let mut tx = [0u8;1024];
+    rng.fill(&mut tx);
+
+    let nodes = 2u64.pow(10) as usize;
+    println!("{} nodes",nodes);
+    
+    let mut me = rng.gen_range(0,nodes);
+    let mut x = (0..nodes).collect::<VecDeque<_>>();
+    println!("me = {}\tx[me] = {}",me,x[me]);
+
+    let t = Instant::now();
+
+    let csize = tx.len()/8;
+    let numgen = tx.chunks_exact(csize).map(|c|c.into_iter().copied().reduce(|x,y| x ^ y).unwrap()).collect::<Vec<_>>();
+    
+
+    let mut rng = StdRng::seed_from_u64(u64::from_le_bytes(numgen.try_into().unwrap()));
     shuffle(&mut x, &mut rng,&mut me);
-    println!("{},{}",me,x[me]);
+    println!("me = {}\tx[me] = {}",me,x[me]);
     println!("time = {}ms",t.elapsed().as_millis());
 
     println!("{:#064b}",me);

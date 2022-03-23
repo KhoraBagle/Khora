@@ -507,7 +507,7 @@ impl KhoraNode {
 
     /// returns the responces of each person you sent it to and deletes those who are dead from the view
     fn fill_ring(&mut self) {
-
+        println!("Filling ring!");
         let mut rname = self.rname.clone();
         rname.push(114);
 
@@ -790,7 +790,7 @@ impl Future for KhoraNode {
                                     let mut txbin = bincode::serialize(&tx).unwrap();
                                     txbin.push(0);
                                     self.lasttags.push(tx.tags[0]);
-                                    self.send_message(txbin,TRANSACTION_SEND_TO);
+                                    println!("{:?}",self.send_message(txbin,TRANSACTION_SEND_TO));
                                     println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
                                 } else {
                                     println!("{}","YOU DIDNT GET THE RING".red().bold());

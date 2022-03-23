@@ -502,6 +502,7 @@ impl epi::App for KhoraUserGUI {
                 }
                 ui.horizontal(|ui| {
                     if ui.button("📋").on_hover_text("Click to copy your red wallet address to clipboard").clicked() {
+                        println!("{:?}",addr);
                         ui.output().copied_text = addr.clone();
                     }
                     ui.add(Label::new("Red Wallet Address").underline()).on_hover_text(&*addr);
@@ -511,6 +512,7 @@ impl epi::App for KhoraUserGUI {
                 });
                 ui.horizontal(|ui| {
                     if ui.button("📋").on_hover_text("Click to copy your blue wallet address to clipboard").clicked() {
+                        println!("{:?}",nonanonyaddr);
                         ui.output().copied_text = nonanonyaddr.clone();
                     }
                     ui.add(Label::new("Blue Wallet Address").underline()).on_hover_text(&*nonanonyaddr);
@@ -586,6 +588,9 @@ impl epi::App for KhoraUserGUI {
                             if ui.button("Delete Row").clicked() {
                                 delete_row_x = loc;
                             }
+                            if j.len() > 192 {
+                                *j = j[..192].to_string();
+                            }
                             ui.add(TextEdit::multiline(i).desired_width(90.0).desired_rows(1));
                             ui.add(TextEdit::multiline(j).desired_width(305.0).desired_rows(2));
                             ui.add(TextEdit::multiline(k).desired_width(90.0).desired_rows(1));
@@ -653,7 +658,7 @@ impl epi::App for KhoraUserGUI {
                                         }
                                     }
                                 }
-;                                if !*you_cant_do_that {
+                                if *you_cant_do_that {println!("You can't do that!");} else {
                                     m.push(33);
                                     sender.send(m).expect("something's wrong with communication from the gui");
                                     *send_name = vec!["".to_string()];

@@ -653,6 +653,9 @@ impl epi::App for KhoraStakerGUI {
                             if ui.button("Delete Row").clicked() {
                                 delete_row_x = loc;
                             }
+                            if j.len() > 192 {
+                                *j = j[..192].to_string();
+                            }
                             ui.add(TextEdit::multiline(i).desired_width(90.0).desired_rows(1));
                             ui.add(TextEdit::multiline(j).desired_width(305.0).desired_rows(2));
                             ui.add(TextEdit::multiline(k).desired_width(90.0).desired_rows(1));
@@ -733,7 +736,7 @@ impl epi::App for KhoraStakerGUI {
                                         }
                                     }
                                 }
-;                               if !*you_cant_do_that {
+                                if *you_cant_do_that {println!("You can't do that!");} else {
                                     m.push(33);
                                     sender.send(m).expect("something's wrong with communication from the gui");
                                     *send_name = vec!["".to_string()];

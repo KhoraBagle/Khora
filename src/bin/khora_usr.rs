@@ -791,7 +791,7 @@ impl Future for KhoraNode {
                                     txbin.push(0);
                                     self.lasttags.push(tx.tags[0]);
                                     println!("{:?}",self.send_message(txbin,TRANSACTION_SEND_TO));
-                                    println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
+                                    println!("{}","==========================\nANONY TRANDACTION SENT\n==========================".bright_yellow().bold());
                                 } else {
                                     println!("{}","YOU DIDNT GET THE RING".red().bold());
                                 }
@@ -819,7 +819,7 @@ impl Future for KhoraNode {
                                     txbin.push(0);
                                     self.lastnonanony = Some(nmine.0);
                                     self.send_message(txbin,TRANSACTION_SEND_TO);
-                                    println!("{}","==========================\nTRANDACTION SENT\n==========================".bright_yellow().bold());
+                                    println!("{}","==========================\nNONANONY TRANDACTION SENT\n==========================".bright_yellow().bold());
                                 } else {
                                     println!("{}","TRANSACTION INVALID".red().bold());
                                 }

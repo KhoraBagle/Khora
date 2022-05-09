@@ -13,12 +13,12 @@ Install rust from https://www.rust-lang.org/tools/install
 #### Option 1: Create an executable
 Run the following in terminal/powershell
 ```
-cargo build --bin main --release
+cargo build --bin [khora_usr/khora_stk] --release
 ```
 #### Option 2: Create an executable if one does not exist and run it
 Run the following in terminal/powershell
 ```
-cargo run --bin main --release
+cargo run --bin [khora_usr/khora_stk] --release
 ```
 
 ## Community

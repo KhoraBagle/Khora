@@ -7,3 +7,4 @@ sudo apt-get install libssl-dev
 then these things:
 sudo apt-get install cargo libxcb1-dev
 sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+sudo apt-get install m4
